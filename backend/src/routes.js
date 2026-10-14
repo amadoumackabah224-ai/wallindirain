@@ -1,0 +1,478 @@
+// Toutes les routes de l'API. Règle d'or : chaque route vérifie le rôle côté serveur,
+// et chaque requête de lecture nomme explicitement les colonnes visibles pour ce rôle
+// (cloisonnement : le fournisseur ne voit jamais le vendeur/client, et inversement).
+import { HttpError, v, page } from './http.js';
+import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
+
+const COOKIE = 'wld_session';
+const WALLET_ROLES = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
+
+export function registerRoutes(app, { db, cfg }) {
+  const limiter = new RateLimiter();
+  const fn = async (name, ...args) => {
+    const ph = args.map((_, i) => `$${i + 1}`).join(',');
+    return (await db.query(`SELECT ${name}(${ph}) AS r`, args)).rows[0].r;
+  };
+  const q = (text, params) => db.query(text, params).then((r) => r.rows);
+
+  // ---------- utilitaires ----------
+  const clientIp = (req) => {
+    if (cfg.trustProxy) { const xff = req.headers['x-forwarded-for']; if (xff) return xff.split(',').pop().trim(); }
+    return req.socket.remoteAddress || 'unknown';
+  };
+  const limit = (key, max, windowMs) => {
+    if (!limiter.allow(key, max, windowMs)) throw new HttpError(429, 'too_many', 'Trop de tentatives. Patientez quelques minutes puis réessayez.');
+  };
+
+  async function auth(ctx, roles) {
+    const token = parseCookies(ctx.req.headers.cookie)[COOKIE];
+    if (!token) throw new HttpError(401, 'unauthorized', 'Connexion requise');
+    // protection CSRF : cookie SameSite=Strict + en-tête obligatoire + origine identique
+    if (ctx.req.method !== 'GET') {
+      if (ctx.req.headers['x-wld'] !== '1') throw new HttpError(403, 'csrf', 'Requête refusée');
+      const origin = ctx.req.headers.origin;
+      let originHost = null;
+      try { originHost = origin ? new URL(origin).host : null; } catch { throw new HttpError(403, 'csrf', 'Origine refusée'); }
+      if (originHost && originHost !== ctx.req.headers.host) throw new HttpError(403, 'csrf', 'Origine refusée');
+    }
+    const rows = await q('SELECT * FROM fn_session_user($1)', [tokenHash(token)]);
+    if (!rows.length) throw new HttpError(401, 'unauthorized', 'Session expirée, reconnectez-vous');
+    const u = rows[0];
+    if (roles && !roles.includes(u.role)) throw new HttpError(403, 'forbidden', 'Action non autorisée pour votre rôle');
+    ctx.user = u;
+    ctx.token = token;
+    return u;
+  }
+  const guard = (roles, handler) => async (ctx) => { await auth(ctx, roles); return handler(ctx); };
+  const setCookie = (ctx, value, maxAge) => {
+    ctx.cookies.push(`${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${cfg.prod ? '; Secure' : ''}`);
+  };
+
+  // exposé pour les tests : remet les compteurs de débit à zéro
+  app.resetLimits = () => limiter.reset();
+
+  // =========================================================================
+  // Public : informations générales
+  // =========================================================================
+  app.get('/api/public/info', async () => ({
+    contact_phone: cfg.contactPhone,
+    communes: await q('SELECT commune, fee FROM delivery_rates ORDER BY commune')
+  }));
+
+  // =========================================================================
+  // Authentification
+  // =========================================================================
+  app.post('/api/auth/register', async (ctx) => {
+    limit(`reg:${clientIp(ctx.req)}`, 5, 3600_000);
+    const b = ctx.body;
+    const pwErr = passwordProblem(b.password);
+    if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
+    const role = v.oneOf(b.role, ['seller', 'supplier'], 'Rôle');
+    const id = await fn('fn_register', v.phone(b.phone), v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
+      await hashPassword(b.password), v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }));
+    ctx.status = 201;
+    return { id, pending_validation: role === 'supplier',
+      message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
+  });
+
+  app.post('/api/auth/login', async (ctx) => {
+    const ip = clientIp(ctx.req);
+    const phone = v.phone(ctx.body.phone);
+    limit(`login-ip:${ip}`, 20, 300_000);
+    limit(`login-phone:${phone}`, 10, 300_000);
+    const password = typeof ctx.body.password === 'string' ? ctx.body.password.slice(0, 128) : '';
+    const rows = await q('SELECT * FROM fn_login_lookup($1)', [phone]);   // lève "locked" si bloqué
+    const u = rows[0];
+    const ok = await verifyPassword(password, u ? u.password_hash : DUMMY_HASH);
+    if (!u || !ok) {
+      if (u) await fn('fn_login_failed', phone);
+      throw new HttpError(401, 'bad_credentials', 'Numéro ou mot de passe incorrect');
+    }
+    if (u.status === 'pending') throw new HttpError(403, 'pending', 'Votre compte attend la validation de l\'administration');
+    if (u.status === 'suspended') throw new HttpError(403, 'suspended', 'Compte suspendu. Contactez Wallindirain.');
+    await fn('fn_login_ok', u.id);
+    const token = newToken();
+    await fn('fn_session_create', u.id, tokenHash(token));
+    setCookie(ctx, token, 12 * 3600);
+    return { user: { id: u.id, role: u.role, name: u.full_name } };
+  });
+
+  app.post('/api/auth/logout', async (ctx) => {
+    const token = parseCookies(ctx.req.headers.cookie)[COOKIE];
+    if (token) await fn('fn_session_revoke', tokenHash(token));
+    setCookie(ctx, '', 0);
+    return { ok: true };
+  });
+
+  app.get('/api/auth/me', guard(null, (ctx) => ({ user: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.full_name,
+    phone: ctx.user.phone, team: ctx.user.team, identity_verified: ctx.user.identity_verified } })));
+
+  app.post('/api/auth/forgot', async (ctx) => {
+    const phone = v.phone(ctx.body.phone);
+    limit(`forgot-ip:${clientIp(ctx.req)}`, 10, 3600_000);
+    limit(`forgot-phone:${phone}`, 3, 900_000);
+    await fn('fn_password_reset_request', phone);
+    return { ok: true, message: 'Si ce numéro est inscrit, un code vient d\'être envoyé par message.' };
+  });
+
+  app.post('/api/auth/reset', async (ctx) => {
+    limit(`reset-ip:${clientIp(ctx.req)}`, 10, 900_000);
+    const pwErr = passwordProblem(ctx.body.password);
+    if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
+    const r = await fn('fn_password_reset_confirm', v.phone(ctx.body.phone), v.str(ctx.body.code, 'Code', { min: 6, max: 6 }), await hashPassword(ctx.body.password));
+    if (!r.ok) throw new HttpError(400, 'invalid_code', 'Code invalide ou expiré');
+    return { ok: true };
+  });
+
+  // =========================================================================
+  // Page publique du lien partagé (le client ne voit ni le vendeur ni le fournisseur)
+  // =========================================================================
+  app.get('/api/public/link/:code', async (ctx) => {
+    limit(`link:${clientIp(ctx.req)}`, 120, 60_000);
+    const rows = await q(`SELECT p.name, p.description, sp.sale_price AS unit_price, (p.stock_qty - p.reserved_qty) AS available
+        FROM seller_links l JOIN products p ON p.id = l.product_id AND p.status = 'approved' AND p.deleted_at IS NULL
+        JOIN users u ON u.id = l.seller_id AND u.status = 'active'
+        JOIN seller_prices sp ON sp.seller_id = l.seller_id AND sp.product_id = l.product_id
+        WHERE l.code = $1`, [ctx.params.code]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Ce lien n\'est plus valable');
+    return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates ORDER BY commune'), contact_phone: cfg.contactPhone };
+  });
+
+  app.post('/api/public/link/:code/order', async (ctx) => {
+    limit(`pub-order:${clientIp(ctx.req)}`, 10, 600_000);
+    const b = ctx.body;
+    const r = await fn('fn_public_order', ctx.params.code, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
+      v.str(b.name, 'Nom', { min: 2, max: 100 }), v.phone(b.phone, 'Votre numéro'), v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
+    ctx.status = 201;
+    return r;
+  });
+
+  // =========================================================================
+  // Portefeuille et retraits (vendeur, fournisseur, agent, chef, livreur)
+  // =========================================================================
+  app.get('/api/wallet', guard(WALLET_ROLES, async (ctx) => {
+    const id = ctx.user.id;
+    const [bal] = await q(`SELECT COALESCE(sum(amount) FILTER (WHERE available_at <= now()),0)::bigint AS available,
+        COALESCE(sum(amount) FILTER (WHERE available_at > now()),0)::bigint AS pending FROM wallet_entries WHERE user_id = $1`, [id]);
+    const { limit: l, offset } = page(ctx.query);
+    return {
+      ...bal,
+      entries: await q(`SELECT id, kind, amount, description, available_at, created_at, (available_at > now()) AS locked
+        FROM wallet_entries WHERE user_id = $1 ORDER BY id DESC LIMIT $2 OFFSET $3`, [id, l, offset]),
+      withdrawals: await q(`SELECT id, amount, method, account_number, status, payment_ref, created_at, decided_at FROM withdrawals
+        WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [id]),
+      identity_verified: ctx.user.identity_verified
+    };
+  }));
+
+  app.post('/api/withdrawals', guard(WALLET_ROLES, async (ctx) => {
+    limit(`wd:${ctx.user.id}`, 5, 3600_000);
+    const b = ctx.body;
+    const id = await fn('fn_withdrawal_request', ctx.user.id, v.int(b.amount, 'Montant', { min: 1, max: 1e10 }),
+      v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Mode de paiement'), v.phone(b.account, 'Numéro de paiement'));
+    ctx.status = 201;
+    return { id, message: 'Un code à 6 chiffres vous a été envoyé par message. Saisissez-le pour confirmer.' };
+  }));
+
+  app.post('/api/withdrawals/:id/confirm', guard(WALLET_ROLES, async (ctx) => {
+    limit(`wdc:${ctx.user.id}`, 10, 900_000);
+    const r = await fn('fn_withdrawal_confirm', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.code, 'Code', { min: 6, max: 6 }));
+    if (!r.ok) throw new HttpError(400, r.reason === 'expired' ? 'code_expired' : 'wrong_code',
+      r.reason === 'expired' ? 'Code expiré. Faites une nouvelle demande.' : 'Code incorrect');
+    return { ok: true, message: 'Retrait demandé. L\'administration va effectuer le paiement.' };
+  }));
+
+  // =========================================================================
+  // FOURNISSEUR : ne voit jamais le vendeur, le client ni les prix de vente
+  // =========================================================================
+  const SUP = ['supplier'];
+  app.get('/api/supplier/products', guard(SUP, async (ctx) => ({
+    products: await q(`SELECT id, name, description, supplier_price, storage, stock_qty, reserved_qty, status, created_at
+        FROM products WHERE supplier_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [ctx.user.id]),
+    arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.counted_qty, a.created_at, a.counted_at
+        FROM arrivals a JOIN products p ON p.id = a.product_id WHERE p.supplier_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [ctx.user.id])
+  })));
+
+  app.post('/api/supplier/products', guard(SUP, async (ctx) => {
+    const b = ctx.body;
+    const id = await fn('fn_supplier_add_product', ctx.user.id, v.str(b.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(b.description, 'Description', 1000),
+      v.int(b.supplier_price, 'Prix fournisseur', { min: 1, max: 1e9 }), v.oneOf(b.storage, ['wallindirain', 'supplier'], 'Stockage'),
+      b.storage === 'supplier' ? v.int(b.stock_qty ?? 0, 'Quantité', { min: 0, max: 1e6 }) : 0);
+    ctx.status = 201;
+    return { id, message: 'Produit proposé. Il sera visible des vendeurs après validation.' };
+  }));
+
+  app.post('/api/supplier/products/:id/arrival', guard(SUP, async (ctx) => {
+    const id = await fn('fn_supplier_announce_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }));
+    ctx.status = 201;
+    return { id };
+  }));
+
+  app.post('/api/supplier/products/:id/stock', guard(SUP, async (ctx) => {
+    await fn('fn_supplier_set_stock', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 0, max: 1e6 }));
+  }));
+
+  // Colis à préparer : uniquement la référence WLD, le produit et la quantité
+  app.get('/api/supplier/orders', guard(SUP, async (ctx) => ({
+    orders: await q(`SELECT o.ref, p.name AS product_name, o.qty, o.status, o.created_at,
+          CASE WHEN p.storage = 'supplier' THEN o.qty_from_catalog ELSE 0 END AS qty_to_prepare
+        FROM orders o JOIN products p ON p.id = o.product_id
+        WHERE p.supplier_id = $1 AND o.status IN ('confirmed','assigned','picked_up','on_the_way','delivered','return_pending','returned')
+        ORDER BY o.created_at DESC LIMIT 200`, [ctx.user.id])
+  })));
+
+  // =========================================================================
+  // VENDEUR : ne voit jamais le fournisseur ni le prix fournisseur
+  // =========================================================================
+  const SEL = ['seller'];
+  app.get('/api/seller/catalog', guard(SEL, async (ctx) => {
+    const [{ call_fee, max_fee }] = await q(`SELECT (SELECT value FROM settings WHERE key='call_fee') AS call_fee, (SELECT max(fee) FROM delivery_rates) AS max_fee`);
+    return {
+      products: await q(`SELECT p.id, p.name, p.description,
+            (p.supplier_price + p.margin_unit) AS vendor_price,
+            (p.supplier_price + p.margin_unit + $2 + $3) AS min_price,
+            (p.storage = 'wallindirain') AS can_prepay,
+            GREATEST(p.stock_qty - p.reserved_qty, 0) AS available,
+            sp.sale_price, COALESCE(ss.qty, 0) AS my_stock, COALESCE(ss.reserved_qty, 0) AS my_reserved, l.code AS link_code
+          FROM products p
+          LEFT JOIN seller_prices sp ON sp.product_id = p.id AND sp.seller_id = $1
+          LEFT JOIN seller_stock ss ON ss.product_id = p.id AND ss.seller_id = $1
+          LEFT JOIN seller_links l ON l.product_id = p.id AND l.seller_id = $1
+          WHERE p.status = 'approved' AND p.deleted_at IS NULL ORDER BY p.name`, [ctx.user.id, call_fee, max_fee]),
+      call_fee, max_delivery_fee: max_fee
+    };
+  }));
+
+  app.post('/api/seller/prices', guard(SEL, async (ctx) => {
+    await fn('fn_seller_set_price', ctx.user.id, v.uuid(ctx.body.product_id, 'Produit'), v.int(ctx.body.price, 'Prix', { min: 1, max: 1e10 }));
+  }));
+  app.post('/api/seller/links', guard(SEL, async (ctx) => ({ code: await fn('fn_seller_create_link', ctx.user.id, v.uuid(ctx.body.product_id, 'Produit')) })));
+  app.post('/api/seller/stock', guard(SEL, async (ctx) =>
+    fn('fn_seller_buy_stock', ctx.user.id, v.uuid(ctx.body.product_id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }))));
+
+  app.post('/api/seller/orders', guard(SEL, async (ctx) => {
+    const b = ctx.body;
+    const own = b.product_id == null || b.product_id === '';
+    const r = await fn('fn_seller_create_order', ctx.user.id, own ? null : v.uuid(b.product_id, 'Produit'),
+      own ? v.str(b.own_product_name, 'Nom du produit', { min: 2, max: 120 }) : null,
+      b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
+      v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
+      v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300));
+    ctx.status = 201;
+    return r;
+  }));
+
+  const SELLER_ORDER_COLS = `o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total,
+      o.customer_name, o.customer_phone, o.commune, o.address, o.delivery_fee, o.call_fee, o.call_attempts, o.failure_reason, o.return_cause,
+      o.created_at, o.delivered_at,
+      (o.sale_total - o.delivery_fee - o.call_fee - o.qty_from_catalog * o.seller_unit_price) AS expected_gain,
+      (o.status = 'new' AND o.call_attempts = 0 AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.order_id = o.id)) AS cancellable`;
+
+  app.get('/api/seller/orders', guard(SEL, async (ctx) => {
+    const { limit: l, offset } = page(ctx.query);
+    const st = ctx.query.status ? v.str(ctx.query.status, 'Statut', { max: 20 }) : null;
+    return { orders: await q(`SELECT ${SELLER_ORDER_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
+        WHERE o.seller_id = $1 AND ($4::text IS NULL OR o.status::text = $4) ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`, [ctx.user.id, l, offset, st]) };
+  }));
+
+  app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {
+    const id = v.uuid(ctx.params.id, 'Commande');
+    const [order] = await q(`SELECT ${SELLER_ORDER_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.id = $1 AND o.seller_id = $2`, [id, ctx.user.id]);
+    if (!order) throw new HttpError(404, 'not_found', 'Commande introuvable');
+    return { order,
+      calls: await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
+      history: await q('SELECT to_status, note, at FROM order_history WHERE order_id = $1 ORDER BY id', [id]) };
+  }));
+
+  app.post('/api/seller/orders/:id/cancel', guard(SEL, async (ctx) => { await fn('fn_seller_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
+
+  // =========================================================================
+  // CALL CENTER (agent et chef) : ni gains ni prix fournisseur
+  // =========================================================================
+  const CALL = ['agent', 'call_chief'];
+  const CALL_COLS = `o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total, o.customer_name, o.customer_phone,
+      o.commune, o.address, o.note, o.risk_flag, o.call_attempts, o.escalated, o.created_at, o.locked_by,
+      (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
+      (SELECT last_reason FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_reason`;
+
+  app.get('/api/calls/queue', guard(CALL, async (ctx) => ({
+    orders: await q(`SELECT ${CALL_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
+        WHERE o.status = 'new' AND (NOT o.escalated OR $1 = 'call_chief') ORDER BY o.escalated DESC, o.created_at LIMIT 100`, [ctx.user.role])
+  })));
+
+  app.get('/api/calls/mine', guard(CALL, async (ctx) => {
+    const orders = await q(`SELECT ${CALL_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
+        WHERE o.status = 'in_call' AND o.locked_by = $1 ORDER BY o.locked_at`, [ctx.user.id]);
+    for (const o of orders) o.calls = await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [o.id]);
+    return { orders };
+  }));
+
+  app.post('/api/calls/:id/take', guard(CALL, async (ctx) => { await fn('fn_agent_take_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
+  app.post('/api/calls/:id/log', guard(CALL, async (ctx) =>
+    fn('fn_agent_log_call', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.result, ['confirmed', 'unreachable', 'refused'], 'Résultat'), v.optStr(ctx.body.note, 'Note', 300))));
+
+  // Chef : affectation aux livreurs
+  const CHIEF = ['call_chief', 'admin'];
+  app.get('/api/chief/orders', guard(CHIEF, async () => ({
+    orders: await q(`SELECT ${CALL_COLS}, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
+        WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
+    couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders
+        FROM users u WHERE u.role = 'courier' AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY u.full_name`)
+  })));
+  app.post('/api/chief/orders/:id/assign', guard(CHIEF, async (ctx) => { await fn('fn_chief_assign', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur')); }));
+  app.post('/api/chief/orders/:id/return', guard(CHIEF, async (ctx) => { await fn('fn_chief_return_to_warehouse', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
+  app.post('/api/chief/orders/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_staff_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
+
+  // =========================================================================
+  // LIVREUR : ni prix fournisseur ni gains du vendeur
+  // =========================================================================
+  const COU = ['courier'];
+  app.get('/api/courier/orders', guard(COU, async (ctx) => ({
+    orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
+          o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id
+        WHERE o.courier_id = $1 AND o.status IN ('assigned','picked_up','on_the_way') ORDER BY o.created_at`, [ctx.user.id]),
+    cash_to_hand_over: Number((await q('SELECT COALESCE(sum(amount),0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL', [ctx.user.id]))[0].s),
+    max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value)
+  })));
+  app.post('/api/courier/orders/:id/pickup', guard(COU, async (ctx) => { await fn('fn_courier_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
+  app.post('/api/courier/orders/:id/depart', guard(COU, async (ctx) => { await fn('fn_courier_depart', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
+  app.post('/api/courier/orders/:id/deliver', guard(COU, async (ctx) => {
+    limit(`deliver:${ctx.user.id}`, 30, 600_000);
+    const code = v.str(ctx.body.code, 'Code', { min: 4, max: 4 });
+    const r = await fn('fn_courier_deliver', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), code);
+    if (!r.ok) {
+      throw new HttpError(r.locked ? 423 : 400, r.locked ? 'code_locked' : 'wrong_code',
+        r.locked ? 'Trop d\'essais : la livraison est bloquée. Signalez un échec, le chef call center réaffectera la commande.' : `Code incorrect. Il vous reste ${r.remaining} essai(s).`);
+    }
+    return { ok: true };
+  }));
+  app.post('/api/courier/orders/:id/fail', guard(COU, async (ctx) => {
+    await fn('fn_courier_fail', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.reason, ['customer_absent', 'customer_refusal', 'address_not_found', 'other'], 'Motif'));
+  }));
+
+  // =========================================================================
+  // MAGASINIER : aucune donnée financière
+  // =========================================================================
+  const WH = ['warehouse', 'admin'];
+  app.get('/api/warehouse/arrivals', guard(WH, async () => ({
+    arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.created_at FROM arrivals a JOIN products p ON p.id = a.product_id
+        WHERE a.counted_qty IS NULL ORDER BY a.created_at`),
+    returns: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.failure_reason
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.status = 'return_pending' ORDER BY o.created_at`)
+  })));
+  app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => { await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 })); }));
+  app.post('/api/warehouse/returns/:id', guard(WH, async (ctx) => {
+    await fn('fn_warehouse_receive_return', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.cause, ['customer_refusal', 'defective', 'damaged_transport'], 'Cause'));
+  }));
+
+  // =========================================================================
+  // ADMINISTRATEUR
+  // =========================================================================
+  const ADM = ['admin'];
+  const MASKS = { delivery_code: /(Code de livraison : )\d{4}/, withdrawal_code: /(GNF : )\d{6}/, password_reset: /(est )\d{6}/ };
+
+  app.get('/api/admin/dashboard', guard(ADM, async () => {
+    const [m] = await q(`SELECT
+        (SELECT count(*) FROM users WHERE role = 'supplier' AND status = 'pending')::int AS suppliers_pending,
+        (SELECT count(*) FROM products WHERE status = 'pending' AND deleted_at IS NULL)::int AS products_pending,
+        (SELECT count(*) FROM arrivals WHERE counted_qty IS NULL)::int AS arrivals_pending,
+        (SELECT count(*) FROM withdrawals WHERE status = 'requested')::int AS withdrawals_pending,
+        (SELECT COALESCE(sum(amount),0)::bigint FROM courier_cash_entries WHERE count_id IS NULL) AS cash_outstanding,
+        (SELECT count(*) FROM orders WHERE status = 'delivered' AND delivered_at::date = now()::date)::int AS delivered_today,
+        (SELECT COALESCE(sum(sale_total),0)::bigint FROM orders WHERE status = 'delivered' AND delivered_at::date = now()::date) AS sales_today,
+        (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries WHERE user_id = '00000000-0000-0000-0000-000000000001') AS platform_result,
+        (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries WHERE user_id = '00000000-0000-0000-0000-000000000002') AS prepaid_float,
+        (SELECT count(*) FROM fn_ledger_check())::int AS ledger_problems`);
+    return { ...m, by_status: await q('SELECT status, count(*)::int AS n FROM orders GROUP BY status ORDER BY status') };
+  }));
+
+  app.get('/api/admin/users', guard(ADM, async (ctx) => {
+    const { limit: l, offset } = page(ctx.query);
+    return { users: await q(`SELECT id, role, status, full_name, phone, team, identity_doc, identity_verified, created_at,
+          CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance
+        FROM users WHERE deleted_at IS NULL AND role <> 'system' AND ($1::text IS NULL OR role::text = $1) AND ($2::text IS NULL OR status::text = $2)
+        ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [ctx.query.role || null, ctx.query.status || null, l, offset]) };
+  }));
+  app.post('/api/admin/users', guard(ADM, async (ctx) => {
+    const b = ctx.body;
+    const pwErr = passwordProblem(b.password);
+    if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
+    const id = await fn('fn_admin_create_staff', ctx.user.id, v.phone(b.phone), v.str(b.name, 'Nom', { min: 2, max: 100 }),
+      v.oneOf(b.role, ['admin', 'agent', 'call_chief', 'courier', 'warehouse'], 'Rôle'), await hashPassword(b.password), v.optStr(b.team, 'Call center', 80));
+    ctx.status = 201;
+    return { id };
+  }));
+  app.post('/api/admin/users/:id/status', guard(ADM, async (ctx) => { await fn('fn_admin_set_user_status', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.oneOf(ctx.body.status, ['active', 'suspended', 'pending'], 'Statut')); }));
+  app.post('/api/admin/users/:id/verify', guard(ADM, async (ctx) => { await fn('fn_admin_verify_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.bool(ctx.body.verified, 'Vérification')); }));
+
+  app.get('/api/admin/products', guard(ADM, async (ctx) => ({
+    products: await q(`SELECT p.id, p.name, p.description, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name AS supplier_name
+        FROM products p JOIN users u ON u.id = p.supplier_id WHERE p.deleted_at IS NULL AND ($1::text IS NULL OR p.status::text = $1) ORDER BY p.created_at DESC LIMIT 300`, [ctx.query.status || null])
+  })));
+  app.post('/api/admin/products/:id/review', guard(ADM, async (ctx) => {
+    await fn('fn_admin_review_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.bool(ctx.body.approve, 'Décision'),
+      ctx.body.margin_bps == null ? null : v.int(ctx.body.margin_bps, 'Marge', { min: 0, max: 10000 }));
+  }));
+  app.post('/api/admin/products/:id/margin', guard(ADM, async (ctx) => { await fn('fn_admin_set_product_margin', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.margin_bps, 'Marge', { min: 0, max: 10000 })); }));
+
+  app.get('/api/admin/orders', guard(ADM, async (ctx) => {
+    const { limit: l, offset } = page(ctx.query);
+    return { orders: await q(`SELECT o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total, o.customer_name, o.customer_phone,
+          o.commune, s.full_name AS seller_name, su.full_name AS supplier_name, cu.full_name AS courier_name, o.risk_flag, o.call_attempts, o.created_at, o.delivered_at
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id JOIN users s ON s.id = o.seller_id LEFT JOIN users su ON su.id = p.supplier_id LEFT JOIN users cu ON cu.id = o.courier_id
+        WHERE ($3::text IS NULL OR o.status::text = $3) AND ($4::text IS NULL OR o.ref = $4 OR o.customer_phone = $4)
+        ORDER BY o.created_at DESC LIMIT $1 OFFSET $2`, [l, offset, ctx.query.status || null, ctx.query.search || null]) };
+  }));
+  app.get('/api/admin/orders/:id', guard(ADM, async (ctx) => {
+    const id = v.uuid(ctx.params.id, 'Commande');
+    const [order] = await q(`SELECT o.id, o.ref, o.status, o.formula, o.qty, o.qty_from_seller, o.qty_from_catalog, o.sale_total, o.supplier_unit_price, o.margin_unit, o.seller_unit_price,
+        o.delivery_fee, o.call_fee, o.agent_pay, o.courier_pay, o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.return_cause, o.risk_flag,
+        COALESCE(p.name, o.own_product_name) AS product_name, s.full_name AS seller_name, su.full_name AS supplier_name, cu.full_name AS courier_name, o.created_at, o.delivered_at
+      FROM orders o LEFT JOIN products p ON p.id = o.product_id JOIN users s ON s.id = o.seller_id LEFT JOIN users su ON su.id = p.supplier_id LEFT JOIN users cu ON cu.id = o.courier_id WHERE o.id = $1`, [id]);
+    if (!order) throw new HttpError(404, 'not_found', 'Commande introuvable');
+    return { order,
+      calls: await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
+      history: await q('SELECT h.to_status, h.note, h.at, u.full_name AS actor FROM order_history h LEFT JOIN users u ON u.id = h.actor_id WHERE h.order_id = $1 ORDER BY h.id', [id]),
+      money: await q('SELECT w.kind, w.amount, u.full_name, w.available_at FROM wallet_entries w JOIN users u ON u.id = w.user_id WHERE w.order_id = $1 ORDER BY w.id', [id]) };
+  }));
+  app.post('/api/admin/orders/:id/cancel', guard(ADM, async (ctx) => { await fn('fn_staff_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
+
+  app.post('/api/admin/deposits', guard(ADM, async (ctx) => {
+    await fn('fn_admin_deposit', ctx.user.id, v.uuid(ctx.body.user_id, 'Compte'), v.int(ctx.body.amount, 'Montant', { min: 1, max: 1e11 }), v.str(ctx.body.reference, 'Référence', { min: 2, max: 100 }));
+  }));
+
+  app.get('/api/admin/cash', guard(ADM, async () => ({
+    couriers: await q(`SELECT u.id, u.full_name, COALESCE(sum(c.amount) FILTER (WHERE c.count_id IS NULL), 0)::bigint AS expected,
+          count(c.id) FILTER (WHERE c.count_id IS NULL)::int AS orders
+        FROM users u LEFT JOIN courier_cash_entries c ON c.courier_id = u.id WHERE u.role = 'courier' AND u.deleted_at IS NULL GROUP BY u.id ORDER BY u.full_name`),
+    counts: await q(`SELECT cc.id, u.full_name AS courier, a.full_name AS admin, cc.expected, cc.counted, cc.shortage, cc.surplus, cc.at
+        FROM cash_counts cc JOIN users u ON u.id = cc.courier_id JOIN users a ON a.id = cc.admin_id ORDER BY cc.at DESC LIMIT 50`)
+  })));
+  app.post('/api/admin/cash/:courierId', guard(ADM, async (ctx) => fn('fn_admin_count_cash', ctx.user.id, v.uuid(ctx.params.courierId, 'Livreur'), v.int(ctx.body.counted, 'Montant compté', { min: 0, max: 1e11 }))));
+
+  app.get('/api/admin/withdrawals', guard(ADM, async (ctx) => ({
+    withdrawals: await q(`SELECT w.id, w.amount, w.method, w.account_number, w.status, w.payment_ref, w.created_at, w.decided_at, u.full_name, u.phone, u.role, u.identity_verified
+        FROM withdrawals w JOIN users u ON u.id = w.user_id WHERE ($1::text IS NULL OR w.status::text = $1) AND w.status <> 'pending_code' ORDER BY w.created_at DESC LIMIT 200`, [ctx.query.status || null])
+  })));
+  app.post('/api/admin/withdrawals/:id/pay', guard(ADM, async (ctx) => { await fn('fn_admin_pay_withdrawal', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.payment_ref, 'Référence de paiement', { min: 3, max: 100 })); }));
+  app.post('/api/admin/withdrawals/:id/reject', guard(ADM, async (ctx) => { await fn('fn_admin_reject_withdrawal', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
+
+  app.get('/api/admin/settings', guard(ADM, async () => ({
+    settings: await q('SELECT key, value, label FROM settings ORDER BY key'), rates: await q('SELECT commune, fee FROM delivery_rates ORDER BY commune') })));
+  app.post('/api/admin/settings', guard(ADM, async (ctx) => { await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
+  app.post('/api/admin/rates', guard(ADM, async (ctx) => { await fn('fn_admin_set_delivery_rate', ctx.user.id, v.str(ctx.body.commune, 'Commune', { min: 2, max: 60 }), v.int(ctx.body.fee, 'Tarif', { min: 0, max: 1e6 })); }));
+
+  app.get('/api/admin/audit', guard(ADM, async (ctx) => {
+    const { limit: l, offset } = page(ctx.query);
+    return { entries: await q(`SELECT a.id, a.at, a.action, a.entity, a.entity_id, a.details, u.full_name AS actor FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id
+        WHERE ($3::text IS NULL OR a.action = $3) ORDER BY a.id DESC LIMIT $1 OFFSET $2`, [l, offset, ctx.query.action || null]) };
+  }));
+  app.get('/api/admin/messages', guard(ADM, async (ctx) => {
+    const { limit: l, offset } = page(ctx.query);
+    const rows = await q('SELECT id, to_phone, channel, template, body, status, error, created_at, sent_at FROM messages ORDER BY id DESC LIMIT $1 OFFSET $2', [l, offset]);
+    for (const m of rows) if (MASKS[m.template]) m.body = m.body.replace(MASKS[m.template], '$1••••');   // les codes ne sont jamais affichés
+    return { messages: rows };
+  }));
+}

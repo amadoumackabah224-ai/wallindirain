@@ -1,0 +1,6 @@
+node_modules/
+ops/.env
+ops/backups/
+*.dump
+*.log
+.DS_Store

@@ -1,0 +1,6 @@
+# HTTPS automatique (certificat Let's Encrypt) : le domaine doit pointer vers ce serveur.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy app:3000
+	header -Server
+}

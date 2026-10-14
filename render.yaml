@@ -1,0 +1,32 @@
+# Déploiement de TEST sur Render (offre gratuite) : voir docs/HEBERGEMENT-TEST.md
+# La base PostgreSQL est externe (ex. Neon) : son adresse est saisie à la main dans DATABASE_URL.
+services:
+  - type: web
+    name: wallindirain
+    runtime: docker
+    plan: free
+    dockerfilePath: ./ops/Dockerfile
+    dockerContext: .
+    dockerCommand: node src/hosted-start.js
+    healthCheckPath: /api/public/info
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: CONTACT_PHONE
+        value: "624390707"
+      - key: MESSAGE_PROVIDER
+        value: simulated
+      - key: DB_APP_PASSWORD
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_PHONE
+        sync: false
+      - key: ADMIN_NAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
