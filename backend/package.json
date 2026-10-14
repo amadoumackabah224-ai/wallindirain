@@ -1,0 +1,17 @@
+{
+  "name": "wallindirain",
+  "version": "1.0.0",
+  "description": "Wallindirain : plateforme de vente avec paiement à la livraison (Guinée)",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node src/migrate.js",
+    "create-admin": "node src/create-admin.js",
+    "seed-demo": "node src/seed-demo.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
+  }
+}

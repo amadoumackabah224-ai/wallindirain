@@ -1,0 +1,92 @@
+# Déploiement complet : base PostgreSQL + application + HTTPS automatique + sauvegardes quotidiennes.
+# Usage (depuis le dossier ops/) :  cp .env.example .env  &&  nano .env  &&  docker compose up -d --build
+name: wallindirain
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?Définissez DB_OWNER_PASSWORD dans .env}
+      POSTGRES_DB: wallindirain
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wallindirain"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # volontairement AUCUN port publié : la base n'est joignable que par les autres conteneurs
+    networks: [internal]
+
+  migrate:
+    build: { context: .., dockerfile: ops/Dockerfile }
+    restart: "no"
+    command: ["node", "src/migrate.js"]
+    environment: &dbenv
+      NODE_ENV: production
+      DB_HOST: db
+      DB_NAME: wallindirain
+      DB_OWNER_USER: postgres
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Définissez DB_APP_PASSWORD dans .env}
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [internal]
+
+  app:
+    build: { context: .., dockerfile: ops/Dockerfile }
+    restart: unless-stopped
+    environment:
+      <<: *dbenv
+      HOST: 0.0.0.0
+      PORT: "3000"
+      TRUST_PROXY: "1"
+      CONTACT_PHONE: ${CONTACT_PHONE:-624390707}
+      MESSAGE_PROVIDER: ${MESSAGE_PROVIDER:-simulated}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_PHONE_ID: ${WHATSAPP_PHONE_ID:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?Définissez DOMAIN dans .env (ex. app.wallindirain.com)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on: [app]
+    networks: [internal]
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/ops/backup-loop.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: postgres
+      PGPASSWORD: ${DB_OWNER_PASSWORD}
+      PGDATABASE: wallindirain
+      BACKUP_DIR: /backups
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-2}
+    volumes:
+      - ./backup.sh:/ops/backup.sh:ro
+      - ./backup-loop.sh:/ops/backup-loop.sh:ro
+      - ./restore.sh:/ops/restore.sh:ro
+      - ./restore-test.sh:/ops/restore-test.sh:ro
+      - ${BACKUP_PATH:-./backups}:/backups
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [internal]
+
+volumes:
+  dbdata:
+  caddydata:
+
+networks:
+  internal:

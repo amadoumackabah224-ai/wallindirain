@@ -1,0 +1,106 @@
+// Espace vendeur : le fournisseur n'apparaît jamais ici.
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink } from '../ui.js';
+import { get, post } from '../api.js';
+
+const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
+
+export function sellerOrders() {
+  let filter = '';
+  const host = h('div');
+  const FILTERS = [['', 'Toutes'], ['new', 'Nouvelles'], ['confirmed', 'Confirmées'], ['on_the_way', 'En route'], ['delivered', 'Livrées'], ['failed', 'Échecs']];
+  const chips = h('div', { class: 'chips' }, FILTERS.map(([v, l]) => h('button', { class: 'chip', 'aria-pressed': String(v === filter), onclick: (e) => {
+    filter = v; chips.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', 'false')); e.currentTarget.setAttribute('aria-pressed', 'true'); load(); } }, l)));
+  function load() {
+    host.replaceChildren(liveView(() => get(`/seller/orders${filter ? `?status=${filter}` : ''}`), ({ orders }, refresh) => orders.length ? h('div', {}, orders.map((o) => orderCard(o, refresh))) : empty('📦', 'Aucune commande pour le moment'), { poll: 20000 }));
+  }
+  load();
+  return h('div', {}, h('h1', {}, 'Mes commandes'), chips, host);
+}
+
+function orderCard(o, refresh) {
+  const showDetail = async () => {
+    const d = await get(`/seller/orders/${o.id}`).catch((e) => { toast(e.message, 'bad'); return null; });
+    if (!d) return;
+    const box = h('div', {},
+      h('h3', {}, 'Appels du call center'),
+      d.calls.length ? d.calls.map((c) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, c.agent_name), ` · ${c.call_center}`, h('div', { class: 'small muted' }, fmtDate(c.at), c.note ? ` · ${c.note}` : '')), badge(...RESULT[c.result]))) : h('p', { class: 'muted' }, 'Pas encore appelé.'),
+      h('h3', { class: 'mt' }, 'Suivi'),
+      h('ul', { class: 'timeline' }, d.history.map((x) => h('li', {}, statusBadge(x.to_status), ' ', h('span', { class: 'small muted' }, fmtDate(x.at), x.note ? ` · ${x.note}` : '')))));
+    const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
+      h('div', { class: 'modal' }, h('h2', {}, `Commande ${o.ref}`), box, h('button', { class: 'btn btn-ghost btn-block mt', onclick: () => overlay.remove() }, 'Fermer')));
+    document.body.append(overlay);
+  };
+  const cancel = action(async () => { if (await confirmBox('Annuler cette commande ?', 'Elle n\'a pas encore été appelée.', 'Oui, annuler', true)) { await post(`/seller/orders/${o.id}/cancel`); } },
+    { ok: 'Commande annulée', refresh });
+  return h('div', { class: 'card order' },
+    h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.formula === 'C' && badge('Produit propre', 'grey'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
+    kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', `${o.customer_name} · ${fmtPhone(o.customer_phone)}`], ['Livraison', `${o.commune}, ${o.address}`],
+      ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain)],
+      o.failure_reason && ['Dernier échec', o.failure_reason]]),
+    h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
+}
+
+export function sellerCatalog() {
+  return liveView(() => get('/seller/catalog'), ({ products, call_fee, max_delivery_fee }, refresh) => {
+    if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), empty('🛍️', 'Aucun produit validé pour le moment'));
+    return h('div', {}, h('h1', {}, 'Catalogue'),
+      h('div', { class: 'notice' }, `Votre prix de vente doit couvrir le prix vendeur, le call center (${fmtGNF(call_fee)}) et la livraison la plus chère (${fmtGNF(max_delivery_fee)}) : vous ne vendez jamais à perte.`),
+      h('div', { class: 'grid g2' }, products.map((p) => {
+        const setPrice = action(async () => {
+          const v = await ask({ title: p.name, text: `Prix minimum autorisé : ${fmtGNF(p.min_price)}`, submit: 'Enregistrer', fields: [{ name: 'price', label: 'Votre prix de vente (GNF)', type: 'number', inputmode: 'numeric', value: p.sale_price || '' }] });
+          if (v) await post('/seller/prices', { product_id: p.id, price: Number(v.price) });
+        }, { ok: 'Prix enregistré', refresh });
+        const link = action(async () => {
+          const r = await post('/seller/links', { product_id: p.id });
+          const url = `${location.origin}/#/c/${r.code}`;
+          try { await navigator.clipboard.writeText(url); toast('Lien copié ! Partagez-le à vos clients.', 'ok'); } catch { await ask({ title: 'Votre lien', text: url, submit: 'OK', fields: [] }); }
+          await refresh();
+        });
+        const buy = action(async () => {
+          const v = await ask({ title: `Acheter du stock : ${p.name}`, text: `Prix vendeur : ${fmtGNF(p.vendor_price)} l'unité, payé à l'avance depuis votre portefeuille. Livraison plus rapide, gardé chez Wallindirain.`, submit: 'Acheter', fields: [{ name: 'qty', label: 'Quantité', type: 'number', inputmode: 'numeric' }] });
+          if (v) { const r = await post('/seller/stock', { product_id: p.id, qty: Number(v.qty) }); toast(`Stock acheté : ${fmtGNF(r.cost)} débités`, 'ok'); }
+        }, { refresh });
+        return h('div', { class: 'card' }, h('h2', {}, p.name), p.description && h('p', { class: 'muted small' }, p.description),
+          kv([['Prix vendeur', amount(p.vendor_price)], ['Prix minimum', amount(p.min_price)], ['Votre prix', p.sale_price ? amount(p.sale_price) : badge('à fixer', 'warn')], ['Disponible', p.available], p.my_stock > 0 && ['Votre stock prépayé', p.my_stock]]),
+          h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm', onclick: setPrice }, p.sale_price ? 'Changer mon prix' : 'Fixer mon prix'),
+            p.sale_price && h('button', { class: 'btn btn-sm btn-gold', onclick: link }, p.link_code ? 'Copier mon lien' : 'Créer mon lien'),
+            p.can_prepay && h('button', { class: 'btn btn-sm btn-ghost', onclick: buy }, 'Acheter du stock')));
+      })));
+  });
+}
+
+export function sellerNewOrder({ goTo }) {
+  const host = h('div', {}, h('div', { class: 'spinner' }));
+  Promise.all([get('/seller/catalog'), get('/public/info')]).then(([cat, info]) => {
+    const own = h('input', { type: 'checkbox' });
+    const product = h('select', {}, cat.products.map((p) => h('option', { value: p.id }, `${p.name}${p.sale_price ? ` · ${fmtGNF(p.sale_price)}` : ' · prix à fixer'}`)));
+    const ownName = h('input', { type: 'text', maxlength: 120, placeholder: 'Nom de votre produit' });
+    const price = h('input', { type: 'number', inputmode: 'numeric', min: 1 });
+    const qty = h('input', { type: 'number', min: 1, max: 100, value: 1, required: true });
+    const cname = h('input', { type: 'text', required: true, maxlength: 100 });
+    const cphone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
+    const commune = h('select', { required: true }, info.communes.map((c) => h('option', { value: c.commune }, `${c.commune} · ${fmtGNF(c.fee)}`)));
+    const addr = h('textarea', { required: true, maxlength: 300 });
+    const note = h('input', { type: 'text', maxlength: 300 });
+    const ownBox = h('div', { class: 'hidden' }, h('label', { class: 'f' }, h('span', {}, 'Nom du produit'), ownName), h('label', { class: 'f' }, h('span', {}, 'Prix de vente unitaire (GNF)'), price,
+      h('div', { class: 'hint' }, `Doit couvrir au moins la livraison et le call center.`)));
+    const catBox = h('label', { class: 'f' }, h('span', {}, 'Produit du catalogue'), product);
+    own.addEventListener('change', () => { ownBox.classList.toggle('hidden', !own.checked); catBox.classList.toggle('hidden', own.checked); });
+    const form = h('form', { onsubmit: async (e) => {
+      e.preventDefault(); const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        const body = { qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value };
+        if (own.checked) { body.own_product_name = ownName.value; body.unit_price = Number(price.value); } else body.product_id = product.value;
+        const r = await post('/seller/orders', body);
+        toast(`Commande ${r.ref} créée${r.risk ? ' (client à surveiller)' : ''}`, 'ok'); goTo('orders');
+      } catch (ex) { toast(ex.message, 'bad'); btn.disabled = false; }
+    } },
+      h('label', { class: 'f' }, h('span', {}, 'Type de produit'), h('div', { class: 'gap' }, own, h('span', {}, 'Mon propre produit (hors catalogue)'))),
+      catBox, ownBox, h('label', { class: 'f' }, h('span', {}, 'Quantité'), qty),
+      h('h3', { class: 'mt' }, 'Client'), h('label', { class: 'f' }, h('span', {}, 'Nom'), cname), h('label', { class: 'f' }, h('span', {}, 'Téléphone'), cphone),
+      h('label', { class: 'f' }, h('span', {}, 'Commune'), commune), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
+      h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer la commande'));
+    host.replaceChildren(h('h1', {}, 'Nouvelle commande'), h('div', { class: 'card' }, form));
+  }).catch((e) => host.replaceChildren(h('div', { class: 'notice bad' }, e.message)));
+  return host;
+}
