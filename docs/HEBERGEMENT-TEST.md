@@ -19,6 +19,13 @@
 | `ADMIN_PHONE` / `ADMIN_NAME` / `ADMIN_PASSWORD` | Premier administrateur (9 chiffres ; mot de passe 8+ caractères, lettres et chiffres) |
 | `HOST`, `TRUST_PROXY`, `NODE_ENV` | Déjà fixées dans `render.yaml` |
 
+## Mode test : retraits manuels et codes visibles
+- Aucun paiement automatique : le retrait est **manuel mais numérique**. La personne enregistre son numéro de versement (Orange Money ou MTN MoMo) à l'inscription ; sa demande de retrait part toujours vers ce numéro. L'administrateur envoie l'argent à la main, puis joint la **capture d'écran** du transfert : la personne la voit dans son portefeuille.
+- Le livreur peut déclarer que le client a payé par transfert (capture obligatoire) et **reverser par transfert** l'argent encaissé (onglet « Caisse ») ; l'administrateur contrôle la capture dans l'onglet « Reversements » et saisit le montant réellement reçu (tout manque est débité au livreur).
+- `SHOW_TEST_CODES=1` (déjà dans `render.yaml`) rend lisibles, dans Journal > Messages, les codes de retrait et de réinitialisation, puisque les messages sont simulés. Le serveur refuse de démarrer avec cette variable si un vrai fournisseur de messages est configuré.
+- Code de livraison : **désactivé par défaut**, le livreur valide la livraison d'un geste. Réactivable dans Réglages (« Code de livraison à 4 chiffres obligatoire » = 1).
+- Les captures sont stockées dans la base (600 Ko maximum chacune, JPEG/PNG/WebP vérifiés côté serveur) : sur la base gratuite de 0,5 Go, surveillez la place.
+
 ## Dépannage
 - « Le compte de DATABASE_URL n'a pas le droit de créer un rôle » : la base ne laisse pas créer le rôle `wld_app` ; utilisez une base qui l'autorise.
 - Le site met longtemps à répondre : il se réveille (voir limites).

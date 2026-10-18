@@ -10,13 +10,15 @@ export const TEST_DB = {
 };
 export const APP_PW = 'test-app-password';
 
-export async function freshDb(name) {
+export async function freshDb(name, { deliveryCode = true } = {}) {
   const admin = new Pool({ ...TEST_DB, database: 'postgres' });
   await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
   await admin.query(`CREATE DATABASE ${name}`);
   await admin.end();
   const owner = { ...TEST_DB, database: name };
   await migrate(owner, APP_PW, () => {});
+  // par défaut une base neuve n'exige pas le code (réglage 0) ; les tests du code l'activent
+  if (deliveryCode) { const p = new Pool(owner); await p.query(`UPDATE settings SET value = 1 WHERE key = 'require_delivery_code'`); await p.end(); }
   return { owner: new Pool(owner), app: new Pool({ ...owner, user: 'wld_app', password: APP_PW }) };
 }
 
@@ -82,3 +84,7 @@ export async function deliver(db, w, orderId, ref, courier = w.courier) {
   await call(app, 'fn_courier_depart', courier, orderId);
   return call(app, 'fn_courier_deliver', courier, orderId, await codeOf(db, ref));
 }
+
+// Image minimale valide (PNG 1x1) pour les tests de preuves
+export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+export const makeProof = (db, actor, kind) => call(db.app, 'fn_proof_create', actor, kind, 'image/png', PNG);

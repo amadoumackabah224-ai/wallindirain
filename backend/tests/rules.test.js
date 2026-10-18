@@ -1,7 +1,7 @@
 // Tests des règles métier du cahier des charges v2.0 (critères d'acceptation du pilote).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { freshDb, call, expectErr, world, approvedProduct, codeOf, deliver } from './helpers.js';
+import { freshDb, call, expectErr, world, approvedProduct, codeOf, deliver, makeProof } from './helpers.js';
 
 let db, w, product;
 const sum = async (user, kind) => Number((await db.app.query(
@@ -236,8 +236,9 @@ test('critère 5 : retrait impossible sans identité vérifiée et sans code', a
   const code = /: (\d{6})\./.exec((await db.app.query(`SELECT body FROM messages WHERE template='withdrawal_code' ORDER BY id DESC LIMIT 1`)).rows[0].body)[1];
   assert.equal((await call(db.app, 'fn_withdrawal_confirm', w.seller, wd, code)).ok, true);
   assert.equal(await sum(w.seller), bal - 50000);
-  await call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2026-0001');
-  await expectErr(call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2'), 'invalid_state');
+  await expectErr(call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2026-0001'), 'proof_required');   // capture obligatoire
+  await call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2026-0001', await makeProof(db, w.admin, 'withdrawal_payment'));
+  await expectErr(call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2', await makeProof(db, w.admin, 'withdrawal_payment')), 'invalid_state');
   // rejet : remboursé
   const wd2 = await call(db.app, 'fn_withdrawal_request', w.seller, 50000, 'mtn_momo', '660000099');
   const code2 = /: (\d{6})\./.exec((await db.app.query(`SELECT body FROM messages WHERE template='withdrawal_code' ORDER BY id DESC LIMIT 1`)).rows[0].body)[1];
