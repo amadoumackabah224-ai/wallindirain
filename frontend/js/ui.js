@@ -52,23 +52,76 @@ export function toast(message, kind = '') {
 }
 export const errToast = (e) => toast(e?.message || 'Erreur', 'bad');
 
+/** Lit une image choisie par l'utilisateur et la réduit (1280 px max, JPEG) pour qu'elle reste légère : renvoie une data URL. */
+export function compressImage(file, maxSide = 1280) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type)) return reject(new Error('Choisissez une image (capture d\'écran ou photo)'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Image illisible'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image illisible'));
+      img.onload = () => {
+        let side = maxSide, q = 0.72, out = '';
+        for (let i = 0; i < 4; i++) {   // on réduit jusqu'à passer sous ~450 Ko
+          const k = Math.min(1, side / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+          const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', q);
+          if (out.length < 600_000) return resolve(out);
+          side = Math.round(side * 0.75); q -= 0.1;
+        }
+        reject(new Error('Image trop lourde : prenez une capture plus petite'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Affiche une capture d'écran de preuve (chargée depuis l'API, droits vérifiés par le serveur). */
+export function showProof(id, title = 'Preuve de paiement') {
+  const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
+    h('div', { class: 'modal' }, h('h2', {}, title), h('img', { class: 'proof-img', src: `/api/proofs/${id}`, alt: title }),
+      h('div', { class: 'gap mt' }, h('a', { class: 'btn btn-ghost grow', href: `/api/proofs/${id}`, target: '_blank', rel: 'noopener' }, 'Ouvrir en grand'), h('button', { class: 'btn btn-gold grow', onclick: () => overlay.remove() }, 'Fermer'))));
+  document.body.append(overlay);
+}
+export const proofButton = (id, label = 'Voir la preuve') => id ? h('button', { class: 'btn btn-sm btn-ghost', onclick: () => showProof(id) }, '🧾 ' + label) : null;
+
 /** Fenêtre de saisie. fields: [{name,label,type,options,hint,value,required,placeholder,inputmode,maxlength}] -> valeurs ou null */
 export function ask({ title, text, fields = [], submit = 'Valider', danger = false }) {
   return new Promise((resolve) => {
-    const inputs = {};
+    const inputs = {}, images = {};
     const close = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
     const onKey = (e) => { if (e.key === 'Escape') close(null); };
     const form = h('form', { onsubmit: (e) => {
       e.preventDefault();
       const out = {};
-      for (const f of fields) out[f.name] = inputs[f.name].type === 'checkbox' ? inputs[f.name].checked : inputs[f.name].value;
+      for (const f of fields) {
+        if (f.type === 'image') {
+          if (f.required !== false && !images[f.name]) { toast(`${f.label} : ajoutez l'image`, 'bad'); return; }
+          out[f.name] = images[f.name] || null;
+        } else out[f.name] = inputs[f.name].type === 'checkbox' ? inputs[f.name].checked : inputs[f.name].value;
+      }
       close(out);
     } },
       h('h2', {}, title), text && h('p', { class: 'muted' }, text),
       fields.map((f) => {
         let el;
+        if (f.type === 'image') {
+          const preview = h('img', { class: 'proof-img hidden', alt: 'Aperçu' });
+          const status = h('div', { class: 'small muted' }, 'Aucune image choisie');
+          el = h('input', { type: 'file', accept: 'image/*', onchange: async (e) => {
+            try { images[f.name] = await compressImage(e.target.files[0]); preview.src = images[f.name]; preview.classList.remove('hidden'); status.textContent = `Image prête (${Math.round(images[f.name].length * 0.75 / 1024)} Ko)`; }
+            catch (ex) { images[f.name] = null; preview.classList.add('hidden'); status.textContent = ex.message; errToast(ex); }
+          } });
+          inputs[f.name] = el;
+          return h('label', { class: 'f' }, h('span', {}, f.label), el, status, preview, f.hint && h('div', { class: 'hint' }, f.hint));
+        }
         if (f.type === 'select') el = h('select', {}, f.options.map(([v, l]) => h('option', { value: v, selected: v === f.value }, l)));
         else if (f.type === 'textarea') el = h('textarea', { placeholder: f.placeholder, maxlength: f.maxlength });
+        else if (f.type === 'checkbox') el = h('input', { type: 'checkbox', checked: !!f.value });
         else el = h('input', { type: f.type || 'text', value: f.value, placeholder: f.placeholder, inputmode: f.inputmode, maxlength: f.maxlength, required: f.required !== false, autocomplete: 'off', class: f.code ? 'code-input' : '' });
         inputs[f.name] = el;
         return h('label', { class: 'f' }, h('span', {}, f.label), el, f.hint && h('div', { class: 'hint' }, f.hint));

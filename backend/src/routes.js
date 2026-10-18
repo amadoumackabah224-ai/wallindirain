@@ -2,6 +2,8 @@
 // et chaque requête de lecture nomme explicitement les colonnes visibles pour ce rôle
 // (cloisonnement : le fournisseur ne voit jamais le vendeur/client, et inversement).
 import { HttpError, v, page } from './http.js';
+import crypto from 'node:crypto';
+import { parseImage, MAX_PROOF_BODY } from './proofs.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
 const COOKIE = 'wld_session';
@@ -68,8 +70,12 @@ export function registerRoutes(app, { db, cfg }) {
     const pwErr = passwordProblem(b.password);
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
     const role = v.oneOf(b.role, ['seller', 'supplier'], 'Rôle');
-    const id = await fn('fn_register', v.phone(b.phone), v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
-      await hashPassword(b.password), v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }));
+    const phone = v.phone(b.phone);
+    // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut
+    const payMethod = v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement');
+    const payPhone = b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : phone;
+    const id = await fn('fn_register', phone, v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
+      await hashPassword(b.password), v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }), payMethod, payPhone);
     ctx.status = 201;
     return { id, pending_validation: role === 'supplier',
       message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
@@ -159,19 +165,31 @@ export function registerRoutes(app, { db, cfg }) {
       ...bal,
       entries: await q(`SELECT id, kind, amount, description, available_at, created_at, (available_at > now()) AS locked
         FROM wallet_entries WHERE user_id = $1 ORDER BY id DESC LIMIT $2 OFFSET $3`, [id, l, offset]),
-      withdrawals: await q(`SELECT id, amount, method, account_number, status, payment_ref, created_at, decided_at FROM withdrawals
+      withdrawals: await q(`SELECT id, amount, method, account_number, status, payment_ref, proof_id, created_at, decided_at FROM withdrawals
         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [id]),
+      payout: (await q('SELECT payout_method AS method, payout_phone AS phone FROM users WHERE id = $1', [id]))[0],
+      min_withdrawal: Number((await q(`SELECT value FROM settings WHERE key = 'min_withdrawal'`))[0].value),
       identity_verified: ctx.user.identity_verified
     };
   }));
 
   app.post('/api/withdrawals', guard(WALLET_ROLES, async (ctx) => {
     limit(`wd:${ctx.user.id}`, 5, 3600_000);
-    const b = ctx.body;
-    const id = await fn('fn_withdrawal_request', ctx.user.id, v.int(b.amount, 'Montant', { min: 1, max: 1e10 }),
-      v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Mode de paiement'), v.phone(b.account, 'Numéro de paiement'));
+    // le versement part toujours vers le numéro enregistré : on n'accepte plus de numéro dans la demande
+    const id = await fn('fn_withdrawal_request', ctx.user.id, v.int(ctx.body.amount, 'Montant', { min: 1, max: 1e10 }));
     ctx.status = 201;
     return { id, message: 'Un code à 6 chiffres vous a été envoyé par message. Saisissez-le pour confirmer.' };
+  }));
+
+  // Numéro de versement : à définir une seule fois (mot de passe demandé) ; ensuite seule l'administration le modifie
+  app.post('/api/me/payout', guard(WALLET_ROLES, async (ctx) => {
+    limit(`payout:${ctx.user.id}`, 5, 3600_000);
+    const b = ctx.body;
+    const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
+    const pw = typeof b.password === 'string' ? b.password.slice(0, 128) : '';
+    if (!rows.length || !(await verifyPassword(pw, rows[0].password_hash))) throw new HttpError(403, 'bad_password', 'Mot de passe incorrect');
+    await fn('fn_set_payout', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Opérateur'), v.phone(b.phone, 'Numéro de versement'));
+    return { ok: true };
   }));
 
   app.post('/api/withdrawals/:id/confirm', guard(WALLET_ROLES, async (ctx) => {
@@ -180,6 +198,28 @@ export function registerRoutes(app, { db, cfg }) {
     if (!r.ok) throw new HttpError(400, r.reason === 'expired' ? 'code_expired' : 'wrong_code',
       r.reason === 'expired' ? 'Code expiré. Faites une nouvelle demande.' : 'Code incorrect');
     return { ok: true, message: 'Retrait demandé. L\'administration va effectuer le paiement.' };
+  }));
+
+  // =========================================================================
+  // Captures d'écran de preuve (admin : retrait payé ; livreur : paiement du client, reversement)
+  // =========================================================================
+  const PROOF_ROLE = { withdrawal_payment: 'admin', order_payment: 'courier', remittance: 'courier' };
+  app.post('/api/proofs', guard(['admin', 'courier'], async (ctx) => {
+    limit(`proof:${ctx.user.id}`, 60, 3600_000);
+    const kind = v.oneOf(ctx.body.kind, Object.keys(PROOF_ROLE), 'Type de preuve');
+    if (PROOF_ROLE[kind] !== ctx.user.role) throw new HttpError(403, 'forbidden', 'Action non autorisée pour votre rôle');
+    const { mime, buf } = parseImage(ctx.body.image);
+    ctx.status = 201;
+    return { id: await fn('fn_proof_create', ctx.user.id, kind, mime, buf) };
+  }), { maxBody: MAX_PROOF_BODY });
+
+  // Affichage d'une capture : administrateur, auteur, ou bénéficiaire du retrait (droits vérifiés dans la base)
+  app.get('/api/proofs/:id', guard(null, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_proof_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Image')]);
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'private, max-age=300';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
   }));
 
   // =========================================================================
@@ -330,17 +370,21 @@ export function registerRoutes(app, { db, cfg }) {
   const COU = ['courier'];
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
-          o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at
-        FROM orders o LEFT JOIN products p ON p.id = o.product_id
+          o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at,
+          op.method AS payment_method
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN order_payments op ON op.order_id = o.id
         WHERE o.courier_id = $1 AND o.status IN ('assigned','picked_up','on_the_way') ORDER BY o.created_at`, [ctx.user.id]),
-    cash_to_hand_over: Number((await q('SELECT COALESCE(sum(amount),0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL', [ctx.user.id]))[0].s),
-    max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value)
+    cash_to_hand_over: Number((await q('SELECT COALESCE(sum(amount),0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL AND remittance_id IS NULL', [ctx.user.id]))[0].s),
+    cash_pending_validation: Number((await q('SELECT COALESCE(sum(amount),0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL AND remittance_id IS NOT NULL', [ctx.user.id]))[0].s),
+    max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value),
+    require_code: Number((await q(`SELECT value FROM settings WHERE key = 'require_delivery_code'`))[0].value) === 1
   })));
   app.post('/api/courier/orders/:id/pickup', guard(COU, async (ctx) => { await fn('fn_courier_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/courier/orders/:id/depart', guard(COU, async (ctx) => { await fn('fn_courier_depart', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/courier/orders/:id/deliver', guard(COU, async (ctx) => {
     limit(`deliver:${ctx.user.id}`, 30, 600_000);
-    const code = v.str(ctx.body.code, 'Code', { min: 4, max: 4 });
+    // le code n'est exigé que si le réglage « require_delivery_code » vaut 1 (la base refuse alors un code absent ou faux)
+    const code = ctx.body.code == null || ctx.body.code === '' ? null : v.str(ctx.body.code, 'Code', { min: 4, max: 4 });
     const r = await fn('fn_courier_deliver', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), code);
     if (!r.ok) {
       throw new HttpError(r.locked ? 423 : 400, r.locked ? 'code_locked' : 'wrong_code',
@@ -348,6 +392,33 @@ export function registerRoutes(app, { db, cfg }) {
     }
     return { ok: true };
   }));
+  // Comment le client a payé : espèces, ou transfert avec capture d'écran
+  app.post('/api/courier/orders/:id/payment', guard(COU, async (ctx) => {
+    limit(`cpay:${ctx.user.id}`, 60, 3600_000);
+    const b = ctx.body;
+    const method = v.oneOf(b.method, ['cash', 'orange_money', 'mtn_momo'], 'Mode de paiement');
+    await fn('fn_courier_declare_payment', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), method,
+      method === 'cash' || b.proof_id == null ? null : v.uuid(b.proof_id, 'Capture'), v.optStr(b.reference, 'Référence', 100));
+  }));
+
+  // Reversement : encaissements en attente + historique des reversements par transfert
+  app.get('/api/courier/cash', guard(COU, async (ctx) => ({
+    entries: await q(`SELECT c.order_id, o.ref, c.amount, c.created_at, (c.remittance_id IS NOT NULL) AS in_remittance
+        FROM courier_cash_entries c JOIN orders o ON o.id = c.order_id
+        WHERE c.courier_id = $1 AND c.count_id IS NULL ORDER BY c.created_at`, [ctx.user.id]),
+    remittances: await q(`SELECT id, method, amount, status, received, reference, proof_id, decision_note, created_at, decided_at
+        FROM remittances WHERE courier_id = $1 ORDER BY created_at DESC LIMIT 30`, [ctx.user.id])
+  })));
+  app.post('/api/courier/remit', guard(COU, async (ctx) => {
+    limit(`remit:${ctx.user.id}`, 20, 3600_000);
+    const b = ctx.body;
+    const orders = Array.isArray(b.orders) && b.orders.length ? b.orders.slice(0, 200).map((x) => v.uuid(x, 'Commande')) : null;
+    const r = await fn('fn_courier_remit', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Mode de paiement'),
+      v.uuid(b.proof_id, 'Capture'), v.optStr(b.reference, 'Référence', 100), orders);
+    ctx.status = 201;
+    return r;
+  }));
+
   app.post('/api/courier/orders/:id/fail', guard(COU, async (ctx) => {
     await fn('fn_courier_fail', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.reason, ['customer_absent', 'customer_refusal', 'address_not_found', 'other'], 'Motif'));
   }));
@@ -379,6 +450,7 @@ export function registerRoutes(app, { db, cfg }) {
         (SELECT count(*) FROM products WHERE status = 'pending' AND deleted_at IS NULL)::int AS products_pending,
         (SELECT count(*) FROM arrivals WHERE counted_qty IS NULL)::int AS arrivals_pending,
         (SELECT count(*) FROM withdrawals WHERE status = 'requested')::int AS withdrawals_pending,
+        (SELECT count(*) FROM remittances WHERE status = 'pending')::int AS remittances_pending,
         (SELECT COALESCE(sum(amount),0)::bigint FROM courier_cash_entries WHERE count_id IS NULL) AS cash_outstanding,
         (SELECT count(*) FROM orders WHERE status = 'delivered' AND delivered_at::date = now()::date)::int AS delivered_today,
         (SELECT COALESCE(sum(sale_total),0)::bigint FROM orders WHERE status = 'delivered' AND delivered_at::date = now()::date) AS sales_today,
@@ -390,7 +462,7 @@ export function registerRoutes(app, { db, cfg }) {
 
   app.get('/api/admin/users', guard(ADM, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);
-    return { users: await q(`SELECT id, role, status, full_name, phone, team, identity_doc, identity_verified, created_at,
+    return { users: await q(`SELECT id, role, status, full_name, phone, team, identity_doc, identity_verified, payout_method, payout_phone, created_at,
           CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance
         FROM users WHERE deleted_at IS NULL AND role <> 'system' AND ($1::text IS NULL OR role::text = $1) AND ($2::text IS NULL OR status::text = $2)
         ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [ctx.query.role || null, ctx.query.status || null, l, offset]) };
@@ -405,6 +477,21 @@ export function registerRoutes(app, { db, cfg }) {
     return { id };
   }));
   app.post('/api/admin/users/:id/status', guard(ADM, async (ctx) => { await fn('fn_admin_set_user_status', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.oneOf(ctx.body.status, ['active', 'suspended', 'pending'], 'Statut')); }));
+  app.post('/api/admin/users/:id/update', guard(ADM, async (ctx) => {
+    const b = ctx.body;
+    const hasPayout = b.payout_phone != null && b.payout_phone !== '';
+    await fn('fn_admin_update_user', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.str(b.name, 'Nom', { min: 2, max: 100 }), v.optStr(b.team, 'Call center', 80),
+      hasPayout ? v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement') : null, hasPayout ? v.phone(b.payout_phone, 'Numéro de versement') : null);
+  }));
+  // Mot de passe temporaire généré par le serveur, affiché une seule fois à l'administrateur
+  app.post('/api/admin/users/:id/reset-password', guard(ADM, async (ctx) => {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz', digits = '23456789';
+    const pick = (set, n) => Array.from({ length: n }, () => set[crypto.randomInt(set.length)]).join('');
+    const temp = pick(letters, 6) + pick(digits, 3) + pick(letters, 1);
+    await fn('fn_admin_reset_password', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), await hashPassword(temp));
+    return { temporary_password: temp };
+  }));
+  app.post('/api/admin/users/:id/unlock', guard(ADM, async (ctx) => { await fn('fn_admin_unlock_user', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur')); }));
   app.post('/api/admin/users/:id/verify', guard(ADM, async (ctx) => { await fn('fn_admin_verify_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.bool(ctx.body.verified, 'Vérification')); }));
 
   app.get('/api/admin/products', guard(ADM, async (ctx) => ({
@@ -435,6 +522,7 @@ export function registerRoutes(app, { db, cfg }) {
     return { order,
       calls: await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
       history: await q('SELECT h.to_status, h.note, h.at, u.full_name AS actor FROM order_history h LEFT JOIN users u ON u.id = h.actor_id WHERE h.order_id = $1 ORDER BY h.id', [id]),
+      payment: (await q('SELECT method, proof_id, reference, created_at FROM order_payments WHERE order_id = $1', [id]))[0] || null,
       money: await q('SELECT w.kind, w.amount, u.full_name, w.available_at FROM wallet_entries w JOIN users u ON u.id = w.user_id WHERE w.order_id = $1 ORDER BY w.id', [id]) };
   }));
   app.post('/api/admin/orders/:id/cancel', guard(ADM, async (ctx) => { await fn('fn_staff_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
@@ -444,19 +532,32 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   app.get('/api/admin/cash', guard(ADM, async () => ({
-    couriers: await q(`SELECT u.id, u.full_name, COALESCE(sum(c.amount) FILTER (WHERE c.count_id IS NULL), 0)::bigint AS expected,
-          count(c.id) FILTER (WHERE c.count_id IS NULL)::int AS orders
+    couriers: await q(`SELECT u.id, u.full_name, COALESCE(sum(c.amount) FILTER (WHERE c.count_id IS NULL AND c.remittance_id IS NULL), 0)::bigint AS expected,
+          count(c.id) FILTER (WHERE c.count_id IS NULL AND c.remittance_id IS NULL)::int AS orders,
+          COALESCE(sum(c.amount) FILTER (WHERE c.count_id IS NULL AND c.remittance_id IS NOT NULL), 0)::bigint AS in_remittance
         FROM users u LEFT JOIN courier_cash_entries c ON c.courier_id = u.id WHERE u.role = 'courier' AND u.deleted_at IS NULL GROUP BY u.id ORDER BY u.full_name`),
     counts: await q(`SELECT cc.id, u.full_name AS courier, a.full_name AS admin, cc.expected, cc.counted, cc.shortage, cc.surplus, cc.at
         FROM cash_counts cc JOIN users u ON u.id = cc.courier_id JOIN users a ON a.id = cc.admin_id ORDER BY cc.at DESC LIMIT 50`)
   })));
   app.post('/api/admin/cash/:courierId', guard(ADM, async (ctx) => fn('fn_admin_count_cash', ctx.user.id, v.uuid(ctx.params.courierId, 'Livreur'), v.int(ctx.body.counted, 'Montant compté', { min: 0, max: 1e11 }))));
 
+  // Reversements par transfert déclarés par les livreurs (capture d'écran à contrôler)
+  app.get('/api/admin/remittances', guard(ADM, async (ctx) => ({
+    remittances: await q(`SELECT r.id, r.method, r.amount, r.status, r.received, r.reference, r.proof_id, r.decision_note, r.created_at, r.decided_at, u.full_name AS courier_name, u.phone AS courier_phone
+        FROM remittances r JOIN users u ON u.id = r.courier_id WHERE ($1::text IS NULL OR r.status = $1) ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200`, [ctx.query.status || null])
+  })));
+  app.post('/api/admin/remittances/:id/confirm', guard(ADM, async (ctx) =>
+    fn('fn_admin_confirm_remittance', ctx.user.id, v.uuid(ctx.params.id, 'Reversement'), v.int(ctx.body.received, 'Montant reçu', { min: 0, max: 1e11 }))));
+  app.post('/api/admin/remittances/:id/reject', guard(ADM, async (ctx) => { await fn('fn_admin_reject_remittance', ctx.user.id, v.uuid(ctx.params.id, 'Reversement'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
+
   app.get('/api/admin/withdrawals', guard(ADM, async (ctx) => ({
-    withdrawals: await q(`SELECT w.id, w.amount, w.method, w.account_number, w.status, w.payment_ref, w.created_at, w.decided_at, u.full_name, u.phone, u.role, u.identity_verified
+    withdrawals: await q(`SELECT w.id, w.amount, w.method, w.account_number, w.status, w.payment_ref, w.proof_id, w.created_at, w.decided_at, u.full_name, u.phone, u.role, u.identity_verified
         FROM withdrawals w JOIN users u ON u.id = w.user_id WHERE ($1::text IS NULL OR w.status::text = $1) AND w.status <> 'pending_code' ORDER BY w.created_at DESC LIMIT 200`, [ctx.query.status || null])
   })));
-  app.post('/api/admin/withdrawals/:id/pay', guard(ADM, async (ctx) => { await fn('fn_admin_pay_withdrawal', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.payment_ref, 'Référence de paiement', { min: 3, max: 100 })); }));
+  app.post('/api/admin/withdrawals/:id/pay', guard(ADM, async (ctx) => {
+    await fn('fn_admin_pay_withdrawal', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.payment_ref, 'Référence de paiement', { min: 3, max: 100 }),
+      ctx.body.proof_id == null || ctx.body.proof_id === '' ? null : v.uuid(ctx.body.proof_id, 'Capture'));
+  }));
   app.post('/api/admin/withdrawals/:id/reject', guard(ADM, async (ctx) => { await fn('fn_admin_reject_withdrawal', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
 
   app.get('/api/admin/settings', guard(ADM, async () => ({
@@ -472,7 +573,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/admin/messages', guard(ADM, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);
     const rows = await q('SELECT id, to_phone, channel, template, body, status, error, created_at, sent_at FROM messages ORDER BY id DESC LIMIT $1 OFFSET $2', [l, offset]);
-    for (const m of rows) if (MASKS[m.template]) m.body = m.body.replace(MASKS[m.template], '$1••••');   // les codes ne sont jamais affichés
-    return { messages: rows };
+    // les codes ne sont jamais affichés, sauf en mode test (SHOW_TEST_CODES=1 avec messages simulés : rien n'est réellement envoyé)
+    if (!cfg.showTestCodes) for (const m of rows) if (MASKS[m.template]) m.body = m.body.replace(MASKS[m.template], '$1••••');
+    return { messages: rows, test_codes_visible: !!cfg.showTestCodes };
   }));
 }

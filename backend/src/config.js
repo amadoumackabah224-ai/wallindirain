@@ -45,6 +45,9 @@ export function loadConfig() {
     db: { ...base, user: env.DB_APP_USER || 'wld_app', password: env.DB_APP_PASSWORD || '', max: intVar('DB_POOL_MAX', 10) },
     // compte propriétaire : migrations et création du premier administrateur uniquement
     owner: { ...base, user: fromUrl ? fromUrl.user : (env.DB_OWNER_USER || 'postgres'), password: fromUrl ? fromUrl.password : (env.DB_OWNER_PASSWORD || '') },
+    // TEST uniquement : montre les codes (livraison, retrait, mot de passe) dans l'écran « Messages » de l'administrateur,
+    // puisque rien n'est réellement envoyé. Refusé dès qu'un vrai fournisseur de messages est configuré.
+    showTestCodes: env.SHOW_TEST_CODES === '1',
     messaging: {
       provider: env.MESSAGE_PROVIDER || 'simulated', // simulated | whatsapp
       whatsappToken: env.WHATSAPP_TOKEN || '',
@@ -56,6 +59,7 @@ export function loadConfig() {
   if (cfg.messaging.provider === 'whatsapp' && (!cfg.messaging.whatsappToken || !cfg.messaging.whatsappPhoneId)) {
     problems.push('WHATSAPP_TOKEN et WHATSAPP_PHONE_ID sont obligatoires avec MESSAGE_PROVIDER=whatsapp');
   }
+  if (cfg.showTestCodes && cfg.messaging.provider !== 'simulated') problems.push('SHOW_TEST_CODES=1 est réservé à MESSAGE_PROVIDER=simulated (mode test)');
   if (prod && !cfg.db.password) problems.push('DB_APP_PASSWORD est obligatoire en production');
   if (!/^[0-9]{9}$/.test(cfg.contactPhone)) problems.push('CONTACT_PHONE doit contenir 9 chiffres');
   if (problems.length) throw new Error('Configuration invalide :\n - ' + problems.join('\n - '));
