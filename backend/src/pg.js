@@ -5,7 +5,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import crypto from 'node:crypto';
 
-const OID = { BOOL: 16, INT8: 20, INT2: 21, INT4: 23, OID: 26, JSON: 114, NUMERIC: 1700, JSONB: 3802 };
+const OID = { BOOL: 16, BYTEA: 17, INT8: 20, INT2: 21, INT4: 23, OID: 26, JSON: 114, NUMERIC: 1700, JSONB: 3802 };
 
 export class PgError extends Error {
   constructor(fields) {
@@ -26,6 +26,7 @@ function parseValue(oid, text) {
       return n;
     }
     case OID.BOOL: return text === 't';
+    case OID.BYTEA: return Buffer.from(text.startsWith('\\x') ? text.slice(2) : '', 'hex');
     case OID.JSON: case OID.JSONB: return JSON.parse(text);
     default: return text;
   }
@@ -35,6 +36,9 @@ function encodeParam(v) {
   if (v === null || v === undefined) return null;
   if (typeof v === 'boolean') return v ? 't' : 'f';
   if (v instanceof Date) return v.toISOString();
+  if (Buffer.isBuffer(v)) return '\\x' + v.toString('hex');            // octets (bytea), en hexadécimal
+  // tableau JavaScript -> tableau PostgreSQL ({"a","b"}) ; un objet reste du JSON
+  if (Array.isArray(v)) return '{' + v.map((x) => (x === null ? 'NULL' : '"' + String(x).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"')).join(',') + '}';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }

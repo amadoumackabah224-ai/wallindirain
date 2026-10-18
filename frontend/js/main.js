@@ -6,9 +6,9 @@ import { walletView } from './views/wallet.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder } from './views/seller.js';
 import { supplierProducts, supplierOrders } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
-import { courierOrders } from './views/courier.js';
+import { courierOrders, courierCash } from './views/courier.js';
 import { warehouseView } from './views/warehouse.js';
-import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
+import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminRemittances, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
 
 const app = document.getElementById('app');
 let user = null;
@@ -20,10 +20,10 @@ const TABS = {
   supplier: [['products', '📦', 'Produits', () => supplierProducts()], ['orders', '🚚', 'Colis', () => supplierOrders()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
   agent: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['wallet', '💰', 'Gains', () => walletView()]],
   call_chief: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['assign', '🏍️', 'Affectation', () => chiefAssign()], ['wallet', '💰', 'Gains', () => walletView()]],
-  courier: [['orders', '🏍️', 'Livraisons', () => courierOrders()], ['wallet', '💰', 'Gains', () => walletView()]],
+  courier: [['orders', '🏍️', 'Livraisons', () => courierOrders()], ['cash', '💵', 'Caisse', () => courierCash()], ['wallet', '💰', 'Gains', () => walletView()]],
   warehouse: [['stock', '🏬', 'Entrepôt', () => warehouseView()]],
   admin: [['dash', '📊', 'Tableau', (c) => adminDashboard(c)], ['orders', '📦', 'Commandes', () => adminOrders()], ['users', '👥', 'Utilisateurs', () => adminUsers()], ['products', '🛍️', 'Produits', () => adminProducts()],
-    ['cash', '🏦', 'Caisses', () => adminCash()], ['withdrawals', '💸', 'Retraits', () => adminWithdrawals()], ['deposit', '➕', 'Dépôts', () => adminDeposit()], ['settings', '⚙️', 'Réglages', () => adminSettings()], ['audit', '📜', 'Journal', () => adminAudit()]]
+    ['cash', '🏦', 'Caisses', () => adminCash()], ['remit', '📲', 'Reversements', () => adminRemittances()], ['withdrawals', '💸', 'Retraits', () => adminWithdrawals()], ['deposit', '➕', 'Dépôts', () => adminDeposit()], ['settings', '⚙️', 'Réglages', () => adminSettings()], ['audit', '📜', 'Journal', () => adminAudit()]]
 };
 
 function render(node) { app.replaceChildren(node); window.scrollTo(0, 0); }
