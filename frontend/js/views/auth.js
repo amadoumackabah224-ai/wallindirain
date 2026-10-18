@@ -32,18 +32,23 @@ export function registerView() {
   const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
   const doc = h('input', { type: 'text', required: true, maxlength: 60, placeholder: 'Ex. CNI ou passeport : numéro' });
   const pw = h('input', { type: 'password', required: true, minlength: 8, maxlength: 128, autocomplete: 'new-password' });
+  const payMethod = h('select', {}, h('option', { value: 'orange_money' }, 'Orange Money'), h('option', { value: 'mtn_momo' }, 'MTN MoMo'));
+  const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 16, placeholder: 'Laisser vide = mon numéro de téléphone' });
   const out = h('div');
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, identity_doc: doc.value });
+      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, identity_doc: doc.value,
+        payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) });
       out.replaceChildren(h('div', { class: 'notice ok' }, r.message), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
   } },
     h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
     field('Pièce d\'identité', doc, 'Obligatoire. Elle sera vérifiée par Wallindirain avant votre premier retrait d\'argent.'),
+    field('Mon argent sera versé sur', payMethod),
+    field('Numéro de versement', payPhone, 'Vos retraits seront toujours envoyés à ce numéro. Vérifiez-le bien : seule l\'administration pourra le modifier ensuite.'),
     field('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));
   return shell(h('div', { class: 'card' }, form, out), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, '← Retour à la connexion')));
@@ -94,7 +99,7 @@ export function clientOrderView(code) {
         done.replaceChildren(h('div', { class: 'notice ok' }, h('b', {}, 'Commande enregistrée !')),
           h('h2', {}, `Référence ${r.ref}`),
           h('p', {}, 'Un conseiller Wallindirain va vous appeler très bientôt pour confirmer votre commande. Gardez votre téléphone allumé.'),
-          h('p', {}, 'Après confirmation, vous recevrez un ', h('b', {}, 'code à 4 chiffres'), '. Ne le donnez au livreur qu\'une fois le colis en main : vous payez à la livraison.'),
+          h('p', {}, 'Après confirmation par notre équipe, un livreur vous contactera. Vous payez à la livraison, une fois le colis en main. Si un code de livraison vous est envoyé par message, ne le donnez au livreur qu\'à la réception du colis.'),
           kv([['Total à payer à la livraison', amount(r.sale_total)]]));
       } catch (ex) { errToast(ex); btn.disabled = false; }
     } },

@@ -86,9 +86,9 @@ test('parcours complet via HTTP + cloisonnement fournisseur / vendeur / client',
 
   // inscriptions
   const sup = new Client(), sel = new Client();
-  assert.equal((await sup.post('/api/auth/register', { phone: '621000001', name: 'Fournisseur Secret', role: 'supplier', password: PW, identity_doc: 'CNI-111111' })).status, 201);
+  assert.equal((await sup.post('/api/auth/register', { phone: '621000001', name: 'Fournisseur Secret', role: 'supplier', password: PW, identity_doc: 'CNI-111111', payout_method: 'orange_money' })).status, 201);
   assert.equal((await sup.post('/api/auth/login', { phone: '621000001', password: PW })).status, 403);   // attend la validation
-  assert.equal((await sel.post('/api/auth/register', { phone: '622000001', name: 'Vendeur Secret', role: 'seller', password: PW, identity_doc: 'CNI-222222' })).status, 201);
+  assert.equal((await sel.post('/api/auth/register', { phone: '622000001', name: 'Vendeur Secret', role: 'seller', password: PW, identity_doc: 'CNI-222222', payout_method: 'mtn_momo', payout_phone: '666000001' })).status, 201);
   assert.equal((await new Client().post('/api/auth/register', { phone: '622000002', name: 'X Y', role: 'admin', password: PW, identity_doc: 'CNI-3333' })).status, 400);   // pas d'inscription admin
   assert.equal((await new Client().post('/api/auth/register', { phone: '622000003', name: 'X Y', role: 'seller', password: 'court', identity_doc: 'CNI-3333' })).status, 400);
   const supId = (await admin.get('/api/admin/users?role=supplier')).json.users[0].id;

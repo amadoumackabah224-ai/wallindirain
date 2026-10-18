@@ -30,7 +30,7 @@ export function myCalls() {
         const v = await ask({ title, text: `${o.ref} · ${o.customer_name}`, submit: 'Enregistrer l\'appel', danger: result === 'refused',
           fields: [{ name: 'note', label: result === 'confirmed' ? 'Note (adresse confirmée, détails…)' : 'Note', type: 'textarea', required: result === 'refused' }] });
         if (v) return post(`/calls/${o.id}/log`, { result, note: v.note });
-      }, { ok: result === 'confirmed' ? 'Commande confirmée : le code a été envoyé au client' : 'Appel enregistré', refresh });
+      }, { ok: result === 'confirmed' ? 'Commande confirmée : le client a été prévenu par message' : 'Appel enregistré', refresh });
       return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status)), orderInfo(o),
         o.calls?.length > 0 && h('div', { class: 'mt small muted' }, 'Appels précédents : ', o.calls.map((c) => `${c.agent_name} (${RESULT[c.result][0]})`).join(', ')),
         h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok', onclick: log('confirmed', 'Client confirme sa commande') }, '✔ Client confirme'),

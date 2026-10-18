@@ -1,5 +1,6 @@
 // Mini-framework HTTP : routage, JSON, erreurs homogènes, fichiers statiques.
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { PgError } from './pg.js';
 import { securityHeaders } from './security.js';
@@ -57,11 +58,13 @@ export class App {
           throw new HttpError(404, 'not_found', 'Route inconnue');
         }
         const m = route.re.exec(url.pathname);
-        const params = Object.fromEntries(route.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+        let params;
+        try { params = Object.fromEntries(route.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])])); }
+        catch { throw new HttpError(400, 'bad_request', 'Adresse invalide'); }
         const ctx = { req, res, url, params, query: Object.fromEntries(url.searchParams), headers: {}, cookies: [] };
-        ctx.body = req.method === 'GET' ? {} : await readJson(req);
+        ctx.body = req.method === 'GET' ? {} : await readJson(req, route.opts.maxBody);
         const out = await route.handler(ctx);
-        const headers = { 'Cache-Control': 'no-store' };
+        const headers = { 'Cache-Control': 'no-store', ...ctx.headers };
         if (ctx.cookies.length) headers['Set-Cookie'] = ctx.cookies;
         send(ctx.status || 200, out ?? { ok: true }, headers);
       } else {
@@ -80,20 +83,27 @@ export class App {
 
   #static(pathname, req, send) {
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method_not_allowed', 'Méthode non autorisée');
-    let rel = decodeURIComponent(pathname);
+    let rel;
+    try { rel = decodeURIComponent(pathname); } catch { throw new HttpError(400, 'bad_request', 'Chemin invalide'); }
     if (rel.includes('\0')) throw new HttpError(400, 'bad_request', 'Chemin invalide');
     let file = path.normalize(path.join(this.staticDir, rel));
     if (!file.startsWith(this.staticDir + path.sep) && file !== this.staticDir) throw new HttpError(403, 'forbidden', 'Accès refusé');
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(this.staticDir, 'index.html');   // application mono-page
     const ext = path.extname(file);
-    const cache = file.endsWith('index.html') ? 'no-cache' : 'public, max-age=3600';
-    send(200, fs.readFileSync(file), { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cache });
+    // pages, scripts et styles : le navigateur revalide à chaque fois (ETag), donc une mise à jour est visible tout de suite
+    const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(ext);
+    const body = fs.readFileSync(file);
+    const etag = '"' + crypto.createHash('sha1').update(body).digest('base64url') + '"';
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream', ETag: etag,
+      'Cache-Control': revalidate ? 'no-cache' : 'public, max-age=86400' };
+    if (req.headers['if-none-match'] === etag) return send(304, Buffer.alloc(0), headers);
+    send(200, body, headers);
   }
 }
 
-async function readJson(req) {
+async function readJson(req, maxBytes = 64 * 1024) {
   const chunks = []; let size = 0;
-  for await (const c of req) { size += c.length; if (size > 64 * 1024) throw new HttpError(413, 'too_large', 'Requête trop volumineuse'); chunks.push(c); }
+  for await (const c of req) { size += c.length; if (size > maxBytes) throw new HttpError(413, 'too_large', 'Requête trop volumineuse'); chunks.push(c); }
   if (!size) return {};
   const ct = req.headers['content-type'] || '';
   if (!ct.includes('application/json')) throw new HttpError(415, 'bad_content_type', 'JSON attendu');

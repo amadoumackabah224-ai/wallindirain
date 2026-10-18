@@ -100,3 +100,8 @@ td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .price-big { font-size: 1.8rem; font-weight: 800; color: var(--navy); } .total-line { display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 700; padding: 10px 0; border-top: 2px solid var(--gold); margin-top: 6px; }
 @media print { .topbar, .tabs, .toasts, .btn { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Captures d'écran de preuve et cases à cocher des fenêtres de saisie */
+.proof-img { display: block; max-width: 100%; max-height: 60vh; margin-top: 8px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+label.f input[type="checkbox"] { width: auto; min-height: 0; margin-right: 8px; transform: scale(1.3); }
+label.f input[type="file"] { padding: 10px; }

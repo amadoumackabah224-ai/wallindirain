@@ -20,6 +20,10 @@ services:
         value: "624390707"
       - key: MESSAGE_PROVIDER
         value: simulated
+      # TEST : rien n'est réellement envoyé, donc les codes (retrait, mot de passe oublié) sont lisibles par
+      # l'administrateur dans Journal > Messages. À retirer avant la mise en service réelle.
+      - key: SHOW_TEST_CODES
+        value: "1"
       - key: DB_APP_PASSWORD
         generateValue: true
       - key: DATABASE_URL
