@@ -26,6 +26,7 @@ Plateforme guinéenne de vente avec **paiement à la livraison** : fournisseurs,
 | Vérifier la sécurité | `docs/SECURITY.md` |
 | Former les équipes | `docs/USER-GUIDE.md` |
 | Voir ce qui est fait, testé, hypothétique ou à faire | `docs/CAHIER-DES-CHARGES-TRACABILITE.md` |
+| Données personnelles, pages légales, accessibilité | `docs/CONFORMITE-DONNEES.md` |
 
 ## Démarrage rapide pour développer (sans Docker)
 
@@ -47,7 +48,7 @@ Production : **ne jamais** lancer `seed-demo.js` (il refuse de s'exécuter si `N
 
 ```bash
 cd backend
-TEST_DB_HOST=/chemin/socket-ou-hote TEST_DB_PORT=5432 TEST_DB_USER=postgres npm test      # 45 tests, vraie base PostgreSQL
+TEST_DB_HOST=/chemin/socket-ou-hote TEST_DB_PORT=5432 TEST_DB_USER=postgres npm test      # 56 tests, vraie base PostgreSQL
 sh ../ops/restore-test.sh                                                                  # test de restauration (critère 8)
 ```
 

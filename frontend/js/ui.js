@@ -40,6 +40,18 @@ export const WALLET_KIND = {
   cash_shortage: 'Manque de caisse', withdrawal: 'Retrait', withdrawal_refund: 'Retrait refusé (remboursé)'
 };
 
+/** Photo de profil, ou initiales si la personne n'en a pas. `ver` force le rechargement après un changement. */
+export function avatar(user, size = 40, ver = '') {
+  const initials = (user.name || user.full_name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  if (!user.has_avatar) return h('span', { class: 'avatar avatar-i', 'aria-hidden': 'true', 'data-size': size }, initials);
+  return h('img', { class: 'avatar', src: `/api/users/${user.id}/avatar${ver ? `?v=${ver}` : ''}`, alt: `Photo de ${user.name || user.full_name}`, width: size, height: size });
+}
+
+/** Liens légaux, affichés en bas des écrans publics et dans l'application. */
+export const legalLinks = () => h('ul', { class: 'legal-links' },
+  [['/legal/confidentialite', 'Confidentialité'], ['/legal/conditions', 'Conditions'], ['/legal/cookies', 'Cookies'], ['/legal/retours-remboursements', 'Retours'], ['/legal/mentions-legales', 'Mentions légales']]
+    .map(([href, t]) => h('li', {}, h('a', { href, target: '_blank', rel: 'noopener' }, t))), h('li', {}, h('a', { href: '#/demande-donnees' }, 'Mes données')));
+
 export const spinner = () => h('div', { class: 'spinner', role: 'status', 'aria-label': 'Chargement' });
 export const empty = (icon, text) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon), text);
 
@@ -93,8 +105,16 @@ export const proofButton = (id, label = 'Voir la preuve') => id ? h('button', { 
 export function ask({ title, text, fields = [], submit = 'Valider', danger = false }) {
   return new Promise((resolve) => {
     const inputs = {}, images = {};
-    const close = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
-    const onKey = (e) => { if (e.key === 'Escape') close(null); };
+    const opener = document.activeElement;
+    const close = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey); opener?.isConnected && opener.focus?.(); resolve(v); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') return close(null);
+      if (e.key !== 'Tab') return;   // le focus reste dans la fenêtre
+      const f = [...overlay.querySelectorAll('button, input, select, textarea, a[href]')].filter((x) => !x.disabled && x.offsetParent !== null);
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    };
     const form = h('form', { onsubmit: (e) => {
       e.preventDefault();
       const out = {};
@@ -106,7 +126,7 @@ export function ask({ title, text, fields = [], submit = 'Valider', danger = fal
       }
       close(out);
     } },
-      h('h2', {}, title), text && h('p', { class: 'muted' }, text),
+      h('h2', { id: 'dlg-title' }, title), text && h('p', { class: 'muted' }, text),
       fields.map((f) => {
         let el;
         if (f.type === 'image') {
@@ -117,7 +137,7 @@ export function ask({ title, text, fields = [], submit = 'Valider', danger = fal
             catch (ex) { images[f.name] = null; preview.classList.add('hidden'); status.textContent = ex.message; errToast(ex); }
           } });
           inputs[f.name] = el;
-          return h('label', { class: 'f' }, h('span', {}, f.label), el, status, preview, f.hint && h('div', { class: 'hint' }, f.hint));
+          return h('label', { class: 'f' }, h('span', {}, f.label), el, status, preview, h('div', { class: 'hint' }, f.hint || 'Cachez les informations qui n\'ont rien à voir avec le transfert (autres contacts, soldes, messages privés) avant de prendre la capture.'));
         }
         if (f.type === 'select') el = h('select', {}, f.options.map(([v, l]) => h('option', { value: v, selected: v === f.value }, l)));
         else if (f.type === 'textarea') el = h('textarea', { placeholder: f.placeholder, maxlength: f.maxlength });
@@ -129,7 +149,7 @@ export function ask({ title, text, fields = [], submit = 'Valider', danger = fal
       h('div', { class: 'gap mt' },
         h('button', { class: `btn grow ${danger ? 'btn-bad' : 'btn-gold'}`, type: 'submit' }, submit),
         h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => close(null) }, 'Annuler')));
-    const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(null); } }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' }, form));
+    const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(null); } }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' }, form));
     document.body.append(overlay);
     document.addEventListener('keydown', onKey);
     (Object.values(inputs)[0] || form.querySelector('button'))?.focus();
@@ -149,7 +169,7 @@ export function action(fn, { ok, refresh } = {}) {
 
 export function table(headers, rows, { empty: emptyNode } = {}) {
   if (!rows.length) return emptyNode || empty('∅', 'Rien à afficher');
-  return h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, headers.map((x) => h('th', {}, x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c) => h('td', {}, c)))))));
+  return h('div', { class: 'table-wrap', tabindex: '0' }, h('table', {}, h('thead', {}, h('tr', {}, headers.map((x) => h('th', { scope: 'col' }, x === '' ? h('span', { class: 'sr' }, 'Actions') : x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c) => h('td', {}, c)))))));
 }
 export const kv = (pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
 export const amount = (n, signed = false) => h('span', { class: `amount mono ${signed ? (n < 0 ? 'neg' : 'pos') : ''}` }, (signed && n > 0 ? '+' : '') + fmtGNF(n));

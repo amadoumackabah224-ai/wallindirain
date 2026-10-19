@@ -16,6 +16,10 @@ export function walletView() {
         { name: 'password', label: 'Votre mot de passe (pour confirmer)', type: 'password' }] });
       if (v) await post('/me/payout', v);
     }, { ok: 'Numéro de versement enregistré', refresh });
+    const addDoc = action(async () => {
+      const v = await ask({ title: 'Pièce d\'identité', text: 'Saisissez le numéro de votre carte d\'identité ou passeport. Il est vérifié par l\'administration avant votre premier retrait ; aucune photo n\'est demandée.', submit: 'Envoyer', fields: [{ name: 'identity_doc', label: 'Numéro de la pièce', maxlength: 60, placeholder: 'Ex. CNI ou passeport : numéro' }] });
+      if (v) await post('/me/identity', v);
+    }, { ok: 'Pièce enregistrée, en attente de vérification', refresh });
     const withdraw = action(async () => {
       if (!w.identity_verified) { toast('Votre pièce d\'identité doit d\'abord être vérifiée par Wallindirain.', 'bad'); return; }
       if (!hasPayout) { toast('Enregistrez d\'abord votre numéro de versement.', 'bad'); return; }
@@ -28,13 +32,15 @@ export function walletView() {
       await post(`/withdrawals/${r.id}/confirm`, { code: c.code });
       toast('Retrait demandé. Wallindirain va effectuer le paiement.', 'ok'); await refresh();
     });
-    return h('div', {},
+    return h('div', {}, h('h1', {}, 'Portefeuille'),
       h('div', { class: 'balance mb' }, h('div', { class: 'sub' }, 'Disponible pour retrait'), h('div', { class: 'big' }, fmtGNF(w.available)),
         w.pending > 0 && h('div', { class: 'sub' }, `+ ${fmtGNF(w.pending)} bientôt disponibles (délai de sécurité après livraison)`),
         h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: withdraw }, 'Retirer de l\'argent'))),
-      !w.identity_verified && h('div', { class: 'notice warn' }, 'Pièce d\'identité en cours de vérification : les retraits sont possibles dès qu\'elle est validée.'),
+      !w.identity_verified && (w.identity_submitted
+        ? h('div', { class: 'notice warn' }, 'Pièce d\'identité en cours de vérification : les retraits sont possibles dès qu\'elle est validée.')
+        : (['seller', 'supplier'].includes(w.role) ? h('div', { class: 'notice warn' }, 'Pour retirer de l\'argent, ajoutez le numéro de votre pièce d\'identité (aucune photo demandée). ', h('button', { class: 'btn btn-sm btn-gold', onclick: addDoc }, 'Ajouter ma pièce')) : h('div', { class: 'notice warn' }, 'Votre identité doit être vérifiée par l\'administration avant un retrait.'))),
       hasPayout
-        ? h('div', { class: 'notice' }, `Numéro de versement : ${OPERATOR[w.payout.method]} · ${fmtPhone(w.payout.phone)}. Pour le modifier, contactez l\'administration.`)
+        ? h('div', { class: 'notice' }, `Numéro de versement : ${OPERATOR[w.payout.method]} · ${fmtPhone(w.payout.phone)}. `, h('a', { href: '#/app/profile' }, 'Le modifier dans Profil'))
         : h('div', { class: 'notice warn' }, 'Aucun numéro de versement enregistré. ', h('button', { class: 'btn btn-sm btn-gold', onclick: setPayout }, 'Enregistrer mon numéro')),
       h('div', { class: 'card' }, h('h2', {}, 'Mes retraits'), table(['Date', 'Montant', 'Via', 'Statut', 'Référence', ''], w.withdrawals.map((x) => [
         fmtDate(x.created_at), amount(x.amount), `${OPERATOR[x.method]} · ${fmtPhone(x.account_number)}`, badge(...WD_STATUS[x.status]), x.payment_ref || '', proofButton(x.proof_id, 'Preuve du transfert')]),

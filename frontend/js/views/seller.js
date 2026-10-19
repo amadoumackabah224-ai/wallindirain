@@ -97,7 +97,7 @@ export function sellerNewOrder({ goTo }) {
     } },
       h('label', { class: 'f' }, h('span', {}, 'Type de produit'), h('div', { class: 'gap' }, own, h('span', {}, 'Mon propre produit (hors catalogue)'))),
       catBox, ownBox, h('label', { class: 'f' }, h('span', {}, 'Quantité'), qty),
-      h('h3', { class: 'mt' }, 'Client'), h('label', { class: 'f' }, h('span', {}, 'Nom'), cname), h('label', { class: 'f' }, h('span', {}, 'Téléphone'), cphone),
+      h('h2', { class: 'mt' }, 'Client'), h('label', { class: 'f' }, h('span', {}, 'Nom'), cname), h('label', { class: 'f' }, h('span', {}, 'Téléphone'), cphone),
       h('label', { class: 'f' }, h('span', {}, 'Commune'), commune), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
       h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer la commande'));
     host.replaceChildren(h('h1', {}, 'Nouvelle commande'), h('div', { class: 'card' }, form));
