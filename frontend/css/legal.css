@@ -1,0 +1,25 @@
+/* Pages légales : lecture simple, contrastes élevés (texte #1F1F1F sur blanc, liens bleu nuit). */
+.skip { position: absolute; left: 8px; top: -60px; background: var(--gold); color: var(--navy); padding: 10px 14px; border-radius: 8px; font-weight: 700; z-index: 100; }
+.skip:focus { top: 8px; }
+.legal-body { background: var(--paper); }
+.legal-top { background: var(--navy); border-bottom: 2px solid var(--gold); }
+.legal-in { max-width: 1000px; margin: 0 auto; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.legal-brand img { display: block; height: 34px; width: auto; }
+.legal-wrap { max-width: 1000px; margin: 0 auto; padding: 16px 14px; display: grid; grid-template-columns: 230px 1fr; gap: 20px; align-items: start; }
+.legal-nav { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.legal-nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.legal-nav a { display: block; padding: 8px 4px; color: var(--navy); }
+.legal-nav a[aria-current="page"] { font-weight: 700; text-decoration: none; border-left: 4px solid var(--gold-dark); padding-left: 8px; }
+.legal-main { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; min-width: 0; line-height: 1.6; }
+.legal-main h2 { margin-top: 1.6rem; }
+.legal-main a { color: #0F3E91; }
+.legal-scroll { overflow-x: auto; }
+.legal-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: .92rem; }
+.legal-table caption { text-align: left; font-weight: 700; padding: 6px 0; color: var(--navy); }
+.legal-table th, .legal-table td { border: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
+.legal-table thead th { background: var(--navy); color: var(--white); }
+.legal-table tbody th { background: var(--paper); font-weight: 600; }
+mark.todo { background: #FFE9A6; color: #1F1F1F; padding: 0 4px; border-radius: 4px; }
+.legal-foot { max-width: 1000px; margin: 0 auto; padding: 8px 14px 32px; color: var(--ink); font-size: .9rem; }
+.legal-links { display: flex; gap: 6px 14px; flex-wrap: wrap; justify-content: center; margin: 12px 0 0; padding: 0; list-style: none; font-size: .85rem; }
+@media (max-width: 760px) { .legal-wrap { grid-template-columns: 1fr; } }

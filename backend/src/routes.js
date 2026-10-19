@@ -4,6 +4,8 @@
 import { HttpError, v, page } from './http.js';
 import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
+import { legalMissing } from './legal.js';
+import { answer, suggestions } from './assistant.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
 const COOKIE = 'wld_session';
@@ -50,6 +52,19 @@ export function registerRoutes(app, { db, cfg }) {
     ctx.cookies.push(`${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${cfg.prod ? '; Secure' : ''}`);
   };
 
+  const ANY_ROLE = ['admin', 'seller', 'supplier', 'agent', 'call_chief', 'courier', 'warehouse'];
+  // vérifie le mot de passe actuel de la personne connectée (actions sensibles)
+  async function requirePassword(ctx, pw) {
+    const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
+    const given = typeof pw === 'string' ? pw.slice(0, 128) : '';
+    if (!rows.length || !(await verifyPassword(given, rows[0].password_hash))) throw new HttpError(403, 'bad_password', 'Mot de passe incorrect');
+  }
+  const tempPassword = () => {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz', digits = '23456789';
+    const pick = (set, n) => Array.from({ length: n }, () => set[crypto.randomInt(set.length)]).join('');
+    return pick(letters, 6) + pick(digits, 3) + pick(letters, 1);
+  };
+
   // exposé pour les tests : remet les compteurs de débit à zéro
   app.resetLimits = () => limiter.reset();
 
@@ -69,13 +84,16 @@ export function registerRoutes(app, { db, cfg }) {
     const b = ctx.body;
     const pwErr = passwordProblem(b.password);
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
+    if (b.accept_terms !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter les conditions d\'utilisation et la politique de confidentialité');
     const role = v.oneOf(b.role, ['seller', 'supplier'], 'Rôle');
     const phone = v.phone(b.phone);
     // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut
     const payMethod = v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement');
     const payPhone = b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : phone;
     const id = await fn('fn_register', phone, v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
-      await hashPassword(b.password), v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }), payMethod, payPhone);
+      await hashPassword(b.password),
+      role === 'supplier' ? v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }) : v.optStr(b.identity_doc, 'Pièce d\'identité', 60),
+      payMethod, payPhone, cfg.legal.version);
     ctx.status = 201;
     return { id, pending_validation: role === 'supplier',
       message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
@@ -110,8 +128,9 @@ export function registerRoutes(app, { db, cfg }) {
     return { ok: true };
   });
 
-  app.get('/api/auth/me', guard(null, (ctx) => ({ user: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.full_name,
-    phone: ctx.user.phone, team: ctx.user.team, identity_verified: ctx.user.identity_verified } })));
+  app.get('/api/auth/me', guard(null, async (ctx) => ({ user: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.full_name,
+    phone: ctx.user.phone, team: ctx.user.team, identity_verified: ctx.user.identity_verified,
+    has_avatar: (await q('SELECT 1 FROM avatars WHERE user_id = $1', [ctx.user.id])).length > 0 } })));
 
   app.post('/api/auth/forgot', async (ctx) => {
     const phone = v.phone(ctx.body.phone);
@@ -147,10 +166,107 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/public/link/:code/order', async (ctx) => {
     limit(`pub-order:${clientIp(ctx.req)}`, 10, 600_000);
     const b = ctx.body;
+    if (b.accepted !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter la politique de confidentialité pour commander');
+    const custPhone = v.phone(b.phone, 'Votre numéro');
+    await fn('fn_record_consent', 'order', null, custPhone, cfg.legal.version);
     const r = await fn('fn_public_order', ctx.params.code, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
-      v.str(b.name, 'Nom', { min: 2, max: 100 }), v.phone(b.phone, 'Votre numéro'), v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
+      v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
     ctx.status = 201;
     return r;
+  });
+
+  // Demande sur les données personnelles (accès, correction, suppression, opposition) : sans connexion
+  app.post('/api/public/data-request', async (ctx) => {
+    limit(`datareq:${clientIp(ctx.req)}`, 5, 3600_000);
+    const b = ctx.body;
+    const id = await fn('fn_data_request_create', v.oneOf(b.kind, ['access', 'rectification', 'erasure', 'opposition'], 'Type de demande'),
+      v.str(b.name, 'Nom', { min: 2, max: 100 }), v.phone(b.phone), v.optStr(b.message, 'Message', 1000));
+    ctx.status = 201;
+    return { id, message: 'Demande reçue. Nous vous répondrons sous 30 jours, après vérification de votre identité par un appel.' };
+  });
+
+  // Pièce d'identité ajoutée plus tard (vendeur ou fournisseur), nécessaire avant le premier retrait
+  app.post('/api/me/identity', guard(['seller', 'supplier'], async (ctx) => {
+    await fn('fn_set_identity_doc', ctx.user.id, v.str(ctx.body.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }));
+  }));
+
+  // =========================================================================
+  // Profil (tous les rôles) : nom, photo, mot de passe, numéro de versement
+  // =========================================================================
+  app.get('/api/me/profile', guard(ANY_ROLE, async (ctx) => {
+    const [u] = await q(`SELECT full_name, phone, role, team, payout_method, payout_phone, identity_verified, created_at,
+        EXISTS (SELECT 1 FROM avatars a WHERE a.user_id = users.id) AS has_avatar FROM users WHERE id = $1`, [ctx.user.id]);
+    return { id: ctx.user.id, name: u.full_name, phone: u.phone, role: u.role, team: u.team, has_avatar: u.has_avatar,
+      identity_verified: u.identity_verified, created_at: u.created_at,
+      payout: u.payout_phone ? { method: u.payout_method, phone: u.payout_phone } : null };
+  }));
+  app.post('/api/me/profile', guard(ANY_ROLE, async (ctx) => {
+    await fn('fn_update_profile', ctx.user.id, v.str(ctx.body.name, 'Nom', { min: 2, max: 100 }));
+  }));
+  app.post('/api/me/password', guard(ANY_ROLE, async (ctx) => {
+    limit(`pwchg:${ctx.user.id}`, 5, 900_000);
+    const b = ctx.body;
+    await requirePassword(ctx, b.current);
+    const pwErr = passwordProblem(b.next);
+    if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
+    if (b.next === b.current) throw new HttpError(400, 'invalid_input', 'Le nouveau mot de passe doit être différent de l\'ancien');
+    await fn('fn_set_password', ctx.user.id, await hashPassword(b.next), tokenHash(ctx.token));
+  }));
+  app.post('/api/me/payout/change', guard(WALLET_ROLES, async (ctx) => {
+    limit(`payout:${ctx.user.id}`, 5, 3600_000);
+    const b = ctx.body;
+    await requirePassword(ctx, b.password);
+    await fn('fn_change_payout', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Opérateur'), v.phone(b.phone, 'Numéro de versement'));
+  }));
+  app.post('/api/me/avatar', guard(ANY_ROLE, async (ctx) => {
+    limit(`avatar:${ctx.user.id}`, 20, 3600_000);
+    const { mime, buf } = parseImage(ctx.body.image);
+    if (buf.length > 140_000) throw new HttpError(413, 'too_large', 'Photo trop lourde');
+    await fn('fn_avatar_set', ctx.user.id, mime, buf);
+  }), { maxBody: 260_000 });
+  app.post('/api/me/avatar/delete', guard(ANY_ROLE, async (ctx) => { await fn('fn_avatar_delete', ctx.user.id); }));
+  app.get('/api/users/:id/avatar', guard(ANY_ROLE, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_avatar_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Pas de photo');
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'private, no-cache';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
+  }));
+
+  // =========================================================================
+  // Assistant d'aide (réponses écrites à l'avance, aucune donnée enregistrée) et messagerie avec l'équipe
+  // =========================================================================
+  app.post('/api/public/assistant', async (ctx) => {
+    limit(`bot:${clientIp(ctx.req)}`, 40, 600_000);
+    return answer('visitor', v.str(ctx.body.question, 'Question', { min: 2, max: 300 }));
+  });
+  app.get('/api/public/assistant/suggestions', async () => ({ suggestions: suggestions('visitor') }));
+  app.post('/api/assistant', guard(ANY_ROLE, async (ctx) => {
+    limit(`bot:${ctx.user.id}`, 60, 600_000);
+    return answer(ctx.user.role, v.str(ctx.body.question, 'Question', { min: 2, max: 300 }));
+  }));
+  app.get('/api/assistant/suggestions', guard(ANY_ROLE, async (ctx) => ({ suggestions: suggestions(ctx.user.role) })));
+
+  app.get('/api/support', guard(ANY_ROLE, async (ctx) => {
+    const [t] = await q(`SELECT id, status, unread_user FROM support_threads WHERE user_id = $1 AND status = 'open' ORDER BY created_at DESC LIMIT 1`, [ctx.user.id]);
+    if (!t) return { messages: [], unread: false };
+    const messages = await q('SELECT id, sender, body, created_at FROM support_messages WHERE thread_id = $1 ORDER BY id LIMIT 200', [t.id]);
+    if (t.unread_user && ctx.query.read === '1') await fn('fn_support_mark_read', ctx.user.id);
+    return { messages, unread: t.unread_user };
+  }));
+  app.post('/api/support', guard(ANY_ROLE, async (ctx) => {
+    limit(`support:${ctx.user.id}`, 30, 3600_000);
+    await fn('fn_support_post', ctx.user.id, v.str(ctx.body.body, 'Message', { min: 1, max: 1000 }));
+    ctx.status = 201;
+  }));
+  // visiteur sans compte (mot de passe oublié, urgence) : réponse envoyée par message sur son numéro
+  app.post('/api/public/support', async (ctx) => {
+    limit(`pubsupport:${clientIp(ctx.req)}`, 5, 3600_000);
+    const b = ctx.body;
+    await fn('fn_support_open_public', v.str(b.name, 'Nom', { min: 2, max: 100 }), v.phone(b.phone), v.str(b.message, 'Message', { min: 3, max: 1000 }));
+    ctx.status = 201;
+    return { message: 'Message reçu. L\'équipe vous répondra par message sur ce numéro.' };
   });
 
   // =========================================================================
@@ -169,7 +285,9 @@ export function registerRoutes(app, { db, cfg }) {
         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [id]),
       payout: (await q('SELECT payout_method AS method, payout_phone AS phone FROM users WHERE id = $1', [id]))[0],
       min_withdrawal: Number((await q(`SELECT value FROM settings WHERE key = 'min_withdrawal'`))[0].value),
-      identity_verified: ctx.user.identity_verified
+      role: ctx.user.role,
+      identity_verified: ctx.user.identity_verified,
+      identity_submitted: !!(await q('SELECT identity_doc FROM users WHERE id = $1', [id]))[0]?.identity_doc
     };
   }));
 
@@ -457,7 +575,9 @@ export function registerRoutes(app, { db, cfg }) {
         (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries WHERE user_id = '00000000-0000-0000-0000-000000000001') AS platform_result,
         (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries WHERE user_id = '00000000-0000-0000-0000-000000000002') AS prepaid_float,
         (SELECT count(*) FROM fn_ledger_check())::int AS ledger_problems`);
-    return { ...m, by_status: await q('SELECT status, count(*)::int AS n FROM orders GROUP BY status ORDER BY status') };
+    const [dr] = await q(`SELECT count(*)::int AS n FROM data_requests WHERE status = 'open'`);
+    const [sp] = await q(`SELECT count(*)::int AS n FROM support_threads WHERE status = 'open' AND unread_admin`);
+    return { ...m, data_requests_open: dr.n, support_unread: sp.n, legal_missing: legalMissing(cfg), by_status: await q('SELECT status, count(*)::int AS n FROM orders GROUP BY status ORDER BY status') };
   }));
 
   app.get('/api/admin/users', guard(ADM, async (ctx) => {
@@ -476,6 +596,13 @@ export function registerRoutes(app, { db, cfg }) {
     ctx.status = 201;
     return { id };
   }));
+  app.get('/api/admin/data-requests', guard(ADM, async () => ({
+    requests: await q(`SELECT id, kind, full_name, phone, message, status, note, created_at, handled_at FROM data_requests
+        ORDER BY (status = 'open') DESC, created_at DESC LIMIT 200`) })));
+  app.post('/api/admin/data-requests/:id/close', guard(ADM, async (ctx) => {
+    await fn('fn_admin_close_data_request', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), v.oneOf(ctx.body.status, ['done', 'rejected'], 'Statut'), v.str(ctx.body.note, 'Note', { min: 3, max: 500 }));
+  }));
+  app.post('/api/admin/users/:id/anonymize', guard(ADM, async (ctx) => { await fn('fn_admin_anonymize_user', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur')); }));
   app.post('/api/admin/users/:id/status', guard(ADM, async (ctx) => { await fn('fn_admin_set_user_status', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.oneOf(ctx.body.status, ['active', 'suspended', 'pending'], 'Statut')); }));
   app.post('/api/admin/users/:id/update', guard(ADM, async (ctx) => {
     const b = ctx.body;
@@ -485,11 +612,39 @@ export function registerRoutes(app, { db, cfg }) {
   }));
   // Mot de passe temporaire généré par le serveur, affiché une seule fois à l'administrateur
   app.post('/api/admin/users/:id/reset-password', guard(ADM, async (ctx) => {
-    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz', digits = '23456789';
-    const pick = (set, n) => Array.from({ length: n }, () => set[crypto.randomInt(set.length)]).join('');
-    const temp = pick(letters, 6) + pick(digits, 3) + pick(letters, 1);
+    const temp = tempPassword();
     await fn('fn_admin_reset_password', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), await hashPassword(temp));
     return { temporary_password: temp };
+  }));
+  app.get('/api/admin/support', guard(ADM, async () => ({
+    threads: await q(`SELECT t.id, t.full_name, t.phone, t.status, t.unread_admin, t.user_id, t.last_message_at,
+        (SELECT body FROM support_messages m WHERE m.thread_id = t.id ORDER BY id DESC LIMIT 1) AS last_body
+        FROM support_threads t ORDER BY (t.status = 'open') DESC, t.unread_admin DESC, t.last_message_at DESC LIMIT 100`) })));
+  app.get('/api/admin/support/:id', guard(ADM, async (ctx) => {
+    const id = v.uuid(ctx.params.id, 'Conversation');
+    const [t] = await q('SELECT id, full_name, phone, status, user_id FROM support_threads WHERE id = $1', [id]);
+    if (!t) throw new HttpError(404, 'not_found', 'Conversation introuvable');
+    const [acct] = await q(`SELECT id, role, full_name FROM users WHERE phone = $1 AND deleted_at IS NULL AND role <> 'system'`, [t.phone]);
+    return { thread: t, account: acct || null, messages: await q('SELECT id, sender, body, created_at FROM support_messages WHERE thread_id = $1 ORDER BY id', [id]) };
+  }));
+  app.post('/api/admin/support/:id/reply', guard(ADM, async (ctx) => { await fn('fn_support_reply', ctx.user.id, v.uuid(ctx.params.id, 'Conversation'), v.str(ctx.body.body, 'Réponse', { min: 1, max: 1000 })); }));
+  app.post('/api/admin/support/:id/close', guard(ADM, async (ctx) => { await fn('fn_support_close', ctx.user.id, v.uuid(ctx.params.id, 'Conversation')); }));
+  // mot de passe oublié : mot de passe temporaire envoyé par message au numéro du compte (jamais affiché dans la conversation)
+  app.post('/api/admin/support/:id/temp-password', guard(ADM, async (ctx) => {
+    const id = v.uuid(ctx.params.id, 'Conversation');
+    const [t] = await q('SELECT phone FROM support_threads WHERE id = $1', [id]);
+    if (!t) throw new HttpError(404, 'not_found', 'Conversation introuvable');
+    const [acct] = await q(`SELECT id FROM users WHERE phone = $1 AND deleted_at IS NULL AND role <> 'system'`, [t.phone]);
+    if (!acct) throw new HttpError(404, 'not_found', 'Aucun compte avec ce numéro');
+    const temp = tempPassword();
+    await fn('fn_admin_send_temp_password', ctx.user.id, acct.id, await hashPassword(temp), temp, id);
+    return cfg.showTestCodes ? { temporary_password: temp } : { ok: true };
+  }));
+  // remise à zéro des activités : confirmation écrite + mot de passe de l'administrateur
+  app.post('/api/admin/reset-activity', guard(ADM, async (ctx) => {
+    limit(`reset:${ctx.user.id}`, 3, 3600_000);
+    await requirePassword(ctx, ctx.body.password);
+    return fn('fn_admin_reset_activity', ctx.user.id, typeof ctx.body.confirm === 'string' ? ctx.body.confirm : '');
   }));
   app.post('/api/admin/users/:id/unlock', guard(ADM, async (ctx) => { await fn('fn_admin_unlock_user', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur')); }));
   app.post('/api/admin/users/:id/verify', guard(ADM, async (ctx) => { await fn('fn_admin_verify_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.bool(ctx.body.verified, 'Vérification')); }));

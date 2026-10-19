@@ -41,7 +41,7 @@ before(async () => {
   await db.owner.query(`INSERT INTO users(role,status,full_name,phone,password_hash,identity_verified) VALUES ('admin','active','Admin','620000000',$1,true)`, [hash]);
   await db.owner.query(`ALTER ROLE wld_app PASSWORD '${APP_PW}'`);
   srv = await createServer({
-    prod: false, port: 0, host: '127.0.0.1', contactPhone: '624390707', trustProxy: false,
+    prod: false, port: 0, host: '127.0.0.1', contactPhone: '624390707', legal: { version: '2026-10-19' }, trustProxy: false,
     db: { ...TEST_DB, database: 'wld_api', user: 'wld_app', password: APP_PW, max: 5 }, owner: {},
     messaging: { provider: 'simulated' }
   }, { quiet: true });
@@ -86,9 +86,9 @@ test('parcours complet via HTTP + cloisonnement fournisseur / vendeur / client',
 
   // inscriptions
   const sup = new Client(), sel = new Client();
-  assert.equal((await sup.post('/api/auth/register', { phone: '621000001', name: 'Fournisseur Secret', role: 'supplier', password: PW, identity_doc: 'CNI-111111', payout_method: 'orange_money' })).status, 201);
+  assert.equal((await sup.post('/api/auth/register', { phone: '621000001', name: 'Fournisseur Secret', role: 'supplier', accept_terms: true, password: PW, identity_doc: 'CNI-111111', payout_method: 'orange_money' })).status, 201);
   assert.equal((await sup.post('/api/auth/login', { phone: '621000001', password: PW })).status, 403);   // attend la validation
-  assert.equal((await sel.post('/api/auth/register', { phone: '622000001', name: 'Vendeur Secret', role: 'seller', password: PW, identity_doc: 'CNI-222222', payout_method: 'mtn_momo', payout_phone: '666000001' })).status, 201);
+  assert.equal((await sel.post('/api/auth/register', { phone: '622000001', name: 'Vendeur Secret', role: 'seller', accept_terms: true, password: PW, identity_doc: 'CNI-222222', payout_method: 'mtn_momo', payout_phone: '666000001' })).status, 201);
   assert.equal((await new Client().post('/api/auth/register', { phone: '622000002', name: 'X Y', role: 'admin', password: PW, identity_doc: 'CNI-3333' })).status, 400);   // pas d'inscription admin
   assert.equal((await new Client().post('/api/auth/register', { phone: '622000003', name: 'X Y', role: 'seller', password: 'court', identity_doc: 'CNI-3333' })).status, 400);
   const supId = (await admin.get('/api/admin/users?role=supplier')).json.users[0].id;
@@ -117,7 +117,7 @@ test('parcours complet via HTTP + cloisonnement fournisseur / vendeur / client',
   const pub = await anon.get(`/api/public/link/${link}`);
   assert.equal(pub.status, 200); assert.equal(pub.json.product.unit_price, 150000);
   assert.doesNotMatch(pub.text, /Secret|supplier|seller|60000|69000/);
-  const placed = await anon.post(`/api/public/link/${link}/order`, { qty: 1, name: 'Mariama Diallo', phone: '623000001', commune: 'Ratoma', address: 'Kipé, près de la pharmacie' });
+  const placed = await anon.post(`/api/public/link/${link}/order`, { qty: 1, name: 'Mariama Diallo', phone: '623000001', commune: 'Ratoma', address: 'Kipé, près de la pharmacie', accepted: true });
   assert.equal(placed.status, 201); const ref = placed.json.ref;
   assert.match(ref, /^WLD-\d+$/);
 
@@ -226,6 +226,6 @@ test('limitation de débit : trop de connexions depuis la même adresse', async 
   assert.equal(last.status, 429);
   const flood = new Client();
   let st;
-  for (let i = 0; i < 12; i++) st = (await flood.post('/api/public/link/inconnu/order', { qty: 1, name: 'Abc', phone: '623999999', commune: 'Ratoma', address: 'Rue 1' })).status;
+  for (let i = 0; i < 12; i++) st = (await flood.post('/api/public/link/inconnu/order', { qty: 1, name: 'Abc', phone: '623999999', commune: 'Ratoma', address: 'Rue 1', accepted: true })).status;
   assert.equal(st, 429);
 });
