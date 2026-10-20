@@ -27,11 +27,11 @@ export function toHttpError(e) {
 }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8' };
 
 export class App {
-  constructor({ prod, staticDir, log }) {
-    this.routes = []; this.prod = prod; this.staticDir = staticDir; this.log = log; this.hdr = securityHeaders(prod);
+  constructor({ prod, staticDir, log, legal }) {
+    this.legal = legal; this.routes = []; this.prod = prod; this.staticDir = staticDir; this.log = log; this.hdr = securityHeaders(prod);
   }
   add(method, pattern, handler, opts = {}) {
     const keys = [];
@@ -83,6 +83,16 @@ export class App {
 
   #static(pathname, req, send) {
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method_not_allowed', 'Méthode non autorisée');
+    if (this.legal && (pathname === '/legal' || pathname.startsWith('/legal/'))) {
+      const slug = pathname.replace(/^\/legal\/?/, '').replace(/\.html$/, '').replace(/\/$/, '');
+      const html = /^[a-z-]*$/.test(slug) ? this.legal(slug) : null;
+      if (html == null) throw new HttpError(404, 'not_found', 'Page introuvable');
+      const body = Buffer.from(html, 'utf8');
+      const etag = '"' + crypto.createHash('sha1').update(body).digest('base64url') + '"';
+      const headers = { 'Content-Type': MIME['.html'], ETag: etag, 'Cache-Control': 'no-cache' };
+      if (req.headers['if-none-match'] === etag) return send(304, Buffer.alloc(0), headers);
+      return send(200, body, headers);
+    }
     let rel;
     try { rel = decodeURIComponent(pathname); } catch { throw new HttpError(400, 'bad_request', 'Chemin invalide'); }
     if (rel.includes('\0')) throw new HttpError(400, 'bad_request', 'Chemin invalide');

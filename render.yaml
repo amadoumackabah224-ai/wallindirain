@@ -24,6 +24,26 @@ services:
       # l'administrateur dans Journal > Messages. À retirer avant la mise en service réelle.
       - key: SHOW_TEST_CODES
         value: "1"
+      # Identité de l'éditeur : affichée dans les mentions légales. Tant qu'un champ est vide, la page affiche « À COMPLÉTER ».
+      # À renseigner dans le tableau de bord Render (Environment) : rien d'inventé n'est publié.
+      - key: LEGAL_NAME
+        sync: false
+      - key: LEGAL_FORM
+        sync: false
+      - key: LEGAL_ADDRESS
+        sync: false
+      - key: LEGAL_EMAIL
+        sync: false
+      - key: LEGAL_RCCM
+        sync: false
+      - key: LEGAL_NIF
+        sync: false
+      - key: LEGAL_DIRECTOR
+        sync: false
+      - key: HOSTING_REGION
+        sync: false
+      - key: LEGAL_RETURN_DAYS
+        value: "2"
       - key: DB_APP_PASSWORD
         generateValue: true
       - key: DATABASE_URL

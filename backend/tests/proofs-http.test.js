@@ -30,7 +30,7 @@ before(async () => {
   await db.owner.query(`INSERT INTO users(role,status,full_name,phone,password_hash,identity_verified) VALUES ('admin','active','Admin','620000000',$1,true)`, [await hashPassword(PW)]);
   await db.owner.query(`ALTER ROLE wld_app PASSWORD '${APP_PW}'`);
   srv = await createServer({
-    prod: false, port: 0, host: '127.0.0.1', contactPhone: '624390707', trustProxy: false, showTestCodes: true,
+    prod: false, port: 0, host: '127.0.0.1', contactPhone: '624390707', legal: { version: '2026-10-19' }, trustProxy: false, showTestCodes: true,
     db: { ...TEST_DB, database: 'wld_http2', user: 'wld_app', password: APP_PW, max: 5 }, owner: {},
     messaging: { provider: 'simulated' }
   }, { quiet: true });
@@ -41,7 +41,7 @@ after(async () => { await srv.close(); await db.owner.end(); await db.app.end();
 
 test('inscription : l\'opérateur de versement est obligatoire, le numéro par défaut est celui de connexion', async () => {
   const c = new Client();
-  const base0 = { phone: '631000001', name: 'Vendeur Un', role: 'seller', password: PW, identity_doc: 'CNI-123456' };
+  const base0 = { phone: '631000001', name: 'Vendeur Un', role: 'seller', accept_terms: true, password: PW, identity_doc: 'CNI-123456' };
   assert.equal((await c.post('/api/auth/register', base0)).status, 400);                                               // sans opérateur
   assert.equal((await c.post('/api/auth/register', { ...base0, payout_method: 'visa' })).status, 400);
   assert.equal((await c.post('/api/auth/register', { ...base0, payout_method: 'orange_money', payout_phone: '123' })).status, 400);

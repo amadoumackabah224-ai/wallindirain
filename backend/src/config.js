@@ -34,7 +34,15 @@ export function loadConfig() {
       // 'true' pour exiger TLS vers PostgreSQL (recommandé hors du même serveur)
       ssl: env.DB_SSL === 'true' ? true : false,
     };
+  // Identité de l'éditeur, affichée dans les pages légales (/legal/…). Tout champ vide apparaît « À COMPLÉTER » dans la page.
+  const legal = {
+    version: '2026-10-19',                         // à changer à chaque modification des conditions ou de la politique
+    name: (env.LEGAL_NAME || '').trim(), form: (env.LEGAL_FORM || '').trim(), address: (env.LEGAL_ADDRESS || '').trim(),
+    email: (env.LEGAL_EMAIL || '').trim(), rccm: (env.LEGAL_RCCM || '').trim(), nif: (env.LEGAL_NIF || '').trim(),
+    director: (env.LEGAL_DIRECTOR || '').trim(), hostingRegion: (env.HOSTING_REGION || '').trim(), returnDays: (env.LEGAL_RETURN_DAYS || '').trim()
+  };
   const cfg = {
+    legal,
     prod,
     port: intVar('PORT', 3000),
     host: env.HOST || '127.0.0.1',
@@ -60,6 +68,8 @@ export function loadConfig() {
     problems.push('WHATSAPP_TOKEN et WHATSAPP_PHONE_ID sont obligatoires avec MESSAGE_PROVIDER=whatsapp');
   }
   if (cfg.showTestCodes && cfg.messaging.provider !== 'simulated') problems.push('SHOW_TEST_CODES=1 est réservé à MESSAGE_PROVIDER=simulated (mode test)');
+  if (legal.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legal.email)) problems.push('LEGAL_EMAIL n\'est pas une adresse e-mail valide');
+  if (legal.returnDays && !/^[0-9]{1,3}$/.test(legal.returnDays)) problems.push('LEGAL_RETURN_DAYS doit être un nombre de jours (ex. 7)');
   if (prod && !cfg.db.password) problems.push('DB_APP_PASSWORD est obligatoire en production');
   if (!/^[0-9]{9}$/.test(cfg.contactPhone)) problems.push('CONTACT_PHONE doit contenir 9 chiffres');
   if (problems.length) throw new Error('Configuration invalide :\n - ' + problems.join('\n - '));
