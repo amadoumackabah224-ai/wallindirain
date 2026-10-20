@@ -6,7 +6,7 @@
 
 | Sujet | Réalisation |
 |---|---|
-| Pages légales | `/legal/` : mentions légales, confidentialité, conditions d'utilisation, cookies, retours et remboursements. Textes dans `backend/legal/`, identité de l'éditeur dans les variables `LEGAL_*` (Render). Un champ vide s'affiche « À COMPLÉTER » : rien d'inventé n'est publié. |
+| Textes légaux | Lus **dans l'application** (fenêtre de lecture, avant et après connexion) via `/api/public/legal` — il n'existe plus de pages `/legal/` externes : mentions légales, confidentialité, conditions d'utilisation, cookies, retours et remboursements. Textes dans `backend/legal/`, identité de l'éditeur dans les variables `LEGAL_*` (Render). Un champ vide s'affiche « À COMPLÉTER » : rien d'inventé n'est publié. |
 | Consentement | Case à cocher à l'inscription (conditions + confidentialité + 18 ans) et à la commande du client. La version acceptée et la date sont enregistrées (`consents`, ajout seul). Pour un client sans compte, seule une **empreinte SHA-256** du téléphone est gardée. |
 | Droits des personnes | Formulaire public `/#/demande-donnees` → onglet admin **Données** ; clôture avec note ; anonymisation d'un compte (bouton dans Utilisateurs). |
 | Conservation limitée | Purge automatique (au démarrage puis toutes les 6 h) : `fn_purge_old_data` et `fn_purge_support`. |
@@ -59,4 +59,4 @@
 
 ## 5. Assistant et messagerie
 - L'assistant d'aide n'est **pas une IA générative** : il répond avec des textes écrits à l'avance (`backend/src/assistant.js`), n'envoie rien à un service extérieur et n'enregistre pas les questions.
-- La messagerie avec l'équipe stocke nom, téléphone et messages (1 an après fermeture). Un visiteur sans compte (mot de passe oublié, urgence) reçoit la réponse par message sur son numéro. Le **mot de passe temporaire** est envoyé par message, jamais écrit dans la conversation, et masqué dans le journal après envoi.
+- La messagerie avec l'équipe stocke nom, téléphone et messages (1 an après fermeture). L'aide (assistant et messagerie) est réservée aux personnes connectées ; avant connexion, seul le numéro de contact est affiché. Le **mot de passe temporaire** est envoyé par message, jamais écrit dans la conversation, et masqué dans le journal après envoi.

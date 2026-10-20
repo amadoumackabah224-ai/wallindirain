@@ -1,16 +1,7 @@
 # Wallindirain
 
-> Plateforme guinéenne de vente avec paiement à la livraison (fournisseurs, vendeurs, call center, livreurs, magasinier, administration). L'application elle-même est privée et demande une connexion.
-
-## Pages publiques
-- [Informations légales](/legal/): liste des textes
-- [Mentions légales](/legal/mentions-legales)
-- [Politique de confidentialité](/legal/confidentialite)
-- [Conditions d'utilisation](/legal/conditions)
-- [Politique de cookies](/legal/cookies)
-- [Retours et remboursements](/legal/retours-remboursements)
+> Plateforme guinéenne de vente avec paiement à la livraison (fournisseurs, vendeurs, call center, livreurs, magasinier, administration). L'application est privée : elle demande une connexion.
 
 ## Notes pour les agents automatisés
-- Les pages /legal/ sont du HTML sémantique, sans JavaScript requis.
+- Il n'y a pas de pages publiques à explorer : tout se passe dans l'application, après connexion.
 - L'API (/api/) est réservée à l'application et n'est pas destinée à l'exploration automatique.
-- Demandes sur les données personnelles : /#/demande-donnees

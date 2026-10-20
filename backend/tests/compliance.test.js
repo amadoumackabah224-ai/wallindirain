@@ -42,22 +42,11 @@ before(async () => {
 after(async () => { await srv.close(); await db.owner.end(); await db.app.end(); });
 beforeEach(() => srv.resetLimits());
 
-test('pages légales : toutes accessibles, champs manquants signalés, texte échappé', async () => {
+test('plus aucune adresse /legal ni aide publique : tout est lu dans l\'application', async () => {
   const c = new Client();
-  for (const [slug] of PAGES) {
-    const r = await c.get(`/legal/${slug}`);
-    assert.equal(r.status, 200, slug);
-    assert.match(r.headers.get('content-type'), /text\/html/);
-    assert.match(r.text, /<html lang="fr">/); assert.match(r.text, /<main id="contenu"/); assert.match(r.text, /<h1>/);
-    assert.ok(!/\{\{[A-Z_]+\}\}/.test(r.text), `${slug} : champ non remplacé`);
-  }
-  const m = (await c.get('/legal/mentions-legales')).text;
-  assert.match(m, /Société &lt;Test&gt; &amp; Fils/);          // échappé : pas d'injection
-  assert.match(m, /À COMPLÉTER : numéro RCCM/);                // jamais d'information inventée
-  assert.match((await c.get('/legal/retours-remboursements')).text, /2 jours/);
-  assert.equal((await c.get('/legal/inconnue')).status, 404);
-  assert.equal((await c.get('/legal/..%2fconfig')).status, 404);
-  assert.equal((await c.get('/legal')).status, 200);
+  for (const [slug] of PAGES) { const r = await c.get(`/legal/${slug}`); assert.ok(r.status === 404 || !/Dernière mise à jour/.test(r.text), `${slug} : plus de page serveur`); }
+  assert.equal((await c.post('/api/public/support', { name: 'Test', phone: '681000099', message: 'bonjour' })).status, 404);
+  assert.equal((await c.post('/api/public/assistant', { question: 'bonjour' })).status, 404);
   assert.ok(legalMissing({ legal: {} }).length >= 8);
   assert.equal(typeof createLegal, 'function');
 });
@@ -65,7 +54,7 @@ test('pages légales : toutes accessibles, champs manquants signalés, texte éc
 test('robots.txt et llms.txt : lisibles, l\'API est exclue', async () => {
   const r = await new Client().get('/robots.txt');
   assert.match(r.headers.get('content-type'), /text\/plain/);
-  assert.match(r.text, /Disallow: \/api\//); assert.match(r.text, /Allow: \/legal\//);
+  assert.match(r.text, /Disallow: \/api\//); assert.ok(!/\/legal/.test(r.text));
   assert.match((await new Client().get('/llms.txt')).text, /Wallindirain/);
 });
 
@@ -179,7 +168,7 @@ test('assistant : réservé aux personnes connectées ; thèmes, sujets, questio
   await s.post('/api/auth/register', { phone: '691000009', name: 'Vendeur Bot', role: 'seller', password: PW, accept_terms: true, payout_method: 'orange_money' });
   await s.login('691000009');
   const r = await s.post('/api/assistant', { question: 'J\'ai oublié mon mot de passe' });
-  assert.equal(r.json.found, true); assert.match(r.json.text, /Mot de passe oublié/); assert.equal(r.json.team, true);
+  assert.equal(r.json.found, true); assert.match(r.json.text, /Mot de passe oublié/); assert.match(r.json.text, /appelez le numéro de contact/);
   assert.equal((await s.post('/api/assistant', { question: '' })).status, 400);
   const t = await s.get('/api/assistant/topics');
   assert.ok(t.json.topics.length >= 5);
@@ -239,19 +228,9 @@ test('messagerie avec l\'équipe : connecté, visiteur, réponse, mot de passe t
   assert.equal((await c.get('/api/support?read=1')).json.messages.length, 3);
   assert.equal((await c.get('/api/support')).json.unread, false);
   assert.equal((await c.get('/api/admin/support')).status, 403);                                              // pas pour un vendeur
-  // visiteur : mot de passe oublié → mot de passe temporaire envoyé par message, jamais gardé dans la conversation
-  const v = new Client();
-  assert.equal((await v.post('/api/public/support', { name: 'Vendeur Chat', phone: '681000001', message: 'J\'ai perdu mon mot de passe' })).status, 201);
-  const th = (await a.get('/api/admin/support')).json.threads.filter((x) => x.user_id == null && x.phone === '681000001')[0];
-  const tp = await a.post(`/api/admin/support/${th.id}/temp-password`);
-  assert.equal(tp.status, 200); assert.ok(tp.json.temporary_password);
-  await new Client().login('681000001', tp.json.temporary_password);
-  const convo = (await a.get(`/api/admin/support/${th.id}`)).json.messages.map((m) => m.body).join(' ');
-  assert.ok(!convo.includes(tp.json.temporary_password));
-  assert.equal((await a.post(`/api/admin/support/${th.id}/reply`, { body: 'Bien reçu' })).status, 200);
-  assert.ok((await db.owner.query(`SELECT 1 FROM messages WHERE template = 'support_reply' AND to_phone = '681000001'`)).rowCount >= 1);   // réponse par message au visiteur
-  assert.equal((await a.post(`/api/admin/support/${th.id}/close`)).status, 200);
-  assert.equal((await new Client().post('/api/public/support', { name: 'X', phone: '123', message: 'abc' })).status, 400);
+  // un visiteur sans compte ne peut plus écrire à l'équipe (l'aide est réservée aux connectés)
+  assert.equal((await new Client().post('/api/public/support', { name: 'X', phone: '681000001', message: 'abc' })).status, 404);
+  assert.equal((await new Client().post('/api/support', { body: 'abc' })).status, 401);
 });
 
 test('remise à zéro : confirmation écrite et mot de passe exigés, activités effacées, comptes et produits gardés', async () => {

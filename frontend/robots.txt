@@ -1,4 +1,3 @@
 User-agent: *
-Allow: /legal/
 Allow: /llms.txt
 Disallow: /api/
