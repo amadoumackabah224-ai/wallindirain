@@ -32,7 +32,7 @@ function score(e, q, qstems) {
 
 const brief = (e) => ({ id: e.id, title: e.t });
 const reply = (e, r) => ({
-  found: true, id: e.id, title: e.t, text: e.a, team: !!e.team,
+  found: true, id: e.id, title: e.t, text: e.a, team: !!e.team, legal: e.legal || null,
   related: (e.rel || []).map((id) => byId.get(id)).filter((x) => x && visible(x, r)).map(brief)
 });
 

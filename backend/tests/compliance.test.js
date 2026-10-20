@@ -168,31 +168,26 @@ test('profil : nom, mot de passe (ancien exigé), numéro de versement (mot de p
   assert.equal((await c.get(`/api/users/${id}/avatar`)).status, 404);
 });
 
-test('assistant : répond à une question connue, oriente vers l\'équipe sinon, sans rien enregistrer', async () => {
+test('assistant : réservé aux personnes connectées ; thèmes, sujets, questions du métier, rôles', async () => {
   const c = new Client();
-  const r = await c.post('/api/public/assistant', { question: 'J\'ai oublié mon mot de passe' });
-  assert.equal(r.json.found, true); assert.match(r.json.text, /Mot de passe oublié/); assert.equal(r.json.team, true);
-  const p = await c.post('/api/public/assistant', { question: 'Mon compte fournisseur n\'est pas activé' });
-  assert.match(p.json.text, /validé|valider/);
-  const u = await c.post('/api/public/assistant', { question: 'xyzzy plugh' });
-  assert.equal(u.json.found, false); assert.equal(u.json.team, true);
-  assert.equal((await c.post('/api/public/assistant', { question: '' })).status, 400);
-});
-
-test('assistant élargi : thèmes, sujets, questions du métier, rôles', async () => {
-  const c = new Client();
-  const t = await c.get('/api/public/assistant/topics');
-  assert.ok(t.json.topics.length >= 5);
-  const ids = t.json.topics.flatMap((x) => x.items.map((i) => i.id));
-  assert.ok(ids.includes('c-quoi')); assert.ok(!ids.includes('admin-retraits'), 'un visiteur ne voit pas les sujets admin');
-  const sujet = await c.post('/api/public/assistant', { topic: 'c-quoi' });
-  assert.equal(sujet.json.found, true); assert.match(sujet.json.text, /paiement à la livraison/);
-  assert.equal((await c.post('/api/public/assistant', { topic: 'admin-retraits' })).status, 404);
-  assert.equal((await c.post('/api/public/assistant', { question: 'comment créer un compte' })).json.id, 'inscription');
+  // sans connexion : aucun accès à l'assistant (ni questions, ni thèmes)
+  assert.equal((await c.post('/api/public/assistant', { question: 'mot de passe oublié' })).status, 404);
+  assert.equal((await c.post('/api/assistant', { question: 'mot de passe oublié' })).status, 401);
+  assert.equal((await c.get('/api/assistant/topics')).status, 401);
 
   const s = new Client();
   await s.post('/api/auth/register', { phone: '691000009', name: 'Vendeur Bot', role: 'seller', password: PW, accept_terms: true, payout_method: 'orange_money' });
   await s.login('691000009');
+  const r = await s.post('/api/assistant', { question: 'J\'ai oublié mon mot de passe' });
+  assert.equal(r.json.found, true); assert.match(r.json.text, /Mot de passe oublié/); assert.equal(r.json.team, true);
+  assert.equal((await s.post('/api/assistant', { question: '' })).status, 400);
+  const t = await s.get('/api/assistant/topics');
+  assert.ok(t.json.topics.length >= 5);
+  const ids = t.json.topics.flatMap((x) => x.items.map((i) => i.id));
+  assert.ok(ids.includes('c-quoi')); assert.ok(!ids.includes('admin-retraits'), 'un vendeur ne voit pas les sujets admin');
+  const sujet = await s.post('/api/assistant', { topic: 'c-quoi' });
+  assert.equal(sujet.json.found, true); assert.match(sujet.json.text, /paiement à la livraison/);
+  assert.equal((await s.post('/api/assistant', { topic: 'admin-retraits' })).status, 404);
   const cas = [
     ['Comment faire de la publicité sur Facebook et TikTok ?', 'pub-facebook'],
     ['Comment vendre avec WhatsApp ?', 'pub-whatsapp'],
@@ -200,13 +195,30 @@ test('assistant élargi : thèmes, sujets, questions du métier, rôles', async 
     ['pourquoi mon argent n\'est pas encore disponible', 'gains-delai'],
     ['faut-il payer des impôts ?', 'fiscalite'],
     ['comment vendre plus', 'conseils-ventes'],
-    ['j\'ai oublié mon mot de passe', 'mdp-oublie']
+    ['j\'ai oublié mon mot de passe', 'mdp-oublie'],
+    ['est-ce que vous utilisez des cookies ?', 'cookies']
   ];
-  for (const [q, id] of cas) { const r = await s.post('/api/assistant', { question: q }); assert.equal(r.json.id, id, q); }
-  assert.equal((await s.post('/api/assistant', { topic: 'admin-retraits' })).status, 404);
-  assert.ok((await s.get('/api/assistant/topics')).json.topics.length >= 5);
-  const nf = await c.post('/api/public/assistant', { question: 'xyzzy plugh' });
+  for (const [q, id] of cas) { const x = await s.post('/api/assistant', { question: q }); assert.equal(x.json.id, id, q); }
+  // les réponses sur les règles proposent le texte complet, lu dans l'application
+  assert.equal((await s.post('/api/assistant', { topic: 'cookies' })).json.legal, 'cookies');
+  assert.equal((await s.post('/api/assistant', { topic: 'donnees' })).json.legal, 'confidentialite');
+  const nf = await s.post('/api/assistant', { question: 'xyzzy plugh' });
   assert.equal(nf.json.found, false); assert.ok(Array.isArray(nf.json.related)); assert.equal(nf.json.team, true);
+});
+
+test('textes légaux lus dans l\'application : liste, contenu, accessibles avant connexion, champs échappés', async () => {
+  const c = new Client();
+  const l = await c.get('/api/public/legal');
+  assert.equal(l.status, 200); assert.equal(l.json.pages.length, PAGES.length);
+  for (const [slug, title] of PAGES) {
+    const r = await c.get(`/api/public/legal/${slug}`);
+    assert.equal(r.status, 200, slug); assert.equal(r.json.title, title); assert.ok(r.json.html.length > 300);
+    assert.ok(!/<html|<script/i.test(r.json.html), 'fragment seulement, sans script');
+  }
+  const m = await c.get('/api/public/legal/mentions-legales');
+  assert.match(m.json.html, /Société &lt;Test&gt; &amp; Fils/);
+  assert.equal((await c.get('/api/public/legal/inconnue')).status, 404);
+  assert.equal((await c.get('/api/public/legal/..%2fconfig')).status, 404);
 });
 
 test('messagerie avec l\'équipe : connecté, visiteur, réponse, mot de passe temporaire', async () => {

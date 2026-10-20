@@ -47,10 +47,14 @@ export function avatar(user, size = 40, ver = '') {
   return h('img', { class: 'avatar', src: `/api/users/${user.id}/avatar${ver ? `?v=${ver}` : ''}`, alt: `Photo de ${user.name || user.full_name}`, width: size, height: size });
 }
 
-/** Liens légaux, affichés en bas des écrans publics et dans l'application. */
+/** Ouvre un texte légal DANS l'application (fenêtre de lecture) : chargé à la demande. */
+export const showLegal = (slug) => import('./views/legal.js').then((m) => m.openLegal(slug));
+/** Lien-bouton vers un texte légal (reste dans l'application, ne fait pas perdre un formulaire en cours). */
+export const legalLink = (slug, text) => h('button', { class: 'linklike', type: 'button', onclick: () => showLegal(slug) }, text);
+/** Liens légaux, affichés en bas des écrans publics et dans l'application : tout s'ouvre dans l'application. */
 export const legalLinks = () => h('ul', { class: 'legal-links' },
-  [['/legal/confidentialite', 'Confidentialité'], ['/legal/conditions', 'Conditions'], ['/legal/cookies', 'Cookies'], ['/legal/retours-remboursements', 'Retours'], ['/legal/mentions-legales', 'Mentions légales']]
-    .map(([href, t]) => h('li', {}, h('a', { href, target: '_blank', rel: 'noopener' }, t))), h('li', {}, h('a', { href: '#/demande-donnees' }, 'Mes données')));
+  [['confidentialite', 'Confidentialité'], ['conditions', 'Conditions'], ['cookies', 'Cookies'], ['retours-remboursements', 'Retours'], ['mentions-legales', 'Mentions légales']]
+    .map(([slug, t]) => h('li', {}, legalLink(slug, t))), h('li', {}, h('a', { href: '#/demande-donnees' }, 'Mes données')));
 
 export const spinner = () => h('div', { class: 'spinner', role: 'status', 'aria-label': 'Chargement' });
 export const empty = (icon, text) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon), text);

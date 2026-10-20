@@ -1,20 +1,20 @@
 // Aide : assistant (réponses écrites à l'avance) + messagerie avec l'équipe Wallindirain.
 // Visiteur sans compte : l'équipe répond par message sur son téléphone. Connecté : la conversation reste dans l'application.
-import { h, fmtDate, errToast } from '../ui.js';
+import { h, fmtDate, errToast, showLegal } from '../ui.js';
 import { get, post } from '../api.js';
 
 /** Ouvre la fenêtre d'aide. `user` = null pour un visiteur. */
 export function openHelp({ user, contact, onRead }) {
   const opener = document.activeElement;
-  let tab = 'bot', timer = null;
+  let tab = user ? 'bot' : 'team', timer = null;
   const close = () => { clearInterval(timer); document.removeEventListener('keydown', onKey); panel.remove(); opener?.isConnected && opener.focus?.(); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   const base = user ? '' : '/public';
   const body = h('div', { class: 'chat-body' });
-  const tabBtns = [['bot', 'Assistant'], ['team', 'Écrire à l\'équipe']].map(([k, l]) =>
-    h('button', { class: 'tab', type: 'button', 'aria-pressed': String(k === tab), onclick: () => { tab = k; tabBtns.forEach((b, i) => b.setAttribute('aria-pressed', String(['bot', 'team'][i] === k))); show(); } }, l));
+  const tabBtns = (user ? [['bot', 'Assistant'], ['team', 'Écrire à l\'équipe']] : [['team', 'Écrire à l\'équipe']]).map(([k, l]) =>
+    h('button', { class: 'tab', type: 'button', 'data-tab': k, 'aria-pressed': String(k === tab), onclick: () => { tab = k; tabBtns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === k))); show(); } }, l));
   const panel = h('div', { class: 'chat', role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'chat-title' },
-    h('div', { class: 'chat-head' }, h('span', { class: 'bot-av', 'aria-hidden': 'true' }, 'W'), h('div', { class: 'grow' }, h('h2', { id: 'chat-title' }, 'Assistant Wallindirain'), h('div', { class: 'chat-sub' }, 'Réponses instantanées · pas une personne')), h('button', { class: 'btn btn-sm btn-ghost chat-x', type: 'button', onclick: close, 'aria-label': 'Fermer l\'aide' }, '✕')),
+    h('div', { class: 'chat-head' }, h('span', { class: 'bot-av', 'aria-hidden': 'true' }, 'W'), h('div', { class: 'grow' }, h('h2', { id: 'chat-title' }, user ? 'Assistant Wallindirain' : 'Contacter l\'équipe'), h('div', { class: 'chat-sub' }, user ? 'Réponses instantanées · pas une personne' : 'Mot de passe oublié, compte bloqué, urgence')), h('button', { class: 'btn btn-sm btn-ghost chat-x', type: 'button', onclick: close, 'aria-label': 'Fermer l\'aide' }, '✕')),
     h('div', { class: 'chat-tabs' }, tabBtns), body);
 
   const bubble = (who, text) => h('div', { class: `bubble ${who}` }, text);
@@ -38,7 +38,8 @@ export function openHelp({ user, contact, onRead }) {
         const acts = h('div', { class: 'bot-actions' });
         if (r.related?.length) acts.append(h('div', { class: 'small muted' }, 'Voir aussi :'), h('div', { class: 'chips' }, r.related.map((x) => h('button', { class: 'chip', type: 'button', onclick: () => say(x.title, { topic: x.id }) }, x.title))));
         acts.append(h('div', { class: 'chips' },
-          r.team && h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: () => tabBtns[1].click() }, 'Écrire à l\'équipe'),
+          r.legal && h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: () => showLegal(r.legal) }, 'Lire le texte complet'),
+          r.team && h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: () => tabBtns.at(-1).click() }, 'Écrire à l\'équipe'),
           h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => menu() }, 'Tous les thèmes')));
         log.append(card, acts);
       } catch (e) { wait.remove(); log.append(bubble('bot', e.message)); }
@@ -115,13 +116,13 @@ export function openHelp({ user, contact, onRead }) {
   document.body.append(panel);
   document.addEventListener('keydown', onKey);
   show();
-  return { close, goTeam: () => tabBtns[1].click() };
+  return { close, goTeam: () => tabBtns.at(-1).click() };
 }
 
 /** Bouton flottant « Aide » (avec pastille si l'équipe a répondu). */
 export function helpButton({ user, contact }) {
   const dot = h('span', { class: 'dot hidden', 'aria-hidden': 'true' });
-  const btn = h('button', { class: 'help-fab', type: 'button', onclick: () => openHelp({ user, contact, onRead: () => dot.classList.add('hidden') }) }, h('span', { 'aria-hidden': 'true' }, '💬'), ' Aide', dot);
+  const btn = h('button', { class: 'help-fab', type: 'button', onclick: () => openHelp({ user, contact, onRead: () => dot.classList.add('hidden') }) }, h('span', { 'aria-hidden': 'true' }, '💬'), user ? ' Aide' : ' Contacter l\'équipe', dot);
   if (user) {
     const check = async () => { if (!btn.isConnected) return clearInterval(t); try { const r = await get('/support'); dot.classList.toggle('hidden', !r.unread); btn.setAttribute('aria-label', r.unread ? 'Aide : nouveau message de l\'équipe' : 'Aide'); } catch { /* hors ligne */ } };
     const t = setInterval(check, 45000); setTimeout(check, 1500);
