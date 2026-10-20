@@ -1,5 +1,5 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, FAIL_LABEL, WALLET_KIND } from '../ui.js';
+import { h, ask, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, FAIL_LABEL, WALLET_KIND } from '../ui.js';
 import { get, post } from '../api.js';
 
 const kpi = (label, value, cls = '') => h('div', { class: `kpi ${cls}` }, h('div', { class: 'v' }, value), h('div', { class: 'l' }, label));
@@ -10,12 +10,15 @@ export function adminDashboard({ goTo }) {
     h('div', { class: 'grid g3 mb' },
       kpi('Livraisons aujourd\'hui', d.delivered_today, 'good'), kpi('Ventes livrées aujourd\'hui', fmtGNF(d.sales_today)), kpi('Résultat Wallindirain (cumulé)', fmtGNF(d.platform_result), 'good'),
       kpi('Stock prépayé détenu pour les vendeurs', fmtGNF(d.prepaid_float)), kpi('Argent à récupérer chez les livreurs', fmtGNF(d.cash_outstanding), d.cash_outstanding > 0 ? 'alert' : '')),
+    d.legal_missing?.length > 0 && h('div', { class: 'notice warn' }, `Informations légales à compléter dans les variables Render avant la mise en service : ${d.legal_missing.join(' ; ')}.`),
     h('h2', {}, 'À traiter'),
     h('div', { class: 'grid g3 mb' },
       h('div', { onclick: () => goTo('users') }, kpi('Fournisseurs à valider', d.suppliers_pending, d.suppliers_pending ? 'alert' : '')),
       h('div', { onclick: () => goTo('products') }, kpi('Produits à valider', d.products_pending, d.products_pending ? 'alert' : '')),
       h('div', { onclick: () => goTo('withdrawals') }, kpi('Retraits à payer', d.withdrawals_pending, d.withdrawals_pending ? 'alert' : '')),
       h('div', { onclick: () => goTo('remit') }, kpi('Reversements livreurs à valider', d.remittances_pending, d.remittances_pending ? 'alert' : '')),
+      h('div', { onclick: () => goTo('support') }, kpi('Messages non lus', d.support_unread, d.support_unread ? 'alert' : '')),
+      h('div', { onclick: () => goTo('data') }, kpi('Demandes sur les données', d.data_requests_open, d.data_requests_open ? 'alert' : '')),
       kpi('Arrivages à compter (magasin)', d.arrivals_pending)),
     h('div', { class: 'card' }, h('h2', {}, 'Commandes par statut'), h('div', { class: 'gap' }, d.by_status.map((s) => h('span', { class: 'badge ' + (ORDER_STATUS[s.status]?.[1] || '') }, `${ORDER_STATUS[s.status]?.[0] || s.status} : ${s.n}`))))), { poll: 20000 });
 }
@@ -31,7 +34,7 @@ export function adminUsers() {
         { name: 'team', label: 'Call center (agents et chefs)', required: false, placeholder: 'Ex. Alpha' }, { name: 'password', label: 'Mot de passe provisoire', type: 'text', hint: '8 caractères minimum, lettres et chiffres. Communiquez-le à la personne.' }] });
       if (v) await post('/admin/users', v);
     }, { ok: 'Compte créé', refresh });
-    return h('div', {}, h('div', { class: 'gap mb' }, h('select', { class: 'grow', onchange: (e) => { role = e.target.value; load(); } }, h('option', { value: '' }, 'Tous les rôles'), Object.entries(ROLE_LABEL).map(([k, l]) => h('option', { value: k, selected: k === role }, l))), h('button', { class: 'btn btn-gold', onclick: create }, '+ Créer un compte')),
+    return h('div', {}, h('div', { class: 'gap mb' }, h('select', { class: 'grow', 'aria-label': 'Filtrer par rôle', onchange: (e) => { role = e.target.value; load(); } }, h('option', { value: '' }, 'Tous les rôles'), Object.entries(ROLE_LABEL).map(([k, l]) => h('option', { value: k, selected: k === role }, l))), h('button', { class: 'btn btn-gold', onclick: create }, '+ Créer un compte')),
       h('div', { class: 'card' }, table(['Nom', 'Rôle', 'Téléphone', 'Versement', 'Statut', 'Identité', 'Solde', ''], users.map((u) => {
         const edit = action(async () => {
           const v = await ask({ title: `Modifier ${u.full_name}`, text: 'Le numéro de versement est celui où part l\'argent de ses retraits : modifiez-le seulement après avoir vérifié la demande de la personne.', submit: 'Enregistrer', fields: [
@@ -46,6 +49,10 @@ export function adminUsers() {
           const r = await post(`/admin/users/${u.id}/reset-password`);
           await ask({ title: 'Mot de passe temporaire', text: `${u.full_name} : ${r.temporary_password}. Il ne sera plus affiché : notez-le et transmettez-le maintenant. La personne pourra le changer via « Mot de passe oublié ».`, submit: 'C\'est noté', fields: [] });
         }, { refresh });
+        const anonymize = action(async () => {
+          if (!(await confirmBox('Anonymiser ce compte ?', `${u.full_name} ne pourra plus se connecter : nom, téléphone, pièce d'identité, numéro de versement et photo sont effacés. Les écritures d'argent restent, sans nom. Impossible si le portefeuille n'est pas à zéro ou si des opérations sont en cours. IRRÉVERSIBLE.`, 'Anonymiser', true))) return;
+          await post(`/admin/users/${u.id}/anonymize`);
+        }, { ok: 'Compte anonymisé', refresh });
         const unlock = action(async () => { await post(`/admin/users/${u.id}/unlock`); }, { ok: 'Compte déverrouillé', refresh });
         const setStatus = (s, msg) => action(async () => { await post(`/admin/users/${u.id}/status`, { status: s }); }, { ok: msg, refresh });
         const verify = action(async () => {
@@ -58,7 +65,7 @@ export function adminUsers() {
           u.identity_doc ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge('À vérifier', 'warn'), h('div', { class: 'small muted' }, u.identity_doc)) : '—',
           u.balance != null ? amount(u.balance) : '', h('div', { class: 'gap' }, u.identity_doc && h('button', { class: 'btn btn-sm btn-ghost', onclick: verify }, u.identity_verified ? 'Retirer' : 'Vérifier ID'),
             u.status !== 'active' ? h('button', { class: 'btn btn-sm btn-ok', onclick: setStatus('active', 'Compte activé') }, 'Activer') : h('button', { class: 'btn btn-sm btn-ghost', onclick: setStatus('suspended', 'Compte suspendu') }, 'Suspendre'),
-            h('button', { class: 'btn btn-sm btn-ghost', onclick: edit }, 'Modifier'), h('button', { class: 'btn btn-sm btn-ghost', onclick: resetPw }, 'Mot de passe'), h('button', { class: 'btn btn-sm btn-ghost', onclick: unlock }, 'Débloquer'))];
+            h('button', { class: 'btn btn-sm btn-ghost', onclick: edit }, 'Modifier'), h('button', { class: 'btn btn-sm btn-ghost', onclick: resetPw }, 'Mot de passe'), h('button', { class: 'btn btn-sm btn-ghost', onclick: unlock }, 'Débloquer'), u.role !== 'admin' && h('button', { class: 'btn btn-sm btn-ghost', onclick: anonymize }, 'Anonymiser'))];
       }), { empty: empty('👥', 'Aucun utilisateur') })));
   }));
   load();
@@ -101,7 +108,7 @@ export function adminOrders() {
       h('div', { class: 'gap mt' }, ['new', 'in_call', 'confirmed', 'assigned', 'failed'].includes(o.status) && h('button', { class: 'btn btn-bad', onclick: cancel }, 'Annuler la commande'), h('button', { class: 'btn btn-ghost grow', onclick: () => overlay.remove() }, 'Fermer'))));
     document.body.append(overlay);
   }
-  const sel = h('select', { onchange: (e) => { status = e.target.value; load(); } }, h('option', { value: '' }, 'Tous les statuts'), Object.entries(ORDER_STATUS).map(([k, [l]]) => h('option', { value: k }, l)));
+  const sel = h('select', { 'aria-label': 'Filtrer par statut', onchange: (e) => { status = e.target.value; load(); } }, h('option', { value: '' }, 'Tous les statuts'), Object.entries(ORDER_STATUS).map(([k, [l]]) => h('option', { value: k }, l)));
   const q = h('input', { type: 'search', placeholder: 'Référence WLD ou téléphone client', onchange: (e) => { search = e.target.value.trim(); load(); } });
   load();
   return h('div', {}, h('h1', {}, 'Commandes'), h('div', { class: 'gap mb' }, sel, q), host);
@@ -197,4 +204,64 @@ export function adminRemittances() {
         h('div', {}, badge(...ST[r.status]), r.status === 'confirmed' && r.received !== r.amount && h('div', { class: 'small muted' }, `Reçu : ${fmtGNF(r.received)}`), r.decision_note && h('div', { class: 'small muted' }, r.decision_note)),
         h('div', { class: 'gap' }, proofButton(r.proof_id, 'Capture'), r.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: confirm }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser')])];
     }), { empty: empty('📲', 'Aucun reversement par transfert') }))), { poll: 20000 });
+}
+
+// Messagerie avec l'équipe : conversations des utilisateurs connectés et des visiteurs (mot de passe oublié, urgence)
+export function adminSupport() {
+  const host = h('div');
+  const open = (id, back) => host.replaceChildren(liveView(() => get(`/admin/support/${id}`), ({ thread, account, messages }, refresh) => {
+    const text = h('textarea', { rows: 3, maxlength: 1000, placeholder: thread.user_id ? 'Votre réponse (visible dans l\'application de la personne)…' : 'Votre réponse (envoyée par message au téléphone de la personne)…', 'aria-label': 'Votre réponse' });
+    const reply = action(async () => { if (!text.value.trim()) return; await post(`/admin/support/${id}/reply`, { body: text.value }); }, { ok: 'Réponse envoyée', refresh });
+    const close = action(async () => { await post(`/admin/support/${id}/close`); back(); }, { ok: 'Conversation fermée' });
+    const temp = action(async () => {
+      if (!(await confirmBox('Envoyer un mot de passe temporaire ?', `Un nouveau mot de passe sera créé pour ${account.full_name} (${fmtPhone(thread.phone)}), envoyé par message à ce numéro, et ses connexions en cours seront coupées. Vérifiez son identité avant (appel, informations du compte).`, 'Envoyer'))) return;
+      const r = await post(`/admin/support/${id}/temp-password`);
+      if (r.temporary_password) toast(`MODE TEST : mot de passe temporaire ${r.temporary_password}`, 'ok'); else toast('Mot de passe temporaire envoyé par message', 'ok');
+    }, { refresh });
+    return h('div', {}, h('button', { class: 'btn btn-sm btn-ghost mb', onclick: back }, '← Toutes les conversations'),
+      h('div', { class: 'card' }, h('h2', {}, thread.full_name), h('p', {}, telLink(thread.phone), thread.user_id ? ' · compte connecté' : ' · visiteur sans compte', account && ` · ${ROLE_LABEL[account.role]}`),
+        h('div', { class: 'chat-log tall', role: 'log' }, messages.map((m) => h('div', { class: `bubble ${m.sender === 'admin' ? 'me' : 'team'}` }, m.body, h('div', { class: 'when' }, fmtDate(m.created_at))))),
+        text, h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-gold', onclick: reply }, 'Répondre'),
+          account && h('button', { class: 'btn btn-ghost', onclick: temp }, 'Envoyer un mot de passe temporaire'),
+          thread.status === 'open' && h('button', { class: 'btn btn-ghost', onclick: close }, 'Fermer la conversation'))));
+  }));
+  const list = () => host.replaceChildren(liveView(() => get('/admin/support'), ({ threads }) => h('div', { class: 'card' },
+    table(['Personne', 'Dernier message', 'Statut', ''], threads.map((t) => [
+      h('div', {}, h('b', {}, t.full_name), h('div', { class: 'small muted' }, fmtPhone(t.phone), t.user_id ? '' : ' · visiteur')),
+      h('span', { class: 'small' }, (t.last_body || '').slice(0, 90)),
+      h('div', {}, t.unread_admin ? badge('Nouveau', 'warn') : badge(t.status === 'open' ? 'Répondu' : 'Fermée', t.status === 'open' ? 'ok' : 'grey'), h('div', { class: 'small muted' }, fmtDate(t.last_message_at))),
+      h('button', { class: 'btn btn-sm btn-gold', onclick: () => open(t.id, list) }, 'Ouvrir')]), { empty: empty('💬', 'Aucune conversation') })), { poll: 20000 }));
+  list();
+  return h('div', {}, h('h1', {}, 'Messages'), h('div', { class: 'notice' }, 'Les utilisateurs écrivent depuis le bouton « Aide ». Mot de passe oublié : ouvrez la conversation, vérifiez l\'identité, puis « Envoyer un mot de passe temporaire » : il part par message, la personne le change ensuite dans Profil.'), host);
+}
+
+// Données : demandes sur les données personnelles et remise à zéro des activités
+export function adminData() {
+  return liveView(() => get('/admin/data-requests'), ({ requests }, refresh) => {
+    const KIND = { access: 'Accès à mes données', rectification: 'Correction', erasure: 'Suppression', opposition: 'Opposition' };
+    const close = (r, status) => action(async () => {
+      const v = await ask({ title: status === 'done' ? 'Demande traitée' : 'Refuser la demande', text: `${r.full_name} · ${KIND[r.kind]}. Vérifiez d'abord son identité par un appel au ${fmtPhone(r.phone)}.`, submit: 'Enregistrer', danger: status === 'rejected',
+        fields: [{ name: 'note', label: status === 'done' ? 'Ce qui a été fait' : 'Motif du refus' }] });
+      if (v) await post(`/admin/data-requests/${r.id}/close`, { status, note: v.note });
+    }, { ok: 'Demande clôturée', refresh });
+    const reset = action(async () => {
+      const v = await ask({ title: 'Remise à zéro des activités', danger: true, submit: 'Tout effacer',
+        text: 'Efface : commandes, appels, argent (portefeuilles, retraits, caisses, captures), arrivages, stocks vendeurs et messages envoyés. Conserve : comptes, produits (stock remis à 0), tarifs, réglages. IRRÉVERSIBLE : à faire une seule fois, avant de commencer avec de vraies informations.',
+        fields: [{ name: 'confirm', label: 'Tapez REINITIALISER pour confirmer', placeholder: 'REINITIALISER' }, { name: 'password', label: 'Votre mot de passe', type: 'password' }] });
+      if (!v) return;
+      const r = await post('/admin/reset-activity', v);
+      toast(`Remise à zéro faite : ${r.orders} commande(s) et ${r.wallet_entries} mouvement(s) effacés`, 'ok');
+    }, { refresh });
+    return h('div', {}, h('h1', {}, 'Données'),
+      h('div', { class: 'card' }, h('h2', {}, 'Demandes sur les données personnelles'),
+        h('p', { class: 'small muted' }, 'Réponse promise sous 30 jours. Pour une suppression, utilisez « Anonymiser » dans Utilisateurs (impossible tant que le portefeuille n\'est pas soldé), puis clôturez la demande.'),
+        table(['Date', 'Personne', 'Demande', 'Statut', ''], requests.map((r) => [fmtDate(r.created_at), h('div', {}, h('b', {}, r.full_name), h('div', { class: 'small muted' }, fmtPhone(r.phone))),
+          h('div', {}, KIND[r.kind], r.message && h('div', { class: 'small muted' }, r.message)),
+          h('div', {}, badge({ open: 'À traiter', done: 'Traitée', rejected: 'Refusée' }[r.status], { open: 'warn', done: 'ok', rejected: 'bad' }[r.status]), r.note && h('div', { class: 'small muted' }, r.note)),
+          r.status === 'open' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: close(r, 'done') }, 'Traitée'), h('button', { class: 'btn btn-sm btn-ghost', onclick: close(r, 'rejected') }, 'Refuser'))]),
+          { empty: empty('📭', 'Aucune demande') })),
+      h('div', { class: 'card danger-zone' }, h('h2', {}, 'Repartir de zéro'),
+        h('p', {}, 'Efface toutes les activités de test (commandes, argent, appels, arrivages, messages) pour commencer avec de vraies informations. Les comptes, les produits et les réglages sont conservés.'),
+        h('button', { class: 'btn btn-bad', onclick: reset }, 'Remise à zéro des activités')));
+  });
 }
