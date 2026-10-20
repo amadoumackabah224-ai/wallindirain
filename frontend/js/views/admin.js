@@ -131,7 +131,7 @@ export function adminCash() {
 
 export function adminWithdrawals() {
   return liveView(() => get('/admin/withdrawals'), ({ withdrawals }, refresh) => h('div', {}, h('h1', {}, 'Retraits'),
-    h('div', { class: 'notice' }, 'Version 1 : envoyez l\'argent à la main par Orange Money ou MTN MoMo au numéro enregistré par la personne, puis saisissez la référence et joignez la capture d\'écran du transfert.'),
+    h('div', { class: 'notice' }, 'Procédure : 1) vérifiez la demande, 2) envoyez l\'argent à la main par Orange Money ou MTN MoMo au numéro enregistré, 3) cliquez « Payer », saisissez la référence et joignez la capture d\'écran. Le montant est débité du portefeuille à ce moment-là. Une demande refusée ne coûte rien à la personne.'),
     h('div', { class: 'card' }, table(['Date', 'Bénéficiaire', 'Montant', 'Envoyer à', 'Statut', ''], withdrawals.map((w) => {
       const pay = action(async () => {
         const v = await ask({ title: `Payer ${fmtGNF(w.amount)}`, text: `${w.full_name} · ${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}. Envoyez l'argent, puis notez la référence et joignez la capture d'écran du transfert : la personne la verra dans son portefeuille.`, submit: 'Confirmer le paiement', fields: [
@@ -140,9 +140,9 @@ export function adminWithdrawals() {
         const proof = (await post('/proofs', { kind: 'withdrawal_payment', image: v.image })).id;
         await post(`/admin/withdrawals/${w.id}/pay`, { payment_ref: v.ref, proof_id: proof });
       }, { ok: 'Retrait marqué payé', refresh });
-      const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Le montant sera recrédité au portefeuille.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
+      const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
       return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · ⚠ identité non vérifiée')), amount(w.amount), `${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}`,
-        badge({ requested: 'À payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
+        badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
     }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6]), r[7]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
 }
@@ -161,11 +161,15 @@ export function adminDeposit() {
 }
 
 export function adminSettings() {
+  return h('div', {}, adminSettingsMain(), adminSubscriptions());
+}
+
+function adminSettingsMain() {
   return liveView(() => get('/admin/settings'), ({ settings, rates }, refresh) => h('div', {}, h('h1', {}, 'Réglages'),
     h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'),
     h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.map((s) => [s.label, h('b', {}, s.value.toLocaleString('fr-FR')), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
-    h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Tarifs de livraison'), h('button', { class: 'btn btn-sm btn-gold', onclick: action(async () => { const v = await ask({ title: 'Nouvelle commune', submit: 'Ajouter', fields: [{ name: 'commune', label: 'Commune' }, { name: 'fee', label: 'Tarif (GNF)', type: 'number' }] }); if (v) await post('/admin/rates', { commune: v.commune, fee: Number(v.fee) }); }, { ok: 'Commune ajoutée', refresh }) }, '+ Commune')),
-      table(['Commune', 'Tarif', ''], rates.map((r) => [r.commune, amount(r.fee), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: `Livraison ${r.commune}`, submit: 'Enregistrer', fields: [{ name: 'fee', label: 'Tarif (GNF)', type: 'number', value: r.fee }] }); if (v) await post('/admin/rates', { commune: r.commune, fee: Number(v.fee) }); }, { ok: 'Tarif enregistré', refresh }) }, 'Modifier')])))));
+    h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Zones et tarifs de livraison (quartier ou ville)'), h('button', { class: 'btn btn-sm btn-gold', onclick: action(async () => { const v = await ask({ title: 'Nouvelle zone', submit: 'Ajouter', fields: [{ name: 'commune', label: 'Quartier ou ville' }, { name: 'fee', label: 'Tarif (GNF)', type: 'number' }] }); if (v) await post('/admin/rates', { commune: v.commune, fee: Number(v.fee) }); }, { ok: 'Zone ajoutée', refresh }) }, '+ Zone')),
+      table(['Quartier ou ville', 'Tarif', 'État', ''], rates.map((r) => [r.commune, amount(r.fee), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: `Livraison ${r.commune}`, submit: 'Enregistrer', fields: [{ name: 'fee', label: 'Tarif (GNF)', type: 'number', value: r.fee }, { name: 'active', label: 'Zone active (proposée aux clients et vendeurs)', type: 'checkbox', value: r.active }] }); if (v) await post('/admin/rates', { commune: r.commune, fee: Number(v.fee), active: v.active }); }, { ok: 'Zone enregistrée', refresh }) }, 'Modifier')])))));
 }
 
 export function adminAudit() {
@@ -263,5 +267,25 @@ export function adminData() {
       h('div', { class: 'card danger-zone' }, h('h2', {}, 'Repartir de zéro'),
         h('p', {}, 'Efface toutes les activités de test (commandes, argent, appels, arrivages, messages) pour commencer avec de vraies informations. Les comptes, les produits et les réglages sont conservés.'),
         h('button', { class: 'btn btn-bad', onclick: reset }, 'Remise à zéro des activités')));
+  });
+}
+
+// Abonnements des vendeurs : encaissement manuel (prélevé sur son portefeuille, ou payé hors plateforme)
+function adminSubscriptions() {
+  return liveView(() => get('/admin/subscriptions'), ({ settings, sellers }, refresh) => {
+    const on = settings.subscription_monthly > 0;
+    const charge = (s) => action(async () => {
+      const v = await ask({ title: `Abonnement de ${s.full_name}`, text: `${fmtGNF(settings.subscription_monthly)} par mois. « Portefeuille » prélève le montant sur ses gains disponibles ; « Payé hors plateforme » note qu'il a payé autrement (Orange Money, espèces…).`, submit: 'Encaisser', fields: [
+        { name: 'months', label: 'Nombre de mois', type: 'number', inputmode: 'numeric', value: 1 },
+        { name: 'method', label: 'Mode', type: 'select', options: [['wallet', 'Prélevé sur son portefeuille'], ['external', 'Payé hors plateforme']] },
+        { name: 'note', label: 'Note (obligatoire si payé hors plateforme : mode, référence)', required: false }] });
+      if (v) await post('/admin/subscriptions/charge', { seller_id: s.id, months: Number(v.months), method: v.method, note: v.note });
+    }, { ok: 'Abonnement enregistré', refresh });
+    return h('div', { class: 'card' }, h('h2', {}, 'Abonnements des vendeurs'),
+      h('div', { class: 'notice' }, on ? `Abonnement : ${fmtGNF(settings.subscription_monthly)} par mois, ${settings.subscription_required ? 'obligatoire pour vendre' : 'facultatif (non obligatoire)'} ; essai gratuit de ${settings.subscription_trial_days} jours.`
+        : 'Aucun abonnement : mettez un montant dans « Abonnement mensuel du vendeur » ci-dessus pour l\'activer, puis « Abonnement obligatoire » à 1 pour bloquer les vendeurs non à jour.'),
+      h('p', { class: 'small muted' }, `Autres frais actifs : ${settings.fee_order_bps ? `${settings.fee_order_bps / 100} % du prix par commande livrée` : 'pas de % par commande'} · ${settings.fee_unit ? `${fmtGNF(settings.fee_unit)} par produit livré` : 'pas de montant par produit'} · livreur : ${settings.courier_share_bps ? `${settings.courier_share_bps / 100} % des frais de livraison` : 'montant fixe par livraison'}.`),
+      on && table(['Vendeur', 'Téléphone', 'Abonnement', ''], sellers.map((s) => [s.full_name, fmtPhone(s.phone), s.paid ? badge(`Payé jusqu'au ${new Date(s.paid_until).toLocaleDateString('fr-FR')}`, 'ok') : badge('Non payé', 'warn'),
+        h('button', { class: 'btn btn-sm btn-gold', onclick: charge(s) }, 'Encaisser')]), { empty: empty('👥', 'Aucun vendeur') }));
   });
 }

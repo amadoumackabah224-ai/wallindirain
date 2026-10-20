@@ -22,6 +22,7 @@
 | Nom, téléphone, mot de passe (PBKDF2), équipe | `users` | Compte | Tant que le compte existe ; effacés à l'anonymisation |
 | Numéro de la pièce d'identité | `users.identity_doc` | Vérification avant retrait | Idem |
 | Opérateur et numéro de versement | `users` | Payer les retraits | Idem |
+| Lien du Google Sheet du vendeur + lignes importées | `seller_sheets`, `sheet_imports`, `orders` | Créer des commandes depuis le tableur | Lien : tant que le vendeur le garde ; commandes : 5 ans |
 | Photo de profil (facultative) | `avatars` | Reconnaissance dans l'application | Jusqu'à suppression / anonymisation |
 | Écritures d'argent, retraits, caisses, captures de transfert | `wallet_entries`, `withdrawals`, `remittances`, `proofs`… | Comptabilité, preuve de paiement | Pièces comptables : conservées, sans nom après anonymisation |
 | Appels (agent, résultat, note) | `calls` | Traçabilité | Avec la commande (5 ans) |

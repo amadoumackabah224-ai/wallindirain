@@ -28,7 +28,6 @@ async function onTheWay(phone, courier = w.courier) {
   return o;
 }
 const finish = async (o, courier = w.courier) => (await call(db.app, 'fn_courier_deliver', courier, o.id, await codeOf(db, o.ref))).ok;
-const withdrawalCode = async () => /: (\d{6})\./.exec((await db.app.query(`SELECT body FROM messages WHERE template='withdrawal_code' ORDER BY id DESC LIMIT 1`)).rows[0].body)[1];
 
 test('numéro de versement : enregistré à l\'inscription, le retrait part toujours vers lui', async () => {
   const s = await call(db.app, 'fn_register', '691000001', 'Vendeur Payé', 'seller', 'x', 'CNI-909090', 'orange_money', '622111222');
@@ -67,9 +66,7 @@ test('preuves : seul l\'admin joint la capture d\'un retrait, une capture ne ser
   await call(db.app, 'fn_admin_verify_identity', w.admin, s, true);
   await call(db.app, 'fn_admin_deposit', w.admin, s, 300000, 'DEP-3');
   const mk = async () => {
-    const id = await call(db.app, 'fn_withdrawal_request', s, 50000);
-    assert.equal((await call(db.app, 'fn_withdrawal_confirm', s, id, await withdrawalCode())).ok, true);
-    return id;
+    return call(db.app, 'fn_withdrawal_request', s, 50000);
   };
   const wd1 = await mk(), wd2 = await mk();
   // types et rôles
