@@ -90,8 +90,15 @@ export function createLegal(cfg) {
 </html>`;
   }
 
+  /** Contenu d'une page pour l'affichage DANS l'application : { slug, title, html, version }, ou null. */
+  const content = (slug) => {
+    const page = PAGES.find(([s]) => s === slug);
+    if (!page) return null;
+    return { slug, title: page[1], version: cfg.legal.version, html: template(slug).replace(/\{\{([A-Z_]+)\}\}/g, (_, t) => value(t)) };
+  };
+
   /** Renvoie le HTML de la page, ou null si elle n'existe pas. */
-  return function render(slug) {
+  function render(slug) {
     if (slug === '' || slug === 'index') {
       const items = PAGES.map(([s, t]) => `<li><a href="/legal/${s}">${esc(t)}</a></li>`).join('');
       return layout('Informations légales', 'Mentions légales, confidentialité, conditions d\'utilisation, cookies et retours de la plateforme Wallindirain.',
@@ -101,5 +108,7 @@ export function createLegal(cfg) {
     if (!page) return null;
     const body = template(slug).replace(/\{\{([A-Z_]+)\}\}/g, (_, t) => value(t));
     return layout(page[1], `${page[1]} de la plateforme Wallindirain.`, body, slug);
-  };
+  }
+  render.content = content;
+  return render;
 }
