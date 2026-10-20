@@ -46,14 +46,14 @@ function appShell(tabKey) {
       avatar(user, 34, 'top'), h('div', { class: 'who' }, h('b', { class: 'who-name' }, user.name), h('span', {}, ROLE_LABEL[user.role])),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: logout }, 'Quitter'))),
     h('nav', { class: 'tabs', 'aria-label': 'Navigation' }, tabs.map((t) => h('button', { class: 'tab', 'aria-current': t[0] === current[0] ? 'page' : null, onclick: () => goTo(t[0]) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, t[1]), t[2]))),
-    main, h('footer', { class: 'app-foot' }, legalLinks()), helpButton({ user, contact: fmtPhoneLocal(contact) }));
+    main, h('footer', { class: 'app-foot' }, legalLinks()), helpButton({ user }));
 }
 
 async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; location.hash = '#/login'; }
 
 async function route() {
   const [, a, b] = location.hash.split('/');
-  const pub = (node) => render(h('div', {}, node, helpButton({ user: null, contact: fmtPhoneLocal(contact) })));
+  const pub = (node) => render(h('div', {}, node));
   if (a === 'c' && b) return pub(clientOrderView(b));          // page publique du client
   if (a === 'demande-donnees') return pub(dataRequestView());
   if (!user) { try { user = (await get('/auth/me')).user; } catch { user = null; } }

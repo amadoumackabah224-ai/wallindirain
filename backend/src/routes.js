@@ -286,14 +286,6 @@ export function registerRoutes(app, { db, cfg }) {
     ctx.status = 201;
   }));
   // visiteur sans compte (mot de passe oublié, urgence) : réponse envoyée par message sur son numéro
-  app.post('/api/public/support', async (ctx) => {
-    limit(`pubsupport:${clientIp(ctx.req)}`, 5, 3600_000);
-    const b = ctx.body;
-    await fn('fn_support_open_public', v.str(b.name, 'Nom', { min: 2, max: 100 }), v.phone(b.phone), v.str(b.message, 'Message', { min: 3, max: 1000 }));
-    ctx.status = 201;
-    return { message: 'Message reçu. L\'équipe vous répondra par message sur ce numéro.' };
-  });
-
   // =========================================================================
   // Portefeuille et retraits (vendeur, fournisseur, agent, chef, livreur)
   // =========================================================================

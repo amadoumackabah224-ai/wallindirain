@@ -1,4 +1,4 @@
-// Pages légales (mentions, confidentialité, conditions, cookies, retours) servies sous /legal/.
+// Textes légaux (mentions, confidentialité, conditions, cookies, retours) : lus DANS l'application (/api/public/legal), aucune page externe.
 // Les textes sont des modèles HTML dans backend/legal/ ; les {{CHAMPS}} sont remplacés par l'identité de l'éditeur
 // (variables LEGAL_*). Un champ non renseigné s'affiche « À COMPLÉTER » : on ne publie jamais une information inventée.
 import fs from 'node:fs';
@@ -56,40 +56,6 @@ export function createLegal(cfg) {
     if (!cache.has(slug)) cache.set(slug, fs.readFileSync(path.join(dir, `${slug}.html`), 'utf8'));
     return cache.get(slug);
   };
-  const nav = (current) => PAGES.map(([s, t]) => `<li><a href="/legal/${s}"${s === current ? ' aria-current="page"' : ''}>${esc(t)}</a></li>`).join('');
-
-  function layout(title, description, body, current) {
-    return `<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} · Wallindirain</title>
-<meta name="description" content="${esc(description)}">
-<meta name="robots" content="index, follow">
-<meta name="theme-color" content="#0B1B3B">
-<link rel="icon" href="/favicon.ico">
-<link rel="stylesheet" href="/css/app.css">
-<link rel="stylesheet" href="/css/legal.css">
-</head>
-<body class="legal-body">
-<a class="skip" href="#contenu">Aller au contenu</a>
-<header class="legal-top"><div class="legal-in">
-  <a href="/" class="legal-brand"><img src="/assets/logo-gold.png" alt="Wallindirain, retour à l'accueil" width="150" height="38"></a>
-  <a class="btn btn-sm btn-gold" href="/">Ouvrir l'application</a>
-</div></header>
-<div class="legal-wrap">
-  <nav class="legal-nav" aria-label="Pages légales"><ul>${nav(current)}</ul></nav>
-  <main id="contenu" class="legal-main"><article>${body}</article></main>
-</div>
-<footer class="legal-foot"><div class="legal-in">
-  <p>Wallindirain · version des textes : ${value('VERSION')} · contact : <a href="tel:+224${esc(cfg.contactPhone)}">${value('CONTACT_PHONE')}</a></p>
-  <p><a href="/#/demande-donnees">Exercer mes droits sur mes données</a></p>
-</div></footer>
-</body>
-</html>`;
-  }
-
   /** Contenu d'une page pour l'affichage DANS l'application : { slug, title, html, version }, ou null. */
   const content = (slug) => {
     const page = PAGES.find(([s]) => s === slug);
@@ -97,18 +63,5 @@ export function createLegal(cfg) {
     return { slug, title: page[1], version: cfg.legal.version, html: template(slug).replace(/\{\{([A-Z_]+)\}\}/g, (_, t) => value(t)) };
   };
 
-  /** Renvoie le HTML de la page, ou null si elle n'existe pas. */
-  function render(slug) {
-    if (slug === '' || slug === 'index') {
-      const items = PAGES.map(([s, t]) => `<li><a href="/legal/${s}">${esc(t)}</a></li>`).join('');
-      return layout('Informations légales', 'Mentions légales, confidentialité, conditions d\'utilisation, cookies et retours de la plateforme Wallindirain.',
-        `<h1>Informations légales</h1><p>Retrouvez ici les règles qui s'appliquent à l'utilisation de Wallindirain et à la protection de vos données.</p><ul>${items}</ul>`, '');
-    }
-    const page = PAGES.find(([s]) => s === slug);
-    if (!page) return null;
-    const body = template(slug).replace(/\{\{([A-Z_]+)\}\}/g, (_, t) => value(t));
-    return layout(page[1], `${page[1]} de la plateforme Wallindirain.`, body, slug);
-  }
-  render.content = content;
-  return render;
+  return { content };
 }

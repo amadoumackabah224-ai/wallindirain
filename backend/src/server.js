@@ -7,7 +7,6 @@ import { Pool } from './pg.js';
 import { App } from './http.js';
 import { registerRoutes } from './routes.js';
 import { startWorker } from './messenger.js';
-import { createLegal } from './legal.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,7 +16,7 @@ export async function createServer(cfg = loadConfig(), { quiet = false, worker =
   const db = new Pool(cfg.db);
   await db.query('SELECT 1');   // échoue vite si la base est injoignable
   const logger = quiet ? () => {} : log;
-  const app = new App({ prod: cfg.prod, staticDir: path.resolve(here, '..', '..', 'frontend'), log: logger, legal: createLegal(cfg) });
+  const app = new App({ prod: cfg.prod, staticDir: path.resolve(here, '..', '..', 'frontend'), log: logger });
   registerRoutes(app, { db, cfg });
   const server = http.createServer((req, res) => app.handle(req, res));
   server.requestTimeout = 15_000;
