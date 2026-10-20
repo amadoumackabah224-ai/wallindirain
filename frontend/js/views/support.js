@@ -12,31 +12,61 @@ export function openHelp({ user, contact, onRead }) {
   const base = user ? '' : '/public';
   const body = h('div', { class: 'chat-body' });
   const tabBtns = [['bot', 'Assistant'], ['team', 'Écrire à l\'équipe']].map(([k, l]) =>
-    h('button', { class: 'chip', type: 'button', 'aria-pressed': String(k === tab), onclick: () => { tab = k; tabBtns.forEach((b, i) => b.setAttribute('aria-pressed', String(['bot', 'team'][i] === k))); show(); } }, l));
+    h('button', { class: 'tab', type: 'button', 'aria-pressed': String(k === tab), onclick: () => { tab = k; tabBtns.forEach((b, i) => b.setAttribute('aria-pressed', String(['bot', 'team'][i] === k))); show(); } }, l));
   const panel = h('div', { class: 'chat', role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'chat-title' },
-    h('div', { class: 'chat-head' }, h('h2', { id: 'chat-title' }, 'Aide'), h('button', { class: 'btn btn-sm btn-ghost chat-x', type: 'button', onclick: close, 'aria-label': 'Fermer l\'aide' }, '✕')),
-    h('div', { class: 'chips' }, tabBtns), body);
+    h('div', { class: 'chat-head' }, h('span', { class: 'bot-av', 'aria-hidden': 'true' }, 'W'), h('div', { class: 'grow' }, h('h2', { id: 'chat-title' }, 'Assistant Wallindirain'), h('div', { class: 'chat-sub' }, 'Réponses instantanées · pas une personne')), h('button', { class: 'btn btn-sm btn-ghost chat-x', type: 'button', onclick: close, 'aria-label': 'Fermer l\'aide' }, '✕')),
+    h('div', { class: 'chat-tabs' }, tabBtns), body);
 
   const bubble = (who, text) => h('div', { class: `bubble ${who}` }, text);
 
   // ----- assistant -----
   function showBot() {
     clearInterval(timer);
-    const log = h('div', { class: 'chat-log', role: 'log', 'aria-live': 'polite' }, bubble('bot', 'Bonjour ! Je réponds aux questions fréquentes sur Wallindirain (retraits, commandes, compte…). Je ne suis pas une personne : pour une urgence, écrivez à l\'équipe.'));
+    const log = h('div', { class: 'chat-log tall', role: 'log', 'aria-live': 'polite', tabindex: '0', 'aria-label': 'Conversation avec l\'assistant' });
     const input = h('input', { type: 'text', maxlength: 300, placeholder: 'Posez votre question…', 'aria-label': 'Votre question', required: true, autocomplete: 'off' });
-    const ask = async (q) => {
-      log.append(bubble('me', q));
+    let topicsData = null;
+    const scroll = () => { log.scrollTop = log.scrollHeight; };
+    const clearActions = () => log.querySelectorAll('.bot-actions').forEach((n) => n.remove());
+    const say = async (shownText, payload) => {
+      clearActions();
+      log.append(bubble('me', shownText));
+      const wait = bubble('bot typing', '…'); log.append(wait); scroll();
       try {
-        const r = await post(`${base}/assistant`, { question: q });
-        log.append(bubble('bot', r.text));
-        if (r.team) log.append(h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: () => tabBtns[1].click() }, 'Écrire à l\'équipe'));
-      } catch (e) { log.append(bubble('bot', e.message)); }
-      log.scrollTop = log.scrollHeight;
+        const r = await post(`${base}/assistant`, payload);
+        wait.remove();
+        const card = h('div', { class: 'bubble bot' }, r.title && h('strong', { class: 'bt' }, r.title), h('div', {}, r.text));
+        const acts = h('div', { class: 'bot-actions' });
+        if (r.related?.length) acts.append(h('div', { class: 'small muted' }, 'Voir aussi :'), h('div', { class: 'chips' }, r.related.map((x) => h('button', { class: 'chip', type: 'button', onclick: () => say(x.title, { topic: x.id }) }, x.title))));
+        acts.append(h('div', { class: 'chips' },
+          r.team && h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: () => tabBtns[1].click() }, 'Écrire à l\'équipe'),
+          h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => menu() }, 'Tous les thèmes')));
+        log.append(card, acts);
+      } catch (e) { wait.remove(); log.append(bubble('bot', e.message)); }
+      scroll();
     };
-    const chips = h('div', { class: 'chips' });
-    get(`${base}/assistant/suggestions`).then((r) => chips.replaceChildren(...r.suggestions.map((t) => h('button', { class: 'chip', type: 'button', onclick: () => ask(t) }, t)))).catch(() => {});
-    body.replaceChildren(log, chips, h('form', { class: 'chat-form', onsubmit: (e) => { e.preventDefault(); const q = input.value.trim(); if (q) { input.value = ''; ask(q); } } }, input, h('button', { class: 'btn btn-gold', type: 'submit' }, 'Envoyer')));
-    input.focus();
+    // menu des thèmes -> sujets
+    const menu = async (cat) => {
+      clearActions();
+      try { topicsData ||= (await get(`${base}/assistant/topics`)).topics; } catch (e) { log.append(bubble('bot', e.message)); return; }
+      const box = h('div', { class: 'bot-actions' });
+      if (!cat) {
+        box.append(h('div', { class: 'small muted' }, 'Choisissez un thème :'),
+          h('div', { class: 'topics' }, topicsData.map((c) => h('button', { class: 'topic', type: 'button', onclick: () => menu(c.key) }, c.label))));
+      } else {
+        const c = topicsData.find((x) => x.key === cat);
+        box.append(h('div', { class: 'small muted' }, c.label),
+          h('div', { class: 'topic-list' }, c.items.map((x) => h('button', { class: 'topic-row', type: 'button', onclick: () => say(x.title, { topic: x.id }) }, x.title))),
+          h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => menu() }, '← Tous les thèmes'));
+      }
+      log.append(box); scroll();
+      box.querySelector('button')?.focus({ preventScroll: true });
+    };
+    log.append(bubble('bot', 'Bonjour ! Je réponds à vos questions sur Wallindirain et sur le commerce en ligne : commandes, retraits, livraison, mobile money, publicité, sécurité, règles… Je ne suis pas une personne : pour une urgence, écrivez à l\'équipe.'));
+    const chips = h('div', { class: 'chips quick' });
+    get(`${base}/assistant/suggestions`).then((r) => chips.replaceChildren(...r.suggestions.map((t) => h('button', { class: 'chip', type: 'button', onclick: () => say(t, { question: t }) }, t)))).catch(() => {});
+    body.replaceChildren(log, chips, h('form', { class: 'chat-form', onsubmit: (e) => { e.preventDefault(); const q = input.value.trim(); if (q) { input.value = ''; say(q, { question: q }); } } }, input, h('button', { class: 'btn btn-gold', type: 'submit' }, 'Envoyer')));
+    menu();
+    input.focus({ preventScroll: true });
   }
 
   // ----- équipe (connecté) -----

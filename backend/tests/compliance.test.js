@@ -179,6 +179,36 @@ test('assistant : répond à une question connue, oriente vers l\'équipe sinon,
   assert.equal((await c.post('/api/public/assistant', { question: '' })).status, 400);
 });
 
+test('assistant élargi : thèmes, sujets, questions du métier, rôles', async () => {
+  const c = new Client();
+  const t = await c.get('/api/public/assistant/topics');
+  assert.ok(t.json.topics.length >= 5);
+  const ids = t.json.topics.flatMap((x) => x.items.map((i) => i.id));
+  assert.ok(ids.includes('c-quoi')); assert.ok(!ids.includes('admin-retraits'), 'un visiteur ne voit pas les sujets admin');
+  const sujet = await c.post('/api/public/assistant', { topic: 'c-quoi' });
+  assert.equal(sujet.json.found, true); assert.match(sujet.json.text, /paiement à la livraison/);
+  assert.equal((await c.post('/api/public/assistant', { topic: 'admin-retraits' })).status, 404);
+  assert.equal((await c.post('/api/public/assistant', { question: 'comment créer un compte' })).json.id, 'inscription');
+
+  const s = new Client();
+  await s.post('/api/auth/register', { phone: '691000009', name: 'Vendeur Bot', role: 'seller', password: PW, accept_terms: true, payout_method: 'orange_money' });
+  await s.login('691000009');
+  const cas = [
+    ['Comment faire de la publicité sur Facebook et TikTok ?', 'pub-facebook'],
+    ['Comment vendre avec WhatsApp ?', 'pub-whatsapp'],
+    ['on m\'a demandé mon code PIN Orange Money', 'securite-mobile-money'],
+    ['pourquoi mon argent n\'est pas encore disponible', 'gains-delai'],
+    ['faut-il payer des impôts ?', 'fiscalite'],
+    ['comment vendre plus', 'conseils-ventes'],
+    ['j\'ai oublié mon mot de passe', 'mdp-oublie']
+  ];
+  for (const [q, id] of cas) { const r = await s.post('/api/assistant', { question: q }); assert.equal(r.json.id, id, q); }
+  assert.equal((await s.post('/api/assistant', { topic: 'admin-retraits' })).status, 404);
+  assert.ok((await s.get('/api/assistant/topics')).json.topics.length >= 5);
+  const nf = await c.post('/api/public/assistant', { question: 'xyzzy plugh' });
+  assert.equal(nf.json.found, false); assert.ok(Array.isArray(nf.json.related)); assert.equal(nf.json.team, true);
+});
+
 test('messagerie avec l\'équipe : connecté, visiteur, réponse, mot de passe temporaire', async () => {
   const a = await new Client().login('620000000');
   const c = new Client();
