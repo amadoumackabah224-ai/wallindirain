@@ -18,7 +18,7 @@ export function callQueue({ onTaken }) {
       const take = action(async () => { await post(`/calls/${o.id}/take`); onTaken?.(); }, { ok: 'Commande prise : appelez le client', refresh });
       return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''} ${o.escalated ? 'escalated' : ''}` },
         h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), o.risk_flag && badge('Client à risque', 'bad'), o.escalated && badge('Escaladée', 'warn'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
-        kv([['Produit', `${o.product_name} × ${o.qty}`], ['Commune', o.commune], ['Total', amount(o.sale_total)]]),
+        kv([['Produit', `${o.product_name} × ${o.qty}`], ['Quartier / ville', o.commune], ['Total', amount(o.sale_total)]]),
         h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: take }, 'Prendre cette commande')));
     }) : empty('✅', 'Aucune commande à appeler. Bravo !')), { poll: 10000 });
 }
