@@ -191,6 +191,24 @@ export function registerRoutes(app, { db, cfg }) {
     await fn('fn_set_identity_doc', ctx.user.id, v.str(ctx.body.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }));
   }));
 
+  // Vérification d'identité (KYC) : images de la pièce, visibles du propriétaire et des administrateurs seulement
+  const KYC_ROLES = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
+  app.get('/api/me/identity', guard(KYC_ROLES, async (ctx) => (await q('SELECT fn_my_identity($1) AS r', [ctx.user.id]))[0].r));
+  app.post('/api/me/identity/image', guard(KYC_ROLES, async (ctx) => {
+    limit(`kyc:${ctx.user.id}`, 30, 3600_000);
+    const { mime, buf } = parseImage(ctx.body.image);
+    await fn('fn_identity_image_set', ctx.user.id, v.oneOf(ctx.body.side, ['front', 'back', 'selfie'], 'Côté'), v.oneOf(ctx.body.doc_type || 'cni', ['cni', 'passeport', 'autre'], 'Type de pièce'), mime, buf);
+  }), { maxBody: MAX_PROOF_BODY });
+  app.post('/api/me/identity/submit', guard(KYC_ROLES, async (ctx) => { await fn('fn_identity_submit', ctx.user.id); }));
+  app.get('/api/identity/:id/:side', guard(ANY_ROLE, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_identity_image_get($1, $2, $3)', [ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.oneOf(ctx.params.side, ['front', 'back', 'selfie'], 'Côté')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Image introuvable');
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'no-store';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
+  }));
+
   // =========================================================================
   // Profil (tous les rôles) : nom, photo, mot de passe, numéro de versement
   // =========================================================================
@@ -302,7 +320,8 @@ export function registerRoutes(app, { db, cfg }) {
       reserved: Number((await q(`SELECT COALESCE(sum(amount),0)::bigint AS r FROM withdrawals WHERE user_id = $1 AND status = 'requested' AND NOT debited`, [id]))[0].r),
       subscription: ctx.user.role === 'seller' ? await subscriptionInfo(id) : null,
       identity_verified: ctx.user.identity_verified,
-      identity_submitted: !!(await q('SELECT identity_doc FROM users WHERE id = $1', [id]))[0]?.identity_doc
+      identity_submitted: !!(await q('SELECT identity_doc FROM users WHERE id = $1', [id]))[0]?.identity_doc,
+      kyc_status: (await q('SELECT status, reject_reason FROM identity_documents WHERE user_id = $1', [id]))[0] || { status: 'none' }
     };
   }));
 
@@ -634,6 +653,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/admin/users', guard(ADM, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);
     return { users: await q(`SELECT id, role, status, full_name, phone, team, identity_doc, identity_verified, payout_method, payout_phone, created_at,
+          (SELECT d.status FROM identity_documents d WHERE d.user_id = users.id) AS kyc_status,
+          EXISTS (SELECT 1 FROM identity_documents d WHERE d.user_id = users.id AND d.back_mime IS NOT NULL) AS kyc_back,
           CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance
         FROM users WHERE deleted_at IS NULL AND role <> 'system' AND ($1::text IS NULL OR role::text = $1) AND ($2::text IS NULL OR status::text = $2)
         ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [ctx.query.role || null, ctx.query.status || null, l, offset]) };
@@ -698,6 +719,7 @@ export function registerRoutes(app, { db, cfg }) {
     return fn('fn_admin_reset_activity', ctx.user.id, typeof ctx.body.confirm === 'string' ? ctx.body.confirm : '');
   }));
   app.post('/api/admin/users/:id/unlock', guard(ADM, async (ctx) => { await fn('fn_admin_unlock_user', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur')); }));
+  app.post('/api/admin/users/:id/reject-identity', guard(ADM, async (ctx) => { await fn('fn_admin_reject_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 300 })); }));
   app.post('/api/admin/users/:id/verify', guard(ADM, async (ctx) => { await fn('fn_admin_verify_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.bool(ctx.body.verified, 'Vérification')); }));
 
   app.get('/api/admin/products', guard(ADM, async (ctx) => ({
