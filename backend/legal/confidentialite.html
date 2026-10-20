@@ -31,6 +31,10 @@
       <td>Écritures du portefeuille, demandes de retrait, captures d'écran de preuve de transfert envoyées par l'administration ou les livreurs, comptage des caisses.</td>
       <td>Payer chacun correctement et prouver les paiements.</td>
       <td>Conservées comme pièces comptables. Après anonymisation d'un compte, elles restent mais ne portent plus de nom.</td></tr>
+    <tr><th scope="row">Tableur du vendeur (facultatif)</th>
+      <td>Le lien de son Google Sheet (identifiant du document seulement) et, à chaque import, les lignes de commandes qu'il y a saisies (nom, téléphone, quartier ou ville, adresse du client, produit). Le tableur reste chez Google ; nous n'y accédons que lorsque le vendeur clique sur « Importer ».</td>
+      <td>Créer des commandes à partir du tableau du vendeur.</td>
+      <td>Le lien : tant que le vendeur le garde. Les commandes importées suivent la durée des commandes (5 ans). Le vendeur doit avoir l'accord de ses clients pour transmettre leurs coordonnées.</td></tr>
     <tr><th scope="row">Photo de profil (facultative)</th>
       <td>Une petite image réduite, si vous choisissez d'en ajouter une.</td>
       <td>Vous reconnaître dans l'application.</td>
@@ -100,6 +104,7 @@
 <ul>
   <li><strong>Render</strong> (Render Services, Inc., États-Unis) héberge l'application et <strong>Neon</strong> héberge la base de données. Pays ou région des serveurs : {{HOSTING_REGION}}.</li>
   <li><strong>Orange Money et MTN MoMo</strong> : les retraits sont envoyés manuellement par notre équipe depuis ses propres comptes. L'opérateur reçoit votre numéro de versement et le montant, comme pour tout transfert.</li>
+  <li><strong>Google (Google Sheets)</strong>, seulement si un vendeur choisit d'importer ses commandes depuis son propre tableur : notre serveur lit ce tableur (partagé par le vendeur) ; aucune donnée de la plateforme n'est envoyée à Google.</li>
   <li><strong>WhatsApp (Meta)</strong> ou un fournisseur de SMS, si l'envoi de messages est activé : il reçoit le numéro du destinataire et le texte du message. Tant que l'envoi n'est pas activé, les messages sont seulement enregistrés dans la plateforme.</li>
 </ul>
 <p>Ces serveurs peuvent se trouver en dehors de la CEDEAO. La loi guinéenne encadre le transfert de données vers un pays tiers ; nous ne confions à nos prestataires que les données nécessaires au fonctionnement du service.</p>

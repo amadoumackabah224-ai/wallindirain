@@ -221,7 +221,7 @@ test('critère 6 : manque de caisse débité au livreur', async () => {
   await expectErr(call(db.app, 'fn_admin_count_cash', w.admin, w.courier2, 0), 'invalid_state');
 });
 
-test('critère 5 : retrait impossible sans identité vérifiée et sans code', async () => {
+test('critère 5 : retrait impossible sans identité vérifiée ; l\'administrateur valide, le débit se fait au paiement', async () => {
   // le vendeur a des gains disponibles (déblocage 0 h dans ce test)
   await expectErr(call(db.app, 'fn_withdrawal_request', w.seller, 50000, 'orange_money', '620000099'), 'identity_required');
   await call(db.app, 'fn_admin_verify_identity', w.admin, w.seller, true);
@@ -229,20 +229,14 @@ test('critère 5 : retrait impossible sans identité vérifiée et sans code', a
   await expectErr(call(db.app, 'fn_withdrawal_request', w.seller, 999999999, 'orange_money', '620000099'), 'insufficient_funds');
   const bal = await sum(w.seller);
   const wd = await call(db.app, 'fn_withdrawal_request', w.seller, 50000, 'orange_money', '620000099');
-  assert.equal(await sum(w.seller), bal);               // rien n'est débité avant le code
-  await expectErr(call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'REF-1'), 'invalid_state');
-  const wrong = await call(db.app, 'fn_withdrawal_confirm', w.seller, wd, '000000');
-  assert.equal(wrong.ok, false);
-  const code = /: (\d{6})\./.exec((await db.app.query(`SELECT body FROM messages WHERE template='withdrawal_code' ORDER BY id DESC LIMIT 1`)).rows[0].body)[1];
-  assert.equal((await call(db.app, 'fn_withdrawal_confirm', w.seller, wd, code)).ok, true);
-  assert.equal(await sum(w.seller), bal - 50000);
+  assert.equal(await sum(w.seller), bal);               // rien n'est débité tant que l'administrateur n'a pas payé
+  await expectErr(call(db.app, 'fn_withdrawal_request', w.seller, bal, 'orange_money', '620000099'), 'insufficient_funds');   // la demande en attente est déjà réservée
   await expectErr(call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2026-0001'), 'proof_required');   // capture obligatoire
   await call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2026-0001', await makeProof(db, w.admin, 'withdrawal_payment'));
+  assert.equal(await sum(w.seller), bal - 50000);       // débité au paiement
   await expectErr(call(db.app, 'fn_admin_pay_withdrawal', w.admin, wd, 'OM-2', await makeProof(db, w.admin, 'withdrawal_payment')), 'invalid_state');
-  // rejet : remboursé
+  // rejet : rien n'a été débité, donc rien à rembourser
   const wd2 = await call(db.app, 'fn_withdrawal_request', w.seller, 50000, 'mtn_momo', '660000099');
-  const code2 = /: (\d{6})\./.exec((await db.app.query(`SELECT body FROM messages WHERE template='withdrawal_code' ORDER BY id DESC LIMIT 1`)).rows[0].body)[1];
-  await call(db.app, 'fn_withdrawal_confirm', w.seller, wd2, code2);
   await call(db.app, 'fn_admin_reject_withdrawal', w.admin, wd2, 'compte invalide');
   assert.equal(await sum(w.seller), bal - 50000);
 });

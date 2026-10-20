@@ -80,7 +80,8 @@ export function sellerNewOrder({ goTo }) {
     const cname = h('input', { type: 'text', required: true, maxlength: 100 });
     const cphone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
     const commune = h('select', { required: true }, info.communes.map((c) => h('option', { value: c.commune }, `${c.commune} · ${fmtGNF(c.fee)}`)));
-    const addr = h('textarea', { required: true, maxlength: 300 });
+    const addr = h('textarea', { required: true, maxlength: 300, placeholder: 'Rue, repère connu (pharmacie, mosquée, marché…)' });
+    const already = h('input', { type: 'checkbox' });
     const note = h('input', { type: 'text', maxlength: 300 });
     const ownBox = h('div', { class: 'hidden' }, h('label', { class: 'f' }, h('span', {}, 'Nom du produit'), ownName), h('label', { class: 'f' }, h('span', {}, 'Prix de vente unitaire (GNF)'), price,
       h('div', { class: 'hint' }, `Doit couvrir au moins la livraison et le call center.`)));
@@ -89,18 +90,39 @@ export function sellerNewOrder({ goTo }) {
     const form = h('form', { onsubmit: async (e) => {
       e.preventDefault(); const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const body = { qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value };
+        const body = { qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value, already_confirmed: already.checked };
         if (own.checked) { body.own_product_name = ownName.value; body.unit_price = Number(price.value); } else body.product_id = product.value;
         const r = await post('/seller/orders', body);
-        toast(`Commande ${r.ref} créée${r.risk ? ' (client à surveiller)' : ''}`, 'ok'); goTo('orders');
+        toast(`Commande ${r.ref} créée${r.status === 'confirmed' ? ' : prête à être affectée à un livreur' : r.risk ? ' (client à surveiller)' : ''}`, 'ok'); goTo('orders');
       } catch (ex) { toast(ex.message, 'bad'); btn.disabled = false; }
     } },
       h('label', { class: 'f' }, h('span', {}, 'Type de produit'), h('div', { class: 'gap' }, own, h('span', {}, 'Mon propre produit (hors catalogue)'))),
       catBox, ownBox, h('label', { class: 'f' }, h('span', {}, 'Quantité'), qty),
       h('h2', { class: 'mt' }, 'Client'), h('label', { class: 'f' }, h('span', {}, 'Nom'), cname), h('label', { class: 'f' }, h('span', {}, 'Téléphone'), cphone),
-      h('label', { class: 'f' }, h('span', {}, 'Commune'), commune), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
+      h('label', { class: 'f' }, h('span', {}, 'Quartier ou ville'), commune), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
+      h('label', { class: 'f check' }, already, h('span', {}, h('b', {}, 'J\'ai déjà appelé ce client et il a confirmé.'), h('div', { class: 'hint' }, 'Cochée : la commande ne passe pas par le call center (pas de frais d\'appel) et va directement à l\'affectation au livreur. Ne cochez que si le client a vraiment confirmé.'))),
       h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer la commande'));
-    host.replaceChildren(h('h1', {}, 'Nouvelle commande'), h('div', { class: 'card' }, form));
+    host.replaceChildren(h('h1', {}, 'Nouvelle commande'), h('div', { class: 'card' }, form), importCard());
   }).catch((e) => host.replaceChildren(h('div', { class: 'notice bad' }, e.message)));
   return host;
+}
+
+/** Import des commandes depuis un Google Sheet (partagé en lecture) ou un tableau collé en CSV. */
+function importCard() {
+  const out = h('div', { role: 'status' });
+  const url = h('input', { type: 'url', placeholder: 'https://docs.google.com/spreadsheets/d/…', maxlength: 300, 'aria-label': 'Lien de votre Google Sheet' });
+  const csv = h('textarea', { rows: 4, placeholder: 'Ou collez ici votre tableau (copié depuis Excel / Sheets)', 'aria-label': 'Tableau collé en CSV' });
+  get('/seller/sheet').then((r) => { if (r.sheet) url.value = r.sheet.url; }).catch(() => {});
+  const show = (r) => out.replaceChildren(
+    h('div', { class: r.errors.length ? 'notice warn' : 'notice ok' }, `${r.created} commande(s) créée(s), ${r.duplicates} déjà importée(s), ${r.errors.length} ligne(s) en erreur.`),
+    ...r.errors.slice(0, 30).map((e) => h('div', { class: 'small' }, `Ligne ${e.line} : ${e.message}`)));
+  const save = action(async () => { await post('/seller/sheet', { url: url.value.trim() }); }, { ok: 'Lien enregistré' });
+  const run = action(async () => { show(await post('/seller/import', csv.value.trim() ? { csv: csv.value } : {})); }, {});
+  return h('div', { class: 'card' }, h('h2', {}, 'Importer depuis un Google Sheet'),
+    h('p', { class: 'small muted' }, 'Une ligne = une commande. En-têtes attendus : nom, téléphone, quartier ou ville, adresse, produit, quantité, prix, confirmé (oui/non). Un produit qui n\'est pas dans le catalogue est traité comme votre propre produit (le prix est alors obligatoire). Les lignes déjà importées sont ignorées.'),
+    h('p', { class: 'small muted' }, 'Votre Google Sheet doit être partagé avec « Toute personne disposant du lien » en lecture seule.'),
+    h('label', { class: 'f' }, h('span', {}, 'Lien de votre Google Sheet'), url),
+    h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: save }, 'Enregistrer le lien')),
+    h('label', { class: 'f mt' }, h('span', {}, 'Ou tableau collé (CSV)'), csv),
+    h('button', { class: 'btn btn-gold mt', type: 'button', onclick: run }, 'Importer mes commandes'), out);
 }
