@@ -1,6 +1,7 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
 import { h, ask, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, FAIL_LABEL, WALLET_KIND } from '../ui.js';
 import { get, post } from '../api.js';
+import { reviewIdentity } from './kyc.js';
 
 const kpi = (label, value, cls = '') => h('div', { class: `kpi ${cls}` }, h('div', { class: 'v' }, value), h('div', { class: 'l' }, label));
 
@@ -56,14 +57,14 @@ export function adminUsers() {
         const unlock = action(async () => { await post(`/admin/users/${u.id}/unlock`); }, { ok: 'Compte déverrouillé', refresh });
         const setStatus = (s, msg) => action(async () => { await post(`/admin/users/${u.id}/status`, { status: s }); }, { ok: msg, refresh });
         const verify = action(async () => {
-          if (u.identity_verified) { await post(`/admin/users/${u.id}/verify`, { verified: false }); return; }
-          if (await confirmBox('Vérifier l\'identité ?', `Pièce déclarée : « ${u.identity_doc || 'aucune'} ». Confirmez uniquement après avoir contrôlé le document.`, 'Identité vérifiée')) await post(`/admin/users/${u.id}/verify`, { verified: true });
-        }, { ok: 'Identité mise à jour', refresh });
+          if (u.identity_verified) { if (await confirmBox('Retirer la vérification ?', 'La personne ne pourra plus retirer d\'argent tant que sa pièce n\'est pas revérifiée.', 'Retirer')) await post(`/admin/users/${u.id}/verify`, { verified: false }); return; }
+          reviewIdentity(u, refresh);
+        }, { refresh });
         return [h('div', {}, h('b', {}, u.full_name), u.team && h('div', { class: 'small muted' }, u.team)), ROLE_LABEL[u.role], fmtPhone(u.phone),
           u.payout_phone ? h('div', { class: 'small' }, u.payout_method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', h('div', { class: 'muted' }, fmtPhone(u.payout_phone))) : h('span', { class: 'small muted' }, 'non défini'),
           badge({ active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[u.status], { active: 'ok', pending: 'warn', suspended: 'bad' }[u.status]),
-          u.identity_doc ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge('À vérifier', 'warn'), h('div', { class: 'small muted' }, u.identity_doc)) : '—',
-          u.balance != null ? amount(u.balance) : '', h('div', { class: 'gap' }, u.identity_doc && h('button', { class: 'btn btn-sm btn-ghost', onclick: verify }, u.identity_verified ? 'Retirer' : 'Vérifier ID'),
+          (u.identity_doc || u.kyc_status) ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge(...({ submitted: ['À examiner', 'warn'], rejected: ['Refusée', 'bad'], draft: ['Incomplète', 'warn'] }[u.kyc_status] || ['Sans photos', 'warn'])), h('div', { class: 'small muted' }, u.identity_doc || '')) : '—',
+          u.balance != null ? amount(u.balance) : '', h('div', { class: 'gap' }, (u.identity_doc || u.kyc_status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: verify }, u.identity_verified ? 'Retirer' : (u.kyc_status ? 'Examiner la pièce' : 'Vérifier ID')),
             u.status !== 'active' ? h('button', { class: 'btn btn-sm btn-ok', onclick: setStatus('active', 'Compte activé') }, 'Activer') : h('button', { class: 'btn btn-sm btn-ghost', onclick: setStatus('suspended', 'Compte suspendu') }, 'Suspendre'),
             h('button', { class: 'btn btn-sm btn-ghost', onclick: edit }, 'Modifier'), h('button', { class: 'btn btn-sm btn-ghost', onclick: resetPw }, 'Mot de passe'), h('button', { class: 'btn btn-sm btn-ghost', onclick: unlock }, 'Débloquer'), u.role !== 'admin' && h('button', { class: 'btn btn-sm btn-ghost', onclick: anonymize }, 'Anonymiser'))];
       }), { empty: empty('👥', 'Aucun utilisateur') })));

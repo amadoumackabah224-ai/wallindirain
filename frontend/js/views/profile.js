@@ -1,6 +1,7 @@
 // Profil : nom, photo, mot de passe, numéro de versement, accès à mes droits sur mes données.
 import { h, ask, fmtPhone, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, legalLinks } from '../ui.js';
 import { get, post } from '../api.js';
+import { kycCard } from './kyc.js';
 
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const PAYOUT_ROLES = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
@@ -51,6 +52,7 @@ export function profileView({ onChanged }) {
       PAYOUT_ROLES.includes(p.role) && h('div', { class: 'card' }, h('h2', {}, 'Numéro de versement'),
         p.payout ? h('p', {}, `${OPERATOR[p.payout.method]} · `, h('b', {}, fmtPhone(p.payout.phone))) : h('p', { class: 'muted' }, 'Aucun numéro enregistré.'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: changePayout }, p.payout ? 'Changer mon numéro' : 'Enregistrer mon numéro')),
+      PAYOUT_ROLES.includes(p.role) && kycCard(p.id),
       h('div', { class: 'card' }, h('h2', {}, 'Sécurité'), h('p', { class: 'muted small' }, 'Changer votre mot de passe déconnecte vos autres appareils.'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: changePw }, 'Changer mon mot de passe')),
       h('div', { class: 'card' }, h('h2', {}, 'Mes données'), h('p', { class: 'small' }, 'Vous pouvez demander l\'accès à vos données, leur correction ou la suppression de votre compte.'),
