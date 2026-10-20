@@ -5,7 +5,7 @@ import { HttpError, v, page } from './http.js';
 import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
 import { legalMissing } from './legal.js';
-import { answer, suggestions } from './assistant.js';
+import { answer, suggestions, topic, topics } from './assistant.js';
 import { parseSheetUrl, fetchSheetCsv, parseCsv, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
@@ -240,13 +240,17 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   app.post('/api/public/assistant', async (ctx) => {
     limit(`bot:${clientIp(ctx.req)}`, 40, 600_000);
+    if (ctx.body.topic) { const t = topic('visitor', v.str(ctx.body.topic, 'Sujet', { min: 1, max: 60 })); if (!t) throw new HttpError(404, 'not_found', 'Sujet introuvable'); return t; }
     return answer('visitor', v.str(ctx.body.question, 'Question', { min: 2, max: 300 }));
   });
+  app.get('/api/public/assistant/topics', async () => ({ topics: topics('visitor') }));
   app.get('/api/public/assistant/suggestions', async () => ({ suggestions: suggestions('visitor') }));
   app.post('/api/assistant', guard(ANY_ROLE, async (ctx) => {
     limit(`bot:${ctx.user.id}`, 60, 600_000);
+    if (ctx.body.topic) { const t = topic(ctx.user.role, v.str(ctx.body.topic, 'Sujet', { min: 1, max: 60 })); if (!t) throw new HttpError(404, 'not_found', 'Sujet introuvable'); return t; }
     return answer(ctx.user.role, v.str(ctx.body.question, 'Question', { min: 2, max: 300 }));
   }));
+  app.get('/api/assistant/topics', guard(ANY_ROLE, async (ctx) => ({ topics: topics(ctx.user.role) })));
   app.get('/api/assistant/suggestions', guard(ANY_ROLE, async (ctx) => ({ suggestions: suggestions(ctx.user.role) })));
 
   app.get('/api/support', guard(ANY_ROLE, async (ctx) => {
