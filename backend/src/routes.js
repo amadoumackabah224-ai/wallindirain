@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
 import { legalMissing } from './legal.js';
 import { answer, suggestions } from './assistant.js';
+import { parseSheetUrl, fetchSheetCsv, parseCsv, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
 const COOKIE = 'wld_session';
@@ -73,7 +74,7 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   app.get('/api/public/info', async () => ({
     contact_phone: cfg.contactPhone,
-    communes: await q('SELECT commune, fee FROM delivery_rates ORDER BY commune')
+    communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune')
   }));
 
   // =========================================================================
@@ -160,7 +161,7 @@ export function registerRoutes(app, { db, cfg }) {
         JOIN seller_prices sp ON sp.seller_id = l.seller_id AND sp.product_id = l.product_id
         WHERE l.code = $1`, [ctx.params.code]);
     if (!rows.length) throw new HttpError(404, 'not_found', 'Ce lien n\'est plus valable');
-    return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates ORDER BY commune'), contact_phone: cfg.contactPhone };
+    return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune'), contact_phone: cfg.contactPhone };
   });
 
   app.post('/api/public/link/:code/order', async (ctx) => {
@@ -272,6 +273,14 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   // Portefeuille et retraits (vendeur, fournisseur, agent, chef, livreur)
   // =========================================================================
+  async function subscriptionInfo(id) {
+    const [st] = await q(`SELECT (SELECT value FROM settings WHERE key='subscription_monthly')::bigint AS monthly, (SELECT value FROM settings WHERE key='subscription_required')::int AS required,
+        (SELECT value FROM settings WHERE key='subscription_trial_days')::int AS trial_days, (SELECT paid_until FROM seller_subscriptions WHERE seller_id = $1) AS paid_until,
+        (SELECT created_at FROM users WHERE id = $1) AS created_at`, [id]);
+    const trialEnd = new Date(new Date(st.created_at).getTime() + st.trial_days * 86400_000);
+    return { monthly: Number(st.monthly), required: st.required === 1, paid_until: st.paid_until, trial_until: trialEnd.toISOString(),
+      active: !(st.required === 1 && Number(st.monthly) > 0) || (st.paid_until && new Date(st.paid_until) > new Date()) || trialEnd > new Date() };
+  }
   app.get('/api/wallet', guard(WALLET_ROLES, async (ctx) => {
     const id = ctx.user.id;
     const [bal] = await q(`SELECT COALESCE(sum(amount) FILTER (WHERE available_at <= now()),0)::bigint AS available,
@@ -286,6 +295,8 @@ export function registerRoutes(app, { db, cfg }) {
       payout: (await q('SELECT payout_method AS method, payout_phone AS phone FROM users WHERE id = $1', [id]))[0],
       min_withdrawal: Number((await q(`SELECT value FROM settings WHERE key = 'min_withdrawal'`))[0].value),
       role: ctx.user.role,
+      reserved: Number((await q(`SELECT COALESCE(sum(amount),0)::bigint AS r FROM withdrawals WHERE user_id = $1 AND status = 'requested' AND NOT debited`, [id]))[0].r),
+      subscription: ctx.user.role === 'seller' ? await subscriptionInfo(id) : null,
       identity_verified: ctx.user.identity_verified,
       identity_submitted: !!(await q('SELECT identity_doc FROM users WHERE id = $1', [id]))[0]?.identity_doc
     };
@@ -296,7 +307,7 @@ export function registerRoutes(app, { db, cfg }) {
     // le versement part toujours vers le numéro enregistré : on n'accepte plus de numéro dans la demande
     const id = await fn('fn_withdrawal_request', ctx.user.id, v.int(ctx.body.amount, 'Montant', { min: 1, max: 1e10 }));
     ctx.status = 201;
-    return { id, message: 'Un code à 6 chiffres vous a été envoyé par message. Saisissez-le pour confirmer.' };
+    return { id, status: 'requested', message: 'Demande envoyée. L\'administration la vérifie puis envoie l\'argent avec une capture du transfert ; le montant est débité à ce moment-là.' };
   }));
 
   // Numéro de versement : à définir une seule fois (mot de passe demandé) ; ensuite seule l'administration le modifie
@@ -308,14 +319,6 @@ export function registerRoutes(app, { db, cfg }) {
     if (!rows.length || !(await verifyPassword(pw, rows[0].password_hash))) throw new HttpError(403, 'bad_password', 'Mot de passe incorrect');
     await fn('fn_set_payout', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Opérateur'), v.phone(b.phone, 'Numéro de versement'));
     return { ok: true };
-  }));
-
-  app.post('/api/withdrawals/:id/confirm', guard(WALLET_ROLES, async (ctx) => {
-    limit(`wdc:${ctx.user.id}`, 10, 900_000);
-    const r = await fn('fn_withdrawal_confirm', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.code, 'Code', { min: 6, max: 6 }));
-    if (!r.ok) throw new HttpError(400, r.reason === 'expired' ? 'code_expired' : 'wrong_code',
-      r.reason === 'expired' ? 'Code expiré. Faites une nouvelle demande.' : 'Code incorrect');
-    return { ok: true, message: 'Retrait demandé. L\'administration va effectuer le paiement.' };
   }));
 
   // =========================================================================
@@ -384,11 +387,11 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   const SEL = ['seller'];
   app.get('/api/seller/catalog', guard(SEL, async (ctx) => {
-    const [{ call_fee, max_fee }] = await q(`SELECT (SELECT value FROM settings WHERE key='call_fee') AS call_fee, (SELECT max(fee) FROM delivery_rates) AS max_fee`);
+    const [{ call_fee, max_fee }] = await q(`SELECT (SELECT value FROM settings WHERE key='call_fee') AS call_fee, (SELECT max(fee) FROM delivery_rates WHERE active) AS max_fee`);
     return {
       products: await q(`SELECT p.id, p.name, p.description,
             (p.supplier_price + p.margin_unit) AS vendor_price,
-            (p.supplier_price + p.margin_unit + $2 + $3) AS min_price,
+            (p.supplier_price + p.margin_unit + $2 + $3 + (SELECT value FROM settings WHERE key = 'fee_unit')) AS min_price,
             (p.storage = 'wallindirain') AS can_prepay,
             GREATEST(p.stock_qty - p.reserved_qty, 0) AS available,
             sp.sale_price, COALESCE(ss.qty, 0) AS my_stock, COALESCE(ss.reserved_qty, 0) AS my_reserved, l.code AS link_code
@@ -415,9 +418,53 @@ export function registerRoutes(app, { db, cfg }) {
       own ? v.str(b.own_product_name, 'Nom du produit', { min: 2, max: 120 }) : null,
       b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
-      v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300));
+      v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true);
     ctx.status = 201;
     return r;
+  }));
+
+  // ----- Import Google Sheet / CSV : une ligne = une commande (les lignes déjà importées sont ignorées) -----
+  app.get('/api/seller/sheet', guard(SEL, async (ctx) => {
+    const [s] = await q('SELECT sheet_id, gid FROM seller_sheets WHERE seller_id = $1', [ctx.user.id]);
+    return { sheet: s ? { url: `https://docs.google.com/spreadsheets/d/${s.sheet_id}/edit#gid=${s.gid}` } : null };
+  }));
+  app.post('/api/seller/sheet', guard(SEL, async (ctx) => {
+    if (!ctx.body.url) { await fn('fn_seller_set_sheet', ctx.user.id, null, null); return { sheet: null }; }
+    const { id, gid } = parseSheetUrl(ctx.body.url);
+    await fn('fn_seller_set_sheet', ctx.user.id, id, gid);
+    return { sheet: { url: `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${gid}` } };
+  }));
+  app.post('/api/seller/import', guard(SEL, async (ctx) => {
+    limit(`import:${ctx.user.id}`, 10, 3600_000);
+    let text;
+    if (typeof ctx.body.csv === 'string' && ctx.body.csv.trim()) text = ctx.body.csv.slice(0, 1_000_000);
+    else {
+      const [s] = await q('SELECT sheet_id, gid FROM seller_sheets WHERE seller_id = $1', [ctx.user.id]);
+      if (!s) throw new HttpError(400, 'invalid_input', 'Enregistrez d\'abord le lien de votre Google Sheet, ou collez votre tableau en CSV');
+      text = await (app.fetchSheet || fetchSheetCsv)({ id: s.sheet_id, gid: s.gid });
+    }
+    const rows = mapRows(parseCsv(text));
+    const catalog = await q(`SELECT p.id, lower(p.name) AS n FROM products p WHERE p.status = 'approved' AND p.deleted_at IS NULL`);
+    const zones = await q('SELECT commune FROM delivery_rates WHERE active');
+    const zoneOf = (z) => zones.find((x) => x.commune.toLowerCase() === z.toLowerCase())?.commune;
+    const other = zones.find((x) => x.commune === 'Autre quartier / ville')?.commune;
+    const out = { created: 0, duplicates: 0, errors: [] };
+    for (const r of rows) {
+      try {
+        const phone = phone9(r.phone);
+        if (!/^[0-9]{9}$/.test(phone)) throw new Error('Téléphone invalide (9 chiffres attendus)');
+        let zone = zoneOf(r.zone), address = r.address;
+        if (!zone) { if (!other) throw new Error(`Zone « ${r.zone || 'vide'} » non desservie`); zone = other; address = r.zone ? `${r.zone}, ${r.address}` : r.address; }
+        const prod = catalog.find((c) => c.n === r.product.toLowerCase());
+        const price = parsePrice(r.price);
+        const qty = r.qty ? Number(r.qty.replace(/\D/g, '')) : 1;
+        if (!prod && !price) throw new Error(`Produit « ${r.product} » absent du catalogue : indiquez un prix pour le traiter comme votre propre produit`);
+        const res = await fn('fn_seller_import_order', ctx.user.id, rowHash(ctx.user.id, r), prod ? prod.id : null, prod ? null : r.product, price, qty,
+          r.name, phone, zone, address.slice(0, 300), r.note ? r.note.slice(0, 300) : null, isYes(r.confirmed));
+        if (res.duplicate) out.duplicates++; else out.created++;
+      } catch (e) { out.errors.push({ line: r.line, message: e.message?.replace(/^[a-z_]+\|/, '') || 'Erreur' }); }
+    }
+    return out;
   }));
 
   const SELLER_ORDER_COLS = `o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total,
@@ -715,10 +762,20 @@ export function registerRoutes(app, { db, cfg }) {
   }));
   app.post('/api/admin/withdrawals/:id/reject', guard(ADM, async (ctx) => { await fn('fn_admin_reject_withdrawal', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
 
+  app.get('/api/admin/subscriptions', guard(ADM, async () => ({
+    settings: Object.fromEntries((await q(`SELECT key, value FROM settings WHERE key LIKE 'subscription\_%' OR key IN ('fee_order_bps','fee_unit','courier_share_bps')`)).map((r) => [r.key, Number(r.value)])),
+    sellers: await q(`SELECT u.id, u.full_name, u.phone, u.created_at, s.paid_until,
+        (COALESCE(s.paid_until, '-infinity') > now()) AS paid FROM users u LEFT JOIN seller_subscriptions s ON s.seller_id = u.id
+        WHERE u.role = 'seller' AND u.deleted_at IS NULL ORDER BY u.created_at DESC LIMIT 300`) })));
+  app.post('/api/admin/subscriptions/charge', guard(ADM, async (ctx) => {
+    const b = ctx.body;
+    return { paid_until: await fn('fn_admin_charge_subscription', ctx.user.id, v.uuid(b.seller_id, 'Vendeur'), v.int(b.months, 'Durée', { min: 1, max: 12 }), v.oneOf(b.method, ['wallet', 'external'], 'Mode'), v.optStr(b.note, 'Note', 200)) };
+  }));
+
   app.get('/api/admin/settings', guard(ADM, async () => ({
-    settings: await q('SELECT key, value, label FROM settings ORDER BY key'), rates: await q('SELECT commune, fee FROM delivery_rates ORDER BY commune') })));
+    settings: await q('SELECT key, value, label FROM settings ORDER BY key'), rates: await q('SELECT commune, fee, active FROM delivery_rates ORDER BY active DESC, commune') })));
   app.post('/api/admin/settings', guard(ADM, async (ctx) => { await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
-  app.post('/api/admin/rates', guard(ADM, async (ctx) => { await fn('fn_admin_set_delivery_rate', ctx.user.id, v.str(ctx.body.commune, 'Commune', { min: 2, max: 60 }), v.int(ctx.body.fee, 'Tarif', { min: 0, max: 1e6 })); }));
+  app.post('/api/admin/rates', guard(ADM, async (ctx) => { await fn('fn_admin_set_delivery_rate', ctx.user.id, v.str(ctx.body.commune, 'Quartier ou ville', { min: 2, max: 60 }), v.int(ctx.body.fee, 'Tarif', { min: 0, max: 1e6 }), ctx.body.active !== false); }));
 
   app.get('/api/admin/audit', guard(ADM, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);

@@ -103,11 +103,9 @@ test('retrait de bout en bout : demande, code, paiement manuel avec capture, pre
   // la demande ne prend plus de numéro : il vient du compte
   const req = await seller.post('/api/withdrawals', { amount: 60000, method: 'mtn_momo', account: '666000000' });
   assert.equal(req.status, 201, JSON.stringify(req.json));
-  // mode test : le code est lisible dans l'écran Messages de l'administrateur
-  const msgs = (await admin.get('/api/admin/messages')).json;
-  assert.equal(msgs.test_codes_visible, true);
-  const code = /: (\d{6})\./.exec(msgs.messages.find((m) => m.template === 'withdrawal_code').body)[1];
-  assert.equal((await seller.post(`/api/withdrawals/${req.json.id}/confirm`, { code })).status, 200);
+  assert.equal(req.json.status ?? 'requested', 'requested');                                                // plus de code : la demande attend l'administrateur
+  assert.equal((await seller.get('/api/wallet')).json.reserved, 60000);                                     // réservé, pas encore débité
+  const before = (await seller.get('/api/wallet')).json.available;
 
   const list = (await admin.get('/api/admin/withdrawals')).json.withdrawals;
   const wd = list.find((x) => x.id === req.json.id);
@@ -123,6 +121,8 @@ test('retrait de bout en bout : demande, code, paiement manuel avec capture, pre
   const mine = (await seller.get('/api/wallet')).json.withdrawals.find((x) => x.id === wd.id);
   assert.equal(mine.status, 'paid');
   assert.equal(mine.proof_id, proof);
+  assert.equal((await seller.get('/api/wallet')).json.available, before - 60000);                           // débité au paiement
+  assert.equal((await seller.get('/api/wallet')).json.reserved, 0);
   assert.equal((await seller.get(`/api/proofs/${proof}`)).status, 200);        // le bénéficiaire voit la preuve de son transfert
 });
 
