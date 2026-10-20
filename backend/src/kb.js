@@ -27,7 +27,7 @@ export const KB = [
 
   // ---------- Compte ----------
   { id: 'mdp-oublie', cat: 'account', t: 'Mot de passe oublié', roles: ALL, k: ['mot de passe oublie', 'oublie', 'perdu mot de passe', 'reinitialiser mot de passe', 'connexion impossible', 'je ne peux pas me connecter', 'pas recu le code', 'code sms'],
-    a: 'Sur l\'écran de connexion, touchez « Mot de passe oublié » et suivez les étapes (un code vous est envoyé par message). Si le message n\'arrive pas, écrivez à l\'équipe : un administrateur vous enverra un mot de passe temporaire par message, que vous changerez ensuite dans Profil.', team: true },
+    a: 'Sur l\'écran de connexion, touchez « Mot de passe oublié » et suivez les étapes (un code vous est envoyé par message). Si le message n\'arrive pas, appelez le numéro de contact affiché sur l\'écran de connexion : un administrateur vous enverra un mot de passe temporaire par message, que vous changerez ensuite dans Profil.' },
   { id: 'compte-bloque', cat: 'account', t: 'Compte bloqué', roles: ALL, k: ['compte bloque', 'bloque', 'verrouille', 'trop de tentatives', 'locked', 'suspendu'],
     a: 'Après plusieurs mots de passe erronés, le compte est bloqué quelques minutes pour vous protéger : patientez puis réessayez. Un compte « suspendu » a été arrêté par l\'administration : écrivez à l\'équipe pour en connaître la raison.', team: true },
   { id: 'inscription', cat: 'account', t: 'Créer un compte', roles: ['visitor', 'seller', 'supplier'], k: ['inscription', 'inscrire', 'creer un compte', 'creer compte', 'nouveau compte', 'devenir vendeur', 'devenir fournisseur', 'rejoindre'],
