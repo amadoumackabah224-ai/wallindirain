@@ -19,6 +19,7 @@ export async function freshDb(name, { deliveryCode = true } = {}) {
   await migrate(owner, APP_PW, () => {});
   // par défaut une base neuve n'exige pas le code (réglage 0) ; les tests du code l'activent
   if (deliveryCode) { const p = new Pool(owner); await p.query(`UPDATE settings SET value = 1 WHERE key = 'require_delivery_code'`); await p.end(); }
+  { const p = new Pool(owner); await p.query(`UPDATE settings SET value = 0 WHERE key = 'kyc_images_required'`); await p.end(); }
   return { owner: new Pool(owner), app: new Pool({ ...owner, user: 'wld_app', password: APP_PW }) };
 }
 
