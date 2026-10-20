@@ -17,10 +17,6 @@ export function walletView() {
         { name: 'password', label: 'Votre mot de passe (pour confirmer)', type: 'password' }] });
       if (v) await post('/me/payout', v);
     }, { ok: 'Numéro de versement enregistré', refresh });
-    const addDoc = action(async () => {
-      const v = await ask({ title: 'Pièce d\'identité', text: 'Saisissez le numéro de votre carte d\'identité ou passeport. Il est vérifié par l\'administration avant votre premier retrait ; aucune photo n\'est demandée.', submit: 'Envoyer', fields: [{ name: 'identity_doc', label: 'Numéro de la pièce', maxlength: 60, placeholder: 'Ex. CNI ou passeport : numéro' }] });
-      if (v) await post('/me/identity', v);
-    }, { ok: 'Pièce enregistrée, en attente de vérification', refresh });
     const withdraw = action(async () => {
       if (!w.identity_verified) { toast('Votre pièce d\'identité doit d\'abord être vérifiée par Wallindirain.', 'bad'); return; }
       if (!hasPayout) { toast('Enregistrez d\'abord votre numéro de versement.', 'bad'); return; }
@@ -38,9 +34,11 @@ export function walletView() {
       w.subscription && w.subscription.monthly > 0 && h('div', { class: w.subscription.active ? 'notice' : 'notice bad' }, w.subscription.required
         ? (w.subscription.active ? `Abonnement : ${fmtGNF(w.subscription.monthly)} par mois. ${w.subscription.paid_until && new Date(w.subscription.paid_until) > new Date() ? `Payé jusqu'au ${new Date(w.subscription.paid_until).toLocaleDateString('fr-FR')}.` : `Période d'essai jusqu'au ${new Date(w.subscription.trial_until).toLocaleDateString('fr-FR')}.`}` : `Abonnement expiré : ${fmtGNF(w.subscription.monthly)} par mois. Contactez Wallindirain pour le renouveler, sinon vous ne pouvez plus créer de commandes.`)
         : `Abonnement mensuel disponible : ${fmtGNF(w.subscription.monthly)}.`),
-      !w.identity_verified && (w.identity_submitted
-        ? h('div', { class: 'notice warn' }, 'Pièce d\'identité en cours de vérification : les retraits sont possibles dès qu\'elle est validée.')
-        : (['seller', 'supplier'].includes(w.role) ? h('div', { class: 'notice warn' }, 'Pour retirer de l\'argent, ajoutez le numéro de votre pièce d\'identité (aucune photo demandée). ', h('button', { class: 'btn btn-sm btn-gold', onclick: addDoc }, 'Ajouter ma pièce')) : h('div', { class: 'notice warn' }, 'Votre identité doit être vérifiée par l\'administration avant un retrait.'))),
+      !w.identity_verified && (w.kyc_status?.status === 'submitted'
+        ? h('div', { class: 'notice warn' }, 'Vos photos de pièce d\'identité sont en cours d\'examen : les retraits sont possibles dès qu\'elles sont validées.')
+        : w.kyc_status?.status === 'rejected'
+          ? h('div', { class: 'notice bad' }, `Votre pièce a été refusée : ${w.kyc_status.reject_reason || 'motif non précisé'}. `, h('a', { class: 'btn btn-sm btn-gold', href: '#/app/profile' }, 'Renvoyer mes photos'))
+          : h('div', { class: 'notice warn' }, 'Pour retirer de l\'argent, vous devez faire vérifier votre identité : envoyez les photos de votre pièce et un selfie. ', h('a', { class: 'btn btn-sm btn-gold', href: '#/app/profile' }, 'Vérifier mon identité'))),
       hasPayout
         ? h('div', { class: 'notice' }, `Numéro de versement : ${OPERATOR[w.payout.method]} · ${fmtPhone(w.payout.phone)}. `, h('a', { href: '#/app/profile' }, 'Le modifier dans Profil'))
         : h('div', { class: 'notice warn' }, 'Aucun numéro de versement enregistré. ', h('button', { class: 'btn btn-sm btn-gold', onclick: setPayout }, 'Enregistrer mon numéro')),
