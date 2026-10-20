@@ -167,3 +167,15 @@ label.f input[type="file"] { padding: 10px; }
 .kyc-thumb, .kyc-big { margin: 0; }
 .kyc-thumb img { display: block; width: 100%; max-height: 140px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .kyc-big img { display: block; width: 100%; max-height: 55vh; object-fit: contain; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+
+/* ---------- Lecture des textes légaux dans l'application ---------- */
+.linklike { background: none; border: 0; padding: 4px 2px; min-height: 24px; color: var(--navy-3); text-decoration: underline; cursor: pointer; font: inherit; }
+.linklike:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.legal-modal { max-width: 860px; height: min(90vh, 900px); display: flex; flex-direction: column; }
+.legal-tabs { flex-wrap: wrap; flex: none; border: 0; padding: 6px 0; background: transparent; }
+.legal-tabs .tab { flex: 0 1 auto; font-size: .82rem; min-height: 36px; border: 1px solid var(--line); background: var(--white); color: var(--navy); border-radius: 10px; cursor: pointer; padding: 4px 10px; }
+.legal-tabs .tab[aria-pressed="true"] { background: var(--navy); color: var(--white); border-color: var(--navy); }
+.legal-doc.legal-main { border: 1px solid var(--line); padding: 14px; overflow-y: auto; flex: 1; min-height: 0; }
+.legal-doc h1 { font-size: 1.3rem; }
+.legal-links .linklike { padding: 6px 2px; font-size: .85rem; }
+.auth-foot .legal-links .linklike { color: var(--gold-2); }

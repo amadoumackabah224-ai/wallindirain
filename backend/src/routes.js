@@ -4,7 +4,7 @@
 import { HttpError, v, page } from './http.js';
 import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
-import { legalMissing } from './legal.js';
+import { legalMissing, createLegal, PAGES as LEGAL_PAGES } from './legal.js';
 import { answer, suggestions, topic, topics } from './assistant.js';
 import { parseSheetUrl, fetchSheetCsv, parseCsv, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
@@ -256,13 +256,15 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   // Assistant d'aide (réponses écrites à l'avance, aucune donnée enregistrée) et messagerie avec l'équipe
   // =========================================================================
-  app.post('/api/public/assistant', async (ctx) => {
-    limit(`bot:${clientIp(ctx.req)}`, 40, 600_000);
-    if (ctx.body.topic) { const t = topic('visitor', v.str(ctx.body.topic, 'Sujet', { min: 1, max: 60 })); if (!t) throw new HttpError(404, 'not_found', 'Sujet introuvable'); return t; }
-    return answer('visitor', v.str(ctx.body.question, 'Question', { min: 2, max: 300 }));
+  // Les textes légaux sont lus DANS l'application (fenêtre de lecture), y compris avant la connexion : ils doivent rester accessibles pour consentir
+  const legalPages = createLegal(cfg);
+  app.get('/api/public/legal', async () => ({ pages: LEGAL_PAGES.map(([slug, title]) => ({ slug, title })), version: cfg.legal.version }));
+  app.get('/api/public/legal/:slug', async (ctx) => {
+    const page = /^[a-z-]+$/.test(ctx.params.slug) ? legalPages.content(ctx.params.slug) : null;
+    if (!page) throw new HttpError(404, 'not_found', 'Page introuvable');
+    return page;
   });
-  app.get('/api/public/assistant/topics', async () => ({ topics: topics('visitor') }));
-  app.get('/api/public/assistant/suggestions', async () => ({ suggestions: suggestions('visitor') }));
+  // L'assistant est réservé aux personnes connectées
   app.post('/api/assistant', guard(ANY_ROLE, async (ctx) => {
     limit(`bot:${ctx.user.id}`, 60, 600_000);
     if (ctx.body.topic) { const t = topic(ctx.user.role, v.str(ctx.body.topic, 'Sujet', { min: 1, max: 60 })); if (!t) throw new HttpError(404, 'not_found', 'Sujet introuvable'); return t; }

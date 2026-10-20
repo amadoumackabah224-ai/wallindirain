@@ -1,5 +1,5 @@
 // Écrans publics : connexion, inscription, mot de passe oublié, page de commande du client.
-import { h, ask, toast, errToast, fmtGNF, fmtPhone, spinner, action, kv, amount, legalLinks } from '../ui.js';
+import { h, ask, toast, errToast, fmtGNF, fmtPhone, spinner, action, kv, amount, legalLinks, legalLink } from '../ui.js';
 import { get, post } from '../api.js';
 
 const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' });
@@ -59,7 +59,7 @@ export function registerView() {
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
     field('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
-    consentBox(accept, ['J\'ai 18 ans ou plus et j\'accepte les ', h('a', { href: '/legal/conditions', target: '_blank', rel: 'noopener' }, 'conditions d\'utilisation'), ' et la ', h('a', { href: '/legal/confidentialite', target: '_blank', rel: 'noopener' }, 'politique de confidentialité'), '.']),
+    consentBox(accept, ['J\'ai 18 ans ou plus et j\'accepte les ', legalLink('conditions', 'conditions d\'utilisation'), ' et la ', legalLink('confidentialite', 'politique de confidentialité'), '.']),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));
   syncDoc();
   return shell(h('div', { class: 'card' }, form, out), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, '← Retour à la connexion')));
@@ -118,7 +118,7 @@ export function clientOrderView(code) {
       h('h2', {}, 'Vos informations'),
       field('Quantité', qty), field('Votre nom', name), field('Votre téléphone', phone, 'Le conseiller vous appellera à ce numéro.'), field('Quartier ou ville', commune), field('Adresse de livraison', address),
       h('p', { class: 'small muted' }, 'Nous gardons votre nom, votre téléphone et votre adresse uniquement pour confirmer par appel et livrer votre commande.'),
-      consentBox(accepted, ['J\'accepte que mes informations soient utilisées pour cette commande, comme expliqué dans la ', h('a', { href: '/legal/confidentialite', target: '_blank', rel: 'noopener' }, 'politique de confidentialité'), ' et les ', h('a', { href: '/legal/retours-remboursements', target: '_blank', rel: 'noopener' }, 'règles de retour'), '.']),
+      consentBox(accepted, ['J\'accepte que mes informations soient utilisées pour cette commande, comme expliqué dans la ', legalLink('confidentialite', 'politique de confidentialité'), ' et les ', legalLink('retours-remboursements', 'règles de retour'), '.']),
       h('div', { class: 'total-line' }, h('span', {}, 'Total à payer à la livraison'), total),
       h('button', { class: 'btn btn-gold btn-block mt', type: 'submit' }, 'Commander, payer à la livraison'));
     root.replaceChildren(
