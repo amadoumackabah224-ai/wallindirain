@@ -1,5 +1,5 @@
 // Espace livreur : récupérer, livrer avec le code du client, signaler un échec.
-import { h, ask, confirmBox, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, telLink, badge, table, proofButton, FAIL_LABEL } from '../ui.js';
+import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, badge, table, proofButton, FAIL_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };

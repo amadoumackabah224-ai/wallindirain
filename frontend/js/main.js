@@ -15,7 +15,6 @@ import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, admi
 const app = document.getElementById('app');
 let user = null;
 let contact = '624390707';
-const fmtPhoneLocal = (p) => (p || '').replace(/(\d{3})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4');
 
 // Onglets par rôle : [clé, icône, libellé, fonction de vue]
 const TABS = {

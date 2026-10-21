@@ -82,6 +82,16 @@ test('KYC : images obligatoires, examen par l\'administrateur, transparence des 
   assert.equal(list.kyc_status, 'verified');
 });
 
+test('KYC : le personnel qui reçoit de l\'argent (livreur) peut lui aussi envoyer sa pièce', async () => {
+  await db.owner.query(`INSERT INTO users(role,status,full_name,phone,password_hash,payout_method,payout_phone) VALUES ('courier','active','Livreur KYC','633000009',$1,'mtn_momo','633000009')`, [await hashPassword(PW)]);
+  const c = await new Client().login('633000009');
+  assert.equal((await c.post('/api/me/identity', { identity_doc: 'CNI-112233' })).status, 200);
+  assert.equal((await c.post('/api/me/identity/image', { side: 'front', doc_type: 'cni', image: IMG })).status, 200);
+  assert.equal((await c.post('/api/me/identity/image', { side: 'selfie', doc_type: 'cni', image: IMG })).status, 200);
+  assert.equal((await c.post('/api/me/identity/submit')).status, 200);
+  assert.equal((await c.get('/api/me/identity')).json.status, 'submitted');
+});
+
 test('KYC : réglage désactivé = validation sans images ; magasinier exclu ; anonymisation supprime les images', async () => {
   const a = await new Client().login('620000000');
   const m = await new Client().login('633000003');

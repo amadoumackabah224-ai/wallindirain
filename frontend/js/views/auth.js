@@ -1,5 +1,5 @@
 // Écrans publics : connexion, inscription, mot de passe oublié, page de commande du client.
-import { h, ask, toast, errToast, fmtGNF, fmtPhone, spinner, action, kv, amount, legalLinks, legalLink } from '../ui.js';
+import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink } from '../ui.js';
 import { get, post } from '../api.js';
 
 const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' });

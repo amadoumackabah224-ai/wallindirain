@@ -14,11 +14,21 @@ export function parseSheetUrl(url) {
   return { id: m[1], gid };
 }
 
+// Google redirige l'export vers un domaine à lui : on suit au plus 3 redirections, et seulement vers du https Google
+const googleHost = (h) => h === 'google.com' || h.endsWith('.google.com') || h === 'googleusercontent.com' || h.endsWith('.googleusercontent.com');
+
 export async function fetchSheetCsv({ id, gid }, fetchFn = fetch) {
-  const url = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+  let url = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
   let res;
-  try { res = await fetchFn(url, { redirect: 'follow', signal: AbortSignal.timeout(10_000), headers: { Accept: 'text/csv' } }); }
-  catch { throw new HttpError(502, 'sheet_unreachable', 'Impossible de joindre Google Sheets. Réessayez, ou collez le contenu en CSV.'); }
+  try {
+    for (let hop = 0; hop <= 3; hop++) {
+      res = await fetchFn(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000), headers: { Accept: 'text/csv' } });
+      if (![301, 302, 303, 307, 308].includes(res.status)) break;
+      const next = new URL(res.headers.get('location') || '', url);
+      if (next.protocol !== 'https:' || !googleHost(next.hostname) || hop === 3) throw new Error('redirection refusée');
+      url = next.href;
+    }
+  } catch { throw new HttpError(502, 'sheet_unreachable', 'Impossible de joindre Google Sheets. Réessayez, ou collez le contenu en CSV.'); }
   const text = (await res.text()).slice(0, MAX_BYTES + 1);
   if (text.length > MAX_BYTES) throw new HttpError(413, 'too_large', 'Tableau trop volumineux');
   if (!res.ok || /^\s*<(!doctype|html)/i.test(text)) {

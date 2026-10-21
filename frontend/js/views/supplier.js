@@ -1,5 +1,5 @@
 // Espace fournisseur : jamais de vendeur, de client ni de prix de vente.
-import { h, ask, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, badge, table } from '../ui.js';
+import { h, ask, fmtDate, liveView, statusBadge, amount, action, kv, empty, badge, table } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PSTATUS = { pending: ['En attente de validation', 'warn'], approved: ['Validé', 'ok'], rejected: ['Refusé', 'bad'], archived: ['Archivé', 'grey'] };

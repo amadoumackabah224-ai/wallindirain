@@ -187,7 +187,7 @@ export function registerRoutes(app, { db, cfg }) {
   });
 
   // Pièce d'identité ajoutée plus tard (vendeur ou fournisseur), nécessaire avant le premier retrait
-  app.post('/api/me/identity', guard(['seller', 'supplier'], async (ctx) => {
+  app.post('/api/me/identity', guard(WALLET_ROLES, async (ctx) => {
     await fn('fn_set_identity_doc', ctx.user.id, v.str(ctx.body.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }));
   }));
 

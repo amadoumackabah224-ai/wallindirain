@@ -48,7 +48,7 @@ Production : **ne jamais** lancer `seed-demo.js` (il refuse de s'exécuter si `N
 
 ```bash
 cd backend
-TEST_DB_HOST=/chemin/socket-ou-hote TEST_DB_PORT=5432 TEST_DB_USER=postgres npm test      # 66 tests, vraie base PostgreSQL
+TEST_DB_HOST=/chemin/socket-ou-hote TEST_DB_PORT=5432 TEST_DB_USER=postgres npm test      # 69 tests, vraie base PostgreSQL
 sh ../ops/restore-test.sh                                                                  # test de restauration (critère 8)
 ```
 

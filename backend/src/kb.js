@@ -4,7 +4,6 @@
 export const ALL = ['visitor', 'seller', 'supplier', 'agent', 'call_chief', 'courier', 'warehouse', 'admin'];
 const PAY = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
 const OPS = ['agent', 'call_chief'];
-const W = (...r) => r;
 
 export const CATS = [
   ['start', '🚀 Démarrer'], ['account', '👤 Mon compte'], ['sell', '🛍️ Vendre'], ['orders', '📦 Commandes'],
