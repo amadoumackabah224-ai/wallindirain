@@ -40,7 +40,7 @@ Ce document décrit ce qui est **en place et testé**, puis ce qui **n'est pas c
 4. **Pas d'analyse de vulnérabilités tierces ni de test d'intrusion** réalisés. Aucune certification.
 5. **Pas de test de charge** réalisé (prévu en phase 2 du plan du cahier des charges).
 6. **Chiffrement des données au repos** : non géré par l'application ; à activer au niveau du disque du serveur ou de l'hébergeur. Les sauvegardes contiennent toutes les données : chiffrez-les avant de les copier hors du serveur.
-7. **La pièce d'identité** n'est stockée que sous forme de référence texte, pas de scan ; la vérification est manuelle par l'administrateur.
+7. **La pièce d'identité (KYC)** : numéro + photos (recto, verso facultatif, selfie avec la pièce) stockées dans la table `identity_documents`, dont les colonnes d'images ne sont lisibles par aucun compte applicatif en direct ; seules les fonctions `fn_identity_image_get` (propriétaire ou administrateur) les renvoient, avec `Cache-Control: no-store`. Chaque ouverture par un administrateur est écrite dans le journal d'audit et visible par la personne concernée. La vérification est manuelle (aucune reconnaissance faciale). Les images sont supprimées à l'anonymisation du compte.
 8. **Envoi des messages** : tant que `MESSAGE_PROVIDER=simulated`, aucun code n'est reçu. Le texte des messages (qui contient les codes) reste dans la table `messages` ; limitez l'accès à la base et purgez régulièrement les anciens messages.
 9. Données personnelles (noms, téléphones, adresses de clients guinéens) : vérifiez avec un juriste les obligations locales de protection des données.
 

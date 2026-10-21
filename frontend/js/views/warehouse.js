@@ -1,5 +1,5 @@
 // Espace magasinier : aucune donnée financière.
-import { h, ask, fmtDate, liveView, action, kv, empty, table, FAIL_LABEL, CAUSE_LABEL, badge } from '../ui.js';
+import { h, ask, fmtDate, liveView, action, kv, empty, FAIL_LABEL, CAUSE_LABEL, badge } from '../ui.js';
 import { get, post } from '../api.js';
 
 export function warehouseView() {

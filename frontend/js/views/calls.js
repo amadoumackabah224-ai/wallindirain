@@ -1,5 +1,5 @@
 // Call center : agents (file d'appel) et chef (affectation aux livreurs).
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, telLink, waLink, confirmBox, FAIL_LABEL } from '../ui.js';
+import { h, ask, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };

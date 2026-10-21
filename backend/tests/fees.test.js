@@ -168,3 +168,18 @@ test('Google Sheet : seul un lien docs.google.com est accepté ; CSV et colonnes
   assert.equal((await s.post('/api/seller/sheet', { url: 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit' })).status, 200);
   assert.match((await s.get('/api/seller/sheet')).json.sheet.url, /1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/);
 });
+
+test('Google Sheet : redirections limitées aux domaines Google en https', async () => {
+  const { fetchSheetCsv } = await import('../src/sheets.js');
+  const ok = async (url) => new Response('nom,telephone\nA,1', { status: 200 });
+  const seq = (...steps) => { let i = 0; return async (url) => { const s = steps[i++]; return s.redirect ? new Response('', { status: 302, headers: { location: s.redirect } }) : new Response(s.body ?? 'a,b', { status: 200 }); }; };
+  assert.match(await fetchSheetCsv({ id: 'x'.repeat(25), gid: '0' }, ok), /nom/);
+  // redirection vers un domaine Google : acceptée
+  assert.equal(await fetchSheetCsv({ id: 'x'.repeat(25), gid: '0' }, seq({ redirect: 'https://doc-0g-abc.googleusercontent.com/export/x' }, { body: 'a,b' })), 'a,b');
+  // vers une adresse interne, un autre site ou du http : refusée
+  for (const bad of ['http://169.254.169.254/latest', 'https://evil.example.com/x', 'https://google.com.evil.example/x', 'http://docs.google.com/x']) {
+    await assert.rejects(fetchSheetCsv({ id: 'x'.repeat(25), gid: '0' }, seq({ redirect: bad }, { body: 'secret' })), (e) => e.code === 'sheet_unreachable', bad);
+  }
+  // boucle de redirections : arrêtée
+  await assert.rejects(fetchSheetCsv({ id: 'x'.repeat(25), gid: '0' }, async () => new Response('', { status: 302, headers: { location: 'https://docs.google.com/again' } })), (e) => e.code === 'sheet_unreachable');
+});
