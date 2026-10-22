@@ -51,11 +51,11 @@ test('plus aucune adresse /legal ni aide publique : tout est lu dans l\'applicat
   assert.equal(typeof createLegal, 'function');
 });
 
-test('robots.txt et llms.txt : lisibles, l\'API est exclue', async () => {
+test('robots.txt : lisible, l\'API est exclue', async () => {
   const r = await new Client().get('/robots.txt');
   assert.match(r.headers.get('content-type'), /text\/plain/);
   assert.match(r.text, /Disallow: \/api\//); assert.ok(!/\/legal/.test(r.text));
-  assert.match((await new Client().get('/llms.txt')).text, /Wallindirain/);
+  assert.doesNotMatch((await new Client().get('/llms.txt')).headers.get('content-type'), /text\/plain/);   // plus de fichier pour robots d'IA
 });
 
 test('consentement : exigé à l\'inscription et à la commande, et enregistré', async () => {

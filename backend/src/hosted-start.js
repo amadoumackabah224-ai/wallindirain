@@ -22,7 +22,7 @@ try {
   process.exit(1);
 }
 
-const { ADMIN_PHONE: phone, ADMIN_NAME: name, ADMIN_PASSWORD: pw } = process.env;
+const { ADMIN_PHONE: phone, ADMIN_NAME: name, ADMIN_PASSWORD: pw, ADMIN_EMAIL: adminEmail } = process.env;
 if (phone || name || pw) {
   if (!/^[0-9]{9}$/.test(phone || '') || !name || passwordProblem(pw)) {
     console.error('ADMIN_PHONE (9 chiffres), ADMIN_NAME et ADMIN_PASSWORD (8+ caractères, lettres et chiffres) sont invalides : administrateur non créé');
@@ -34,6 +34,10 @@ if (phone || name || pw) {
         await db.query(`INSERT INTO users(role, status, full_name, phone, password_hash, identity_verified)
           VALUES ('admin', 'active', $1, $2, $3, true) ON CONFLICT (phone) DO NOTHING`, [name, phone, await hashPassword(pw)]);
         log({ msg: `Administrateur créé : ${phone}` });
+        // adresse e-mail facultative de l'administrateur : à confirmer ensuite dans Profil (code reçu par e-mail)
+        if (/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(adminEmail || '')) {
+          await db.query('UPDATE users SET email = $1 WHERE phone = $2 AND role = \'admin\'', [adminEmail.trim().toLowerCase(), phone]);
+        }
       }
     } finally { await db.end(); }
   }

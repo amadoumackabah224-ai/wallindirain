@@ -36,7 +36,7 @@ export function loadConfig() {
     };
   // Identité de l'éditeur, affichée dans les pages légales (/legal/…). Tout champ vide apparaît « À COMPLÉTER » dans la page.
   const legal = {
-    version: '2026-10-19',                         // à changer à chaque modification des conditions ou de la politique
+    version: '2026-10-22',                         // à changer à chaque modification des conditions ou de la politique
     name: (env.LEGAL_NAME || '').trim(), form: (env.LEGAL_FORM || '').trim(), address: (env.LEGAL_ADDRESS || '').trim(),
     email: (env.LEGAL_EMAIL || '').trim(), rccm: (env.LEGAL_RCCM || '').trim(), nif: (env.LEGAL_NIF || '').trim(),
     director: (env.LEGAL_DIRECTOR || '').trim(), hostingRegion: (env.HOSTING_REGION || '').trim(), returnDays: (env.LEGAL_RETURN_DAYS || '').trim()
@@ -61,13 +61,24 @@ export function loadConfig() {
       whatsappToken: env.WHATSAPP_TOKEN || '',
       whatsappPhoneId: env.WHATSAPP_PHONE_ID || '',
     },
+    // e-mails (connexion par adresse e-mail, mot de passe oublié) : voir docs/EMAIL.md
+    email: {
+      provider: env.EMAIL_PROVIDER || 'simulated', // simulated | brevo
+      apiKey: env.EMAIL_API_KEY || '',
+      from: (env.EMAIL_FROM || '').trim(),
+      fromName: (env.EMAIL_FROM_NAME || 'Wallindirain').trim(),
+    },
   };
   const problems = [];
   if (!['simulated', 'whatsapp'].includes(cfg.messaging.provider)) problems.push('MESSAGE_PROVIDER doit valoir simulated ou whatsapp');
   if (cfg.messaging.provider === 'whatsapp' && (!cfg.messaging.whatsappToken || !cfg.messaging.whatsappPhoneId)) {
     problems.push('WHATSAPP_TOKEN et WHATSAPP_PHONE_ID sont obligatoires avec MESSAGE_PROVIDER=whatsapp');
   }
-  if (cfg.showTestCodes && cfg.messaging.provider !== 'simulated') problems.push('SHOW_TEST_CODES=1 est réservé à MESSAGE_PROVIDER=simulated (mode test)');
+  if (!['simulated', 'brevo'].includes(cfg.email.provider)) problems.push('EMAIL_PROVIDER doit valoir simulated ou brevo');
+  if (cfg.email.provider === 'brevo' && (!cfg.email.apiKey || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cfg.email.from))) {
+    problems.push('EMAIL_API_KEY et EMAIL_FROM (adresse valide) sont obligatoires avec EMAIL_PROVIDER=brevo');
+  }
+  if (cfg.showTestCodes && (cfg.messaging.provider !== 'simulated' || cfg.email.provider !== 'simulated')) problems.push('SHOW_TEST_CODES=1 est réservé au mode test (MESSAGE_PROVIDER et EMAIL_PROVIDER = simulated)');
   if (legal.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legal.email)) problems.push('LEGAL_EMAIL n\'est pas une adresse e-mail valide');
   if (legal.returnDays && !/^[0-9]{1,3}$/.test(legal.returnDays)) problems.push('LEGAL_RETURN_DAYS doit être un nombre de jours (ex. 7)');
   if (prod && !cfg.db.password) problems.push('DB_APP_PASSWORD est obligatoire en production');

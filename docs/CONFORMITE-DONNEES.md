@@ -53,7 +53,7 @@
 
 1. Renseigner dans Render : `LEGAL_NAME`, `LEGAL_FORM`, `LEGAL_ADDRESS`, `LEGAL_EMAIL`, `LEGAL_RCCM`, `LEGAL_NIF`, `LEGAL_DIRECTOR`, `HOSTING_REGION`, `LEGAL_RETURN_DAYS`. L'onglet « Tableau » de l'admin liste ce qui manque.
 2. Faire relire les cinq pages légales par un avocat guinéen ; demander la déclaration / l'autorisation (téléphone, pièce d'identité, transfert hors CEDEAO).
-3. Retirer `SHOW_TEST_CODES` (les codes ne doivent plus être lisibles) et brancher un vrai fournisseur de messages (`MESSAGING_PROVIDER`).
+3. Retirer `SHOW_TEST_CODES` (les codes ne doivent plus être lisibles) et brancher un vrai fournisseur de messages (`MESSAGE_PROVIDER`) et d'e-mails (`EMAIL_PROVIDER`, voir `docs/EMAIL.md`). Brevo est un prestataire supplémentaire : à déclarer avec Render et Neon.
 4. Faire la **remise à zéro des activités** (admin → Données) pour repartir avec de vraies informations.
 5. Si le code de livraison est réactivé (Réglages), les commandes confirmées pendant qu'il était désactivé n'ont pas de code.
 

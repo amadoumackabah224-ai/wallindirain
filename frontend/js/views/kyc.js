@@ -1,13 +1,13 @@
 // Vérification d'identité (KYC) : la personne envoie les photos de sa pièce ; l'administrateur les examine puis valide ou refuse.
-// Les images ne sont visibles que du propriétaire et des administrateurs ; chaque consultation est enregistrée et visible du propriétaire.
-import { h, ask, liveView, action, badge, fmtDate, errToast, toast } from '../ui.js';
+// Les images ne sont visibles que du propriétaire et des administrateurs ; chaque consultation est enregistrée dans le journal de l'administration (jamais montrée aux autres utilisateurs).
+import { h, ask, liveView, action, badge, errToast, toast } from '../ui.js';
 import { get, post } from '../api.js';
 
 const TYPES = [['cni', 'Carte d\'identité'], ['passeport', 'Passeport'], ['autre', 'Autre pièce officielle']];
 export const KYC_BADGE = { none: ['Non envoyée', 'warn'], draft: ['Incomplète', 'warn'], submitted: ['En cours d\'examen', 'info'], verified: ['Vérifiée', 'ok'], rejected: ['Refusée', 'bad'] };
 const SIDE = { front: 'recto', back: 'verso', selfie: 'selfie' };
 
-/** Carte « Vérification d'identité » : état, envoi des photos, historique des consultations. */
+/** Carte « Vérification d'identité » : état, envoi des photos, photos. */
 export function kycCard(userId, { onChange } = {}) {
   return liveView(() => get('/me/identity'), (k, refresh) => {
     const done = async () => { await refresh(); onChange?.(); };
@@ -18,7 +18,7 @@ export function kycCard(userId, { onChange } = {}) {
         { name: 'front', label: 'Photo du recto de la pièce (face avec votre photo)', type: 'image', hint: 'Photo nette, pièce entière, sans reflet, texte lisible.' },
         { name: 'back', label: 'Photo du verso (facultatif pour un passeport)', type: 'image', required: false, hint: 'Face arrière de la carte.' },
         { name: 'selfie', label: 'Selfie en tenant votre pièce à côté de votre visage', type: 'image', hint: 'Votre visage et la pièce doivent être bien visibles.' }];
-      const v = await ask({ title: 'Vérifier mon identité', text: 'Ces photos servent uniquement à vérifier que vous êtes bien la personne qui reçoit l\'argent. Seule l\'administration y a accès ; chaque consultation est enregistrée et vous la voyez ci-dessous. Elles sont effacées si votre compte est supprimé.', submit: 'Envoyer pour vérification', fields });
+      const v = await ask({ title: 'Vérifier mon identité', text: 'Ces photos servent uniquement à vérifier que vous êtes bien la personne qui reçoit l\'argent. Seule l\'administration y a accès ; chaque accès est enregistré dans le journal de l\'administration. Elles sont effacées si votre compte est supprimé.', submit: 'Envoyer pour vérification', fields });
       if (!v) return;
       await post('/me/identity', { identity_doc: v.number });
       await post('/me/identity/image', { side: 'front', doc_type: v.doc_type, image: v.front });
@@ -36,9 +36,7 @@ export function kycCard(userId, { onChange } = {}) {
       k.status === 'verified' && h('div', { class: 'notice ok' }, 'Votre identité est vérifiée : vous pouvez demander des retraits.'),
       (k.has_front || k.has_selfie) && h('div', { class: 'kyc-thumbs' }, thumb('front', k.has_front), thumb('back', k.has_back), thumb('selfie', k.has_selfie)),
       canSend && h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-gold', onclick: send }, k.status === 'none' ? 'Envoyer ma pièce d\'identité' : 'Renvoyer mes photos')),
-      h('h3', { class: 'mt' }, 'Qui a consulté mes photos ?'),
-      k.views.length ? h('ul', { class: 'small' }, k.views.map((x) => h('li', {}, `${fmtDate(x.at)} : ${x.by} (${SIDE[x.side] || x.side})`)))
-        : h('p', { class: 'small muted' }, 'Personne pour le moment. Chaque consultation par un administrateur apparaîtra ici.'));
+      h('p', { class: 'small muted mt' }, 'Seule l\'administration peut consulter ces photos, et chaque accès est enregistré dans son journal.'));
   });
 }
 
