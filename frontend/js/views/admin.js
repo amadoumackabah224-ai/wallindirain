@@ -60,7 +60,7 @@ export function adminUsers() {
           if (u.identity_verified) { if (await confirmBox('Retirer la vérification ?', 'La personne ne pourra plus retirer d\'argent tant que sa pièce n\'est pas revérifiée.', 'Retirer')) await post(`/admin/users/${u.id}/verify`, { verified: false }); return; }
           reviewIdentity(u, refresh);
         }, { refresh });
-        return [h('div', {}, h('b', {}, u.full_name), u.team && h('div', { class: 'small muted' }, u.team)), ROLE_LABEL[u.role], fmtPhone(u.phone),
+        return [h('div', {}, h('b', {}, u.full_name), u.team && h('div', { class: 'small muted' }, u.team)), ROLE_LABEL[u.role], h('div', {}, fmtPhone(u.phone), u.email && h('div', { class: 'small muted' }, u.email, u.email_verified ? ' ✓' : ' (non confirmée)')),
           u.payout_phone ? h('div', { class: 'small' }, u.payout_method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', h('div', { class: 'muted' }, fmtPhone(u.payout_phone))) : h('span', { class: 'small muted' }, 'non défini'),
           badge({ active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[u.status], { active: 'ok', pending: 'warn', suspended: 'bad' }[u.status]),
           (u.identity_doc || u.kyc_status) ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge(...({ submitted: ['À examiner', 'warn'], rejected: ['Refusée', 'bad'], draft: ['Incomplète', 'warn'] }[u.kyc_status] || ['Sans photos', 'warn'])), h('div', { class: 'small muted' }, u.identity_doc || '')) : '—',
@@ -182,7 +182,7 @@ export function adminAudit() {
     : liveView(() => get('/admin/messages?limit=100'), ({ messages, test_codes_visible }) => h('div', { class: 'card' }, test_codes_visible
       ? h('div', { class: 'notice warn' }, 'MODE TEST : aucun message n\'est réellement envoyé, les codes (livraison, retrait, mot de passe) sont donc visibles ici pour pouvoir tester. À désactiver avant la mise en service réelle.')
       : h('div', { class: 'notice' }, 'Les codes de confirmation sont masqués : personne, pas même l\'administrateur, ne peut les lire.'),
-      table(['Date', 'Destinataire', 'Type', 'Message', 'Statut'], messages.map((m) => [fmtDate(m.created_at), fmtPhone(m.to_phone), m.template, h('span', { class: 'small' }, m.body), badge({ queued: 'En file', sent: 'Envoyé', simulated: 'Simulé', failed: 'Échec' }[m.status], { queued: 'warn', sent: 'ok', simulated: 'grey', failed: 'bad' }[m.status])]), { empty: empty('💬', 'Aucun message') }))));
+      table(['Date', 'Destinataire', 'Type', 'Message', 'Statut'], messages.map((m) => [fmtDate(m.created_at), m.to_email || fmtPhone(m.to_phone), m.template, h('span', { class: 'small' }, m.body), badge({ queued: 'En file', sent: 'Envoyé', simulated: 'Simulé', failed: 'Échec' }[m.status], { queued: 'warn', sent: 'ok', simulated: 'grey', failed: 'bad' }[m.status])]), { empty: empty('💬', 'Aucun message') }))));
   load();
   return h('div', {}, h('h1', {}, 'Journal'), chips, host);
 }

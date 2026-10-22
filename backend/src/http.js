@@ -132,6 +132,15 @@ export const v = {
     if (!/^[0-9]{9}$/.test(s)) throw new HttpError(400, 'invalid_input', `${name} invalide (9 chiffres, ex. 624390707)`);
     return s;
   },
+  email(x, name = 'Adresse e-mail') {
+    const s = typeof x === 'string' ? x.trim().toLowerCase() : '';
+    if (s.length > 254 || !/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(s)) throw new HttpError(400, 'invalid_input', `${name} invalide (ex. nom@exemple.com)`);
+    return s;
+  },
+  // numéro (9 chiffres) OU adresse e-mail : renvoie la forme normalisée
+  identifier(x, name = 'Numéro ou adresse e-mail') {
+    return typeof x === 'string' && x.includes('@') ? v.email(x, name) : v.phone(x, name);
+  },
   oneOf(x, list, name) { if (!list.includes(x)) throw new HttpError(400, 'invalid_input', `${name} invalide`); return x; },
   bool(x, name) { if (typeof x !== 'boolean') throw new HttpError(400, 'invalid_input', `${name} invalide`); return x; }
 };

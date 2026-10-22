@@ -20,6 +20,18 @@ services:
         value: "624390707"
       - key: MESSAGE_PROVIDER
         value: simulated
+      # E-mails (connexion par adresse e-mail, mot de passe oublié) : voir docs/EMAIL.md.
+      # Pour les activer : EMAIL_PROVIDER=brevo + clé + adresse d'expéditeur, ET retirer SHOW_TEST_CODES.
+      - key: EMAIL_PROVIDER
+        value: simulated
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: Wallindirain
+      - key: ADMIN_EMAIL
+        sync: false
       # TEST : rien n'est réellement envoyé, donc les codes (retrait, mot de passe oublié) sont lisibles par
       # l'administrateur dans Journal > Messages. À retirer avant la mise en service réelle.
       - key: SHOW_TEST_CODES

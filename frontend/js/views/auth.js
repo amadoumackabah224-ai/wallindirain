@@ -8,18 +8,18 @@ const consentBox = (input, text) => h('label', { class: 'f check' }, input, h('s
 const field = (label, input, hint) => h('label', { class: 'f' }, h('span', {}, label), input, hint && h('div', { class: 'hint' }, hint));
 
 export function loginView({ onLogin, contact }) {
-  const phone = h('input', { type: 'tel', inputmode: 'numeric', autocomplete: 'username', placeholder: '6XX XX XX XX', required: true, maxlength: 16 });
+  const phone = h('input', { type: 'text', inputmode: 'email', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: '6XX XX XX XX ou nom@exemple.com', required: true, maxlength: 254 });
   const pw = h('input', { type: 'password', autocomplete: 'current-password', required: true, maxlength: 128 });
   const err = h('div', { class: 'notice bad hidden', role: 'alert' });
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault(); err.classList.add('hidden');
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
-    try { const r = await post('/auth/login', { phone: phone.value, password: pw.value }); onLogin(r.user); }
+    try { const r = await post('/auth/login', { identifier: phone.value.trim(), password: pw.value }); onLogin(r.user); }
     catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
     finally { btn.disabled = false; }
   } },
     h('h1', {}, 'Connexion'), err,
-    field('Numéro de téléphone', phone), field('Mot de passe', pw),
+    field('Numéro de téléphone ou adresse e-mail', phone), field('Mot de passe', pw),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Se connecter'),
     h('p', { class: 'center small mt' }, h('a', { href: '#/forgot' }, 'Mot de passe oublié ?')));
   return shell(h('div', { class: 'card' }, form),
@@ -42,19 +42,21 @@ export function registerView() {
   const accept = h('input', { type: 'checkbox', required: true });
   const pw = h('input', { type: 'password', required: true, minlength: 8, maxlength: 128, autocomplete: 'new-password' });
   const payMethod = h('select', {}, h('option', { value: 'orange_money' }, 'Orange Money'), h('option', { value: 'mtn_momo' }, 'MTN MoMo'));
+  const email = h('input', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', maxlength: 254, placeholder: 'nom@exemple.com (facultatif)' });
   const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 16, placeholder: 'Laisser vide = mon numéro de téléphone' });
   const out = h('div');
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
+      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(email.value.trim() ? { email: email.value.trim() } : {}), ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
         payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) });
       out.replaceChildren(h('div', { class: 'notice ok' }, r.message), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
   } },
-    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
+    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, 'Vous pourrez vous connecter avec ce numéro.'),
+    field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
     docField,
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
@@ -66,19 +68,19 @@ export function registerView() {
 }
 
 export function forgotView() {
-  const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
+  const phone = h('input', { type: 'text', inputmode: 'email', autocapitalize: 'none', spellcheck: 'false', required: true, maxlength: 254, placeholder: '6XX XX XX XX ou nom@exemple.com' });
   const box = h('div');
   const step1 = h('form', { onsubmit: async (e) => {
     e.preventDefault();
-    try { await post('/auth/forgot', { phone: phone.value }); toast('Si ce numéro est inscrit, un code vient d\'être envoyé.', 'ok'); showStep2(); } catch (ex) { errToast(ex); }
-  } }, h('h1', {}, 'Mot de passe oublié'), field('Votre numéro de téléphone', phone), h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Recevoir un code'));
+    try { const r = await post('/auth/forgot', { identifier: phone.value.trim() }); toast(r.message, 'ok'); showStep2(); } catch (ex) { errToast(ex); }
+  } }, h('h1', {}, 'Mot de passe oublié'), field('Votre adresse e-mail confirmée ou votre numéro', phone, 'Le code est envoyé dans votre boîte e-mail si votre adresse est confirmée (pensez à vérifier les courriers indésirables).'), h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Recevoir un code'));
   function showStep2() {
     const code = h('input', { class: 'code-input', inputmode: 'numeric', maxlength: 6, required: true, autocomplete: 'one-time-code' });
     const pw = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password' });
     box.replaceChildren(h('form', { onsubmit: async (e) => {
       e.preventDefault();
-      try { await post('/auth/reset', { phone: phone.value, code: code.value, password: pw.value }); toast('Mot de passe changé. Connectez-vous.', 'ok'); location.hash = '#/login'; } catch (ex) { errToast(ex); }
-    } }, field('Code reçu par message (valable 15 minutes)', code), field('Nouveau mot de passe', pw, '8 caractères minimum, lettres et chiffres.'), h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Changer le mot de passe')));
+      try { await post('/auth/reset', { identifier: phone.value.trim(), code: code.value, password: pw.value }); toast('Mot de passe changé. Connectez-vous.', 'ok'); location.hash = '#/login'; } catch (ex) { errToast(ex); }
+    } }, field('Code reçu (valable 15 minutes)', code), field('Nouveau mot de passe', pw, '8 caractères minimum, lettres et chiffres.'), h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Changer le mot de passe')));
     step1.classList.add('hidden');
   }
   return shell(h('div', { class: 'card' }, step1, box), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, '← Retour à la connexion')));

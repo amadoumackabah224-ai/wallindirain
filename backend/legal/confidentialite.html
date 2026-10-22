@@ -16,7 +16,7 @@
       <td>Vous appeler pour confirmer, livrer le colis, encaisser le paiement à la livraison.</td>
       <td>5 ans après la clôture de la commande, puis le nom, le téléphone et l'adresse sont effacés (les montants restent, sans identité).</td></tr>
     <tr><th scope="row">Vendeur et fournisseur</th>
-      <td>Nom, numéro de téléphone, mot de passe (conservé sous forme chiffrée, illisible), opérateur et numéro de versement (Orange Money ou MTN MoMo), référence de pièce d'identité.</td>
+      <td>Nom, numéro de téléphone, adresse e-mail (facultative, confirmée par un code reçu dans votre boîte), mot de passe (conservé sous forme chiffrée, illisible), opérateur et numéro de versement (Orange Money ou MTN MoMo), référence de pièce d'identité.</td>
       <td>Gérer le compte, verser l'argent sur le bon numéro, vérifier l'identité avant le premier retrait.</td>
       <td>Tant que le compte existe. À la suppression du compte, ces données sont effacées (voir « Vos droits »).</td></tr>
     <tr><th scope="row">Pièce d'identité</th>
@@ -44,7 +44,7 @@
       <td>Vous répondre, vous aider en cas d'urgence ou de mot de passe oublié.</td>
       <td>Un an après la fermeture de la conversation.</td></tr>
     <tr><th scope="row">Messages envoyés</th>
-      <td>Numéro de téléphone destinataire et texte (confirmation de commande, code de retrait, mot de passe oublié).</td>
+      <td>Numéro de téléphone ou adresse e-mail du destinataire et texte (confirmation de commande, code de retrait, code de vérification d'e-mail, mot de passe oublié). Les codes sont effacés du texte conservé dès que le message est réellement envoyé.</td>
       <td>Vous prévenir et sécuriser les opérations.</td>
       <td>90 jours.</td></tr>
     <tr><th scope="row">Clients signalés</th>
@@ -106,6 +106,7 @@
   <li><strong>Orange Money et MTN MoMo</strong> : les retraits sont envoyés manuellement par notre équipe depuis ses propres comptes. L'opérateur reçoit votre numéro de versement et le montant, comme pour tout transfert.</li>
   <li><strong>Google (Google Sheets)</strong>, seulement si un vendeur choisit d'importer ses commandes depuis son propre tableur : notre serveur lit ce tableur (partagé par le vendeur) ; aucune donnée de la plateforme n'est envoyée à Google.</li>
   <li><strong>WhatsApp (Meta)</strong> ou un fournisseur de SMS, si l'envoi de messages est activé : il reçoit le numéro du destinataire et le texte du message. Tant que l'envoi n'est pas activé, les messages sont seulement enregistrés dans la plateforme.</li>
+  <li><strong>Brevo</strong> (service d'envoi d'e-mails), si l'envoi d'e-mails est activé : il reçoit l'adresse e-mail du destinataire et le texte du message (code de vérification, code de mot de passe oublié).</li>
 </ul>
 <p>Ces serveurs peuvent se trouver en dehors de la CEDEAO. La loi guinéenne encadre le transfert de données vers un pays tiers ; nous ne confions à nos prestataires que les données nécessaires au fonctionnement du service.</p>
 

@@ -1,8 +1,10 @@
-// Envoi des messages WhatsApp / SMS. Les messages sont déjà enregistrés en base (table messages,
+// Envoi des messages WhatsApp / SMS et des e-mails. Les messages sont déjà enregistrés en base (table messages,
 // statut "queued") par les règles métier ; ce module les expédie via un fournisseur interchangeable.
 //
 // Pour brancher un autre fournisseur (SMS, etc.) : ajouter une fonction dans PROVIDERS
 // qui reçoit { to, body, template } et lève une erreur en cas d'échec.
+
+import { EMAIL_PROVIDERS } from './email.js';
 
 /** Numéro guinéen à 9 chiffres -> format international sans "+" */
 export const toInternational = (phone) => `224${phone}`;
@@ -30,6 +32,9 @@ const PROVIDERS = {
 export function startWorker({ db, cfg, log }) {
   const send = PROVIDERS[cfg.messaging.provider];
   if (!send) throw new Error(`Fournisseur de messages inconnu : ${cfg.messaging.provider}`);
+  const emailCfg = cfg.email || { provider: 'simulated' };
+  const sendEmail = EMAIL_PROVIDERS[emailCfg.provider];
+  if (!sendEmail) throw new Error(`Fournisseur d'e-mails inconnu : ${emailCfg.provider}`);
   let stopped = false;
 
   async function flushMessages() {
@@ -38,7 +43,9 @@ export function startWorker({ db, cfg, log }) {
       const { rows } = await tx.query('SELECT * FROM fn_messages_claim(20)');
       for (const m of rows) {
         try {
-          const status = await send({ to: m.to_phone, body: m.body, template: m.template }, cfg.messaging);
+          const status = m.channel === 'email'
+            ? await sendEmail({ to: m.to_email, subject: m.subject || 'Wallindirain', body: m.body, template: m.template }, emailCfg)
+            : await send({ to: m.to_phone, body: m.body, template: m.template }, cfg.messaging);
           await tx.query('SELECT fn_message_mark($1, $2, NULL)', [m.id, status]);
         } catch (e) {
           log({ level: 'warn', msg: 'envoi de message échoué', id: m.id, err: String(e.message) });

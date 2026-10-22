@@ -74,6 +74,7 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   app.get('/api/public/info', async () => ({
     contact_phone: cfg.contactPhone,
+    email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune')
   }));
 
@@ -88,6 +89,7 @@ export function registerRoutes(app, { db, cfg }) {
     if (b.accept_terms !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter les conditions d\'utilisation et la politique de confidentialité');
     const role = v.oneOf(b.role, ['seller', 'supplier'], 'Rôle');
     const phone = v.phone(b.phone);
+    if (b.email) v.email(b.email);   // validé avant la création du compte
     // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut
     const payMethod = v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement');
     const payPhone = b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : phone;
@@ -95,14 +97,15 @@ export function registerRoutes(app, { db, cfg }) {
       await hashPassword(b.password),
       role === 'supplier' ? v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }) : v.optStr(b.identity_doc, 'Pièce d\'identité', 60),
       payMethod, payPhone, cfg.legal.version);
+    if (b.email) await fn('fn_register_email', id, v.email(b.email));   // code de vérification envoyé par e-mail
     ctx.status = 201;
-    return { id, pending_validation: role === 'supplier',
+    return { id, pending_validation: role === 'supplier', email_pending: !!b.email,
       message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
   });
 
   app.post('/api/auth/login', async (ctx) => {
     const ip = clientIp(ctx.req);
-    const phone = v.phone(ctx.body.phone);
+    const phone = v.identifier(ctx.body.identifier ?? ctx.body.phone);   // numéro OU adresse e-mail vérifiée
     limit(`login-ip:${ip}`, 20, 300_000);
     limit(`login-phone:${phone}`, 10, 300_000);
     const password = typeof ctx.body.password === 'string' ? ctx.body.password.slice(0, 128) : '';
@@ -111,7 +114,7 @@ export function registerRoutes(app, { db, cfg }) {
     const ok = await verifyPassword(password, u ? u.password_hash : DUMMY_HASH);
     if (!u || !ok) {
       if (u) await fn('fn_login_failed', phone);
-      throw new HttpError(401, 'bad_credentials', 'Numéro ou mot de passe incorrect');
+      throw new HttpError(401, 'bad_credentials', 'Numéro, adresse e-mail ou mot de passe incorrect');
     }
     if (u.status === 'pending') throw new HttpError(403, 'pending', 'Votre compte attend la validation de l\'administration');
     if (u.status === 'suspended') throw new HttpError(403, 'suspended', 'Compte suspendu. Contactez Wallindirain.');
@@ -130,25 +133,46 @@ export function registerRoutes(app, { db, cfg }) {
   });
 
   app.get('/api/auth/me', guard(null, async (ctx) => ({ user: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.full_name,
-    phone: ctx.user.phone, team: ctx.user.team, identity_verified: ctx.user.identity_verified,
+    phone: ctx.user.phone, email: ctx.user.email, email_verified: ctx.user.email_verified, team: ctx.user.team, identity_verified: ctx.user.identity_verified,
     has_avatar: (await q('SELECT 1 FROM avatars WHERE user_id = $1', [ctx.user.id])).length > 0 } })));
 
   app.post('/api/auth/forgot', async (ctx) => {
-    const phone = v.phone(ctx.body.phone);
+    const ident = v.identifier(ctx.body.identifier ?? ctx.body.phone);
     limit(`forgot-ip:${clientIp(ctx.req)}`, 10, 3600_000);
-    limit(`forgot-phone:${phone}`, 3, 900_000);
-    await fn('fn_password_reset_request', phone);
-    return { ok: true, message: 'Si ce numéro est inscrit, un code vient d\'être envoyé par message.' };
+    limit(`forgot-phone:${ident}`, 3, 900_000);
+    await fn('fn_password_reset_request', ident);
+    // même réponse que le compte existe ou non (pas de fuite d'information)
+    return { ok: true, message: 'Si ce compte existe, un code vient d\'être envoyé : dans votre boîte e-mail si votre adresse est confirmée, sinon par message au numéro.' };
   });
 
   app.post('/api/auth/reset', async (ctx) => {
     limit(`reset-ip:${clientIp(ctx.req)}`, 10, 900_000);
     const pwErr = passwordProblem(ctx.body.password);
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
-    const r = await fn('fn_password_reset_confirm', v.phone(ctx.body.phone), v.str(ctx.body.code, 'Code', { min: 6, max: 6 }), await hashPassword(ctx.body.password));
+    const r = await fn('fn_password_reset_confirm', v.identifier(ctx.body.identifier ?? ctx.body.phone), v.str(ctx.body.code, 'Code', { min: 6, max: 6 }), await hashPassword(ctx.body.password));
     if (!r.ok) throw new HttpError(400, 'invalid_code', 'Code invalide ou expiré');
     return { ok: true };
   });
+
+  // ---------- Adresse e-mail du compte (confirmée par un code reçu dans la boîte) ----------
+  app.post('/api/me/email', guard(ANY_ROLE, async (ctx) => {
+    limit(`email-set:${ctx.user.id}`, 5, 3600_000);
+    await requirePassword(ctx, ctx.body.password);
+    await fn('fn_email_set', ctx.user.id, v.email(ctx.body.email));
+    return { ok: true };
+  }));
+  app.post('/api/me/email/resend', guard(ANY_ROLE, async (ctx) => {
+    limit(`email-resend:${ctx.user.id}`, 5, 3600_000);
+    await fn('fn_email_resend', ctx.user.id);
+    return { ok: true };
+  }));
+  app.post('/api/me/email/verify', guard(ANY_ROLE, async (ctx) => {
+    limit(`email-verify:${ctx.user.id}`, 10, 900_000);
+    const r = await fn('fn_email_verify', ctx.user.id, v.str(ctx.body.code, 'Code', { min: 6, max: 6 }));
+    if (!r.ok) throw new HttpError(400, r.reason === 'taken' ? 'email_taken' : 'invalid_code',
+      r.reason === 'taken' ? 'Cette adresse est déjà utilisée par un autre compte' : 'Code invalide ou expiré');
+    return { ok: true };
+  }));
 
   // =========================================================================
   // Page publique du lien partagé (le client ne voit ni le vendeur ni le fournisseur)
@@ -213,9 +237,9 @@ export function registerRoutes(app, { db, cfg }) {
   // Profil (tous les rôles) : nom, photo, mot de passe, numéro de versement
   // =========================================================================
   app.get('/api/me/profile', guard(ANY_ROLE, async (ctx) => {
-    const [u] = await q(`SELECT full_name, phone, role, team, payout_method, payout_phone, identity_verified, created_at,
+    const [u] = await q(`SELECT full_name, phone, email, (email_verified_at IS NOT NULL) AS email_verified, role, team, payout_method, payout_phone, identity_verified, created_at,
         EXISTS (SELECT 1 FROM avatars a WHERE a.user_id = users.id) AS has_avatar FROM users WHERE id = $1`, [ctx.user.id]);
-    return { id: ctx.user.id, name: u.full_name, phone: u.phone, role: u.role, team: u.team, has_avatar: u.has_avatar,
+    return { id: ctx.user.id, name: u.full_name, phone: u.phone, email: u.email, email_verified: u.email_verified, email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated', role: u.role, team: u.team, has_avatar: u.has_avatar,
       identity_verified: u.identity_verified, created_at: u.created_at,
       payout: u.payout_phone ? { method: u.payout_method, phone: u.payout_phone } : null };
   }));
@@ -502,7 +526,8 @@ export function registerRoutes(app, { db, cfg }) {
     const [order] = await q(`SELECT ${SELLER_ORDER_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.id = $1 AND o.seller_id = $2`, [id, ctx.user.id]);
     if (!order) throw new HttpError(404, 'not_found', 'Commande introuvable');
     return { order,
-      calls: await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
+      // le nom de l'agent n'est jamais montré au vendeur (protection du personnel) : seulement le call center
+      calls: await q('SELECT call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
       history: await q('SELECT to_status, note, at FROM order_history WHERE order_id = $1 ORDER BY id', [id]) };
   }));
 
@@ -624,7 +649,7 @@ export function registerRoutes(app, { db, cfg }) {
   // ADMINISTRATEUR
   // =========================================================================
   const ADM = ['admin'];
-  const MASKS = { delivery_code: /(Code de livraison : )\d{4}/, withdrawal_code: /(GNF : )\d{6}/, password_reset: /(est )\d{6}/ };
+  const MASKS = { delivery_code: /(Code de livraison : )\d{4}/, withdrawal_code: /(GNF : )\d{6}/, password_reset: /(est )\d{6}/, password_reset_email: /(est )\d{6}/, email_verify: /(est )\d{6}/, temp_password: /(temporaire est : )\S+/ };
 
   app.get('/api/admin/dashboard', guard(ADM, async () => {
     const [m] = await q(`SELECT
@@ -646,7 +671,7 @@ export function registerRoutes(app, { db, cfg }) {
 
   app.get('/api/admin/users', guard(ADM, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);
-    return { users: await q(`SELECT id, role, status, full_name, phone, team, identity_doc, identity_verified, payout_method, payout_phone, created_at,
+    return { users: await q(`SELECT id, role, status, full_name, phone, email, (email_verified_at IS NOT NULL) AS email_verified, team, identity_doc, identity_verified, payout_method, payout_phone, created_at,
           (SELECT d.status FROM identity_documents d WHERE d.user_id = users.id) AS kyc_status,
           EXISTS (SELECT 1 FROM identity_documents d WHERE d.user_id = users.id AND d.back_mime IS NOT NULL) AS kyc_back,
           CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance
@@ -804,7 +829,7 @@ export function registerRoutes(app, { db, cfg }) {
   }));
   app.get('/api/admin/messages', guard(ADM, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);
-    const rows = await q('SELECT id, to_phone, channel, template, body, status, error, created_at, sent_at FROM messages ORDER BY id DESC LIMIT $1 OFFSET $2', [l, offset]);
+    const rows = await q('SELECT id, to_phone, to_email, channel, template, subject, body, status, error, created_at, sent_at FROM messages ORDER BY id DESC LIMIT $1 OFFSET $2', [l, offset]);
     // les codes ne sont jamais affichés, sauf en mode test (SHOW_TEST_CODES=1 avec messages simulés : rien n'est réellement envoyé)
     if (!cfg.showTestCodes) for (const m of rows) if (MASKS[m.template]) m.body = m.body.replace(MASKS[m.template], '$1••••');
     return { messages: rows, test_codes_visible: !!cfg.showTestCodes };
