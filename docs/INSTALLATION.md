@@ -39,7 +39,8 @@ Le mot de passe doit contenir au moins 8 caractères, avec lettres et chiffres. 
 | `DB_APP_PASSWORD` | compte applicatif `wld_app` (droits limités) | obligatoire |
 | `CONTACT_PHONE` | numéro d'aide affiché | `624390707` |
 | `MESSAGE_PROVIDER` | `simulated` ou `whatsapp` | `simulated` |
-| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | requis si `whatsapp` | vide |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | requis si `whatsapp` (voir `docs/MESSAGES.md`) | vide |
+| `WHATSAPP_TEMPLATE_CODE`, `WHATSAPP_TEMPLATE_INFO`, `WHATSAPP_LANG`, `WHATSAPP_CODE_BUTTON` | modèles approuvés par Meta | `wld_code`, `wld_info`, `fr`, `0` |
 | `BACKUP_KEEP_DAYS` | durée de conservation des sauvegardes | 30 |
 | `BACKUP_HOUR_UTC` | heure de la sauvegarde (UTC = Conakry) | 2 |
 | `BACKUP_PATH` | dossier des sauvegardes sur le serveur | `./backups` |

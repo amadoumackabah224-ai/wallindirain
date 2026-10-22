@@ -20,6 +20,11 @@ services:
         value: "624390707"
       - key: MESSAGE_PROVIDER
         value: simulated
+      # Pour activer WhatsApp : MESSAGE_PROVIDER=whatsapp + ces trois valeurs (voir docs/MESSAGES.md), et retirer SHOW_TEST_CODES.
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
       # E-mails (connexion par adresse e-mail, mot de passe oublié) : voir docs/EMAIL.md.
       # Pour les activer : EMAIL_PROVIDER=brevo + clé + adresse d'expéditeur, ET retirer SHOW_TEST_CODES.
       - key: EMAIL_PROVIDER
