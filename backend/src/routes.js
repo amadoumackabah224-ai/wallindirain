@@ -98,8 +98,10 @@ export function registerRoutes(app, { db, cfg }) {
       role === 'supplier' ? v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }) : v.optStr(b.identity_doc, 'Pièce d\'identité', 60),
       payMethod, payPhone, cfg.legal.version);
     if (b.email) await fn('fn_register_email', id, v.email(b.email));   // code de vérification envoyé par e-mail
+    let referral = null;
+    if (role === 'seller' && typeof b.referral_code === 'string' && b.referral_code.trim()) referral = await fn('fn_register_referral', id, v.str(b.referral_code, 'Code de parrainage', { min: 4, max: 12 }));
     ctx.status = 201;
-    return { id, pending_validation: role === 'supplier', email_pending: !!b.email,
+    return { id, pending_validation: role === 'supplier', email_pending: !!b.email, referral_applied: referral,
       message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
   });
 
@@ -198,6 +200,14 @@ export function registerRoutes(app, { db, cfg }) {
       v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
     ctx.status = 201;
     return r;
+  });
+
+  // Suivi de commande pour le client : lien secret (aucune donnée personnelle renvoyée)
+  app.get('/api/public/track/:token', async (ctx) => {
+    limit(`track:${clientIp(ctx.req)}`, 60, 60_000);
+    const r = await fn('fn_public_track', typeof ctx.params.token === 'string' ? ctx.params.token.slice(0, 40) : '');
+    if (!r) throw new HttpError(404, 'not_found', 'Suivi introuvable ou expiré');
+    return { ...r, contact_phone: cfg.contactPhone };
   });
 
   // Demande sur les données personnelles (accès, correction, suppression, opposition) : sans connexion
@@ -510,7 +520,8 @@ export function registerRoutes(app, { db, cfg }) {
 
   const SELLER_ORDER_COLS = `o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total,
       o.customer_name, o.customer_phone, o.commune, o.address, o.delivery_fee, o.call_fee, o.call_attempts, o.failure_reason, o.return_cause,
-      o.created_at, o.delivered_at,
+      o.created_at, o.delivered_at, o.track_token, o.risk_flag,
+      (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
       (o.sale_total - o.delivery_fee - o.call_fee - o.qty_from_catalog * o.seller_unit_price) AS expected_gain,
       (o.status = 'new' AND o.call_attempts = 0 AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.order_id = o.id)) AS cancellable`;
 
@@ -520,6 +531,33 @@ export function registerRoutes(app, { db, cfg }) {
     return { orders: await q(`SELECT ${SELLER_ORDER_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
         WHERE o.seller_id = $1 AND ($4::text IS NULL OR o.status::text = $4) ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`, [ctx.user.id, l, offset, st]) };
   }));
+
+  // Tableau de bord du vendeur : résultats de ses commandes, gains par semaine, produits les plus rentables
+  app.get('/api/seller/stats', guard(SEL, async (ctx) => {
+    const days = [7, 30, 90, 365].includes(Number(ctx.query.days)) ? Number(ctx.query.days) : 30;
+    const [t] = await q(`SELECT
+        count(*)::int AS total,
+        count(*) FILTER (WHERE status = 'delivered')::int AS delivered,
+        count(*) FILTER (WHERE status IN ('failed','return_pending','returned','refused'))::int AS failed,
+        count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled,
+        count(*) FILTER (WHERE status IN ('new','in_call','confirmed','assigned','picked_up','on_the_way'))::int AS in_progress,
+        COALESCE(sum(sale_total) FILTER (WHERE status = 'delivered'), 0)::bigint AS sales
+      FROM orders WHERE seller_id = $1 AND created_at >= now() - make_interval(days => $2)`, [ctx.user.id, days]);
+    const done = t.delivered + t.failed;
+    const weeks = await q(`SELECT to_char(date_trunc('week', w.created_at), 'YYYY-MM-DD') AS week, sum(w.amount)::bigint AS gain
+        FROM wallet_entries w WHERE w.user_id = $1 AND w.kind = 'seller_gain' AND w.created_at >= date_trunc('week', now()) - interval '7 weeks'
+        GROUP BY 1 ORDER BY 1`, [ctx.user.id]);
+    const products = await q(`SELECT COALESCE(p.name, o.own_product_name) AS name, count(*)::int AS delivered, COALESCE(sum(w.amount), 0)::bigint AS gain
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id
+        LEFT JOIN wallet_entries w ON w.order_id = o.id AND w.user_id = $1 AND w.kind = 'seller_gain'
+        WHERE o.seller_id = $1 AND o.status = 'delivered' AND o.created_at >= now() - make_interval(days => $2)
+        GROUP BY 1 ORDER BY gain DESC, delivered DESC LIMIT 5`, [ctx.user.id, days]);
+    const failedByCause = await q(`SELECT COALESCE(return_cause::text, 'unknown') AS cause, count(*)::int AS n FROM orders
+        WHERE seller_id = $1 AND status IN ('failed','return_pending','returned','refused') AND created_at >= now() - make_interval(days => $2) GROUP BY 1 ORDER BY n DESC`, [ctx.user.id, days]);
+    return { days, ...t, delivery_rate: done ? Math.round((t.delivered * 1000) / done) / 10 : null, weeks, products, failed_by_cause: failedByCause };
+  }));
+
+  app.get('/api/me/referral', guard(['seller', 'supplier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
 
   app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {
     const id = v.uuid(ctx.params.id, 'Commande');
@@ -578,6 +616,7 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
           o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at,
+          o.risk_flag, (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
           op.method AS payment_method
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN order_payments op ON op.order_id = o.id
         WHERE o.courier_id = $1 AND o.status IN ('assigned','picked_up','on_the_way') ORDER BY o.created_at`, [ctx.user.id]),
@@ -667,6 +706,42 @@ export function registerRoutes(app, { db, cfg }) {
     const [dr] = await q(`SELECT count(*)::int AS n FROM data_requests WHERE status = 'open'`);
     const [sp] = await q(`SELECT count(*)::int AS n FROM support_threads WHERE status = 'open' AND unread_admin`);
     return { ...m, data_requests_open: dr.n, support_unread: sp.n, legal_missing: legalMissing(cfg), by_status: await q('SELECT status, count(*)::int AS n FROM orders GROUP BY status ORDER BY status') };
+  }));
+
+  // Statistiques pour décider : produits, call centers, livreurs, causes de retour
+  app.get('/api/admin/stats', guard(ADM, async (ctx) => {
+    const days = [7, 30, 90, 365].includes(Number(ctx.query.days)) ? Number(ctx.query.days) : 30;
+    const since = [days];
+    const rate = (a, b) => (a + b ? Math.round((a * 1000) / (a + b)) / 10 : null);
+    const products = (await q(`SELECT COALESCE(p.name, o.own_product_name) AS name,
+          count(*) FILTER (WHERE o.status = 'delivered')::int AS delivered,
+          count(*) FILTER (WHERE o.status IN ('failed','return_pending','returned','refused'))::int AS failed,
+          COALESCE(sum(o.sale_total) FILTER (WHERE o.status = 'delivered'), 0)::bigint AS sales,
+          COALESCE(sum(w.amount), 0)::bigint AS platform_revenue
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id
+        LEFT JOIN wallet_entries w ON w.order_id = o.id AND w.kind = 'platform_revenue'
+        WHERE o.created_at >= now() - make_interval(days => $1) GROUP BY 1
+        HAVING count(*) FILTER (WHERE o.status IN ('delivered','failed','return_pending','returned','refused')) > 0
+        ORDER BY platform_revenue DESC LIMIT 15`, since)).map((r) => ({ ...r, delivery_rate: rate(r.delivered, r.failed) }));
+    const callCenters = (await q(`SELECT call_center AS name, count(*)::int AS calls,
+          count(*) FILTER (WHERE result = 'confirmed')::int AS confirmed,
+          count(*) FILTER (WHERE result = 'unreachable')::int AS unreachable,
+          count(*) FILTER (WHERE result = 'refused')::int AS refused
+        FROM calls WHERE at >= now() - make_interval(days => $1) GROUP BY 1 ORDER BY confirmed DESC`, since))
+      .map((r) => ({ ...r, confirm_rate: r.calls ? Math.round((r.confirmed * 1000) / r.calls) / 10 : null }));
+    const couriers = (await q(`SELECT u.full_name AS name,
+          count(*) FILTER (WHERE o.status = 'delivered')::int AS delivered,
+          count(*) FILTER (WHERE o.status IN ('failed','return_pending','returned','refused'))::int AS failed
+        FROM orders o JOIN users u ON u.id = o.courier_id
+        WHERE o.created_at >= now() - make_interval(days => $1) GROUP BY u.id, u.full_name ORDER BY delivered DESC LIMIT 20`, since))
+      .map((r) => ({ ...r, delivery_rate: rate(r.delivered, r.failed) }));
+    const returns = await q(`SELECT return_cause::text AS cause, count(*)::int AS n FROM orders
+        WHERE return_cause IS NOT NULL AND created_at >= now() - make_interval(days => $1) GROUP BY 1 ORDER BY n DESC`, since);
+    const [tot] = await q(`SELECT count(*)::int AS orders, count(*) FILTER (WHERE status = 'delivered')::int AS delivered,
+          COALESCE(sum(sale_total) FILTER (WHERE status = 'delivered'), 0)::bigint AS sales,
+          (SELECT COALESCE(sum(amount), 0)::bigint FROM wallet_entries WHERE kind = 'platform_revenue' AND created_at >= now() - make_interval(days => $1)) AS platform_revenue
+        FROM orders WHERE created_at >= now() - make_interval(days => $1)`, since);
+    return { days, totals: tot, products, call_centers: callCenters, couriers, returns };
   }));
 
   app.get('/api/admin/users', guard(ADM, async (ctx) => {

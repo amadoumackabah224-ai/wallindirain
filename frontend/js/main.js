@@ -5,6 +5,7 @@ import { loginView, registerView, forgotView, clientOrderView, dataRequestView, 
 import { profileView } from './views/profile.js';
 import { helpButton } from './views/support.js';
 import { walletView } from './views/wallet.js';
+import { sellerStats, adminStats, trackView } from './views/stats.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder } from './views/seller.js';
 import { supplierProducts, supplierOrders } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
@@ -18,13 +19,13 @@ let contact = '624390707';
 
 // Onglets par rôle : [clé, icône, libellé, fonction de vue]
 const TABS = {
-  seller: [['orders', '📦', 'Commandes', () => sellerOrders()], ['new', '➕', 'Nouvelle', (c) => sellerNewOrder(c)], ['catalog', '🛍️', 'Catalogue', () => sellerCatalog()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
+  seller: [['orders', '📦', 'Commandes', () => sellerOrders()], ['new', '➕', 'Nouvelle', (c) => sellerNewOrder(c)], ['catalog', '🛍️', 'Catalogue', () => sellerCatalog()], ['stats', '📊', 'Mes chiffres', () => sellerStats()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
   supplier: [['products', '📦', 'Produits', () => supplierProducts()], ['orders', '🚚', 'Colis', () => supplierOrders()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
   agent: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['wallet', '💰', 'Gains', () => walletView()]],
   call_chief: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['assign', '🏍️', 'Affectation', () => chiefAssign()], ['wallet', '💰', 'Gains', () => walletView()]],
   courier: [['orders', '🏍️', 'Livraisons', () => courierOrders()], ['cash', '💵', 'Caisse', () => courierCash()], ['wallet', '💰', 'Gains', () => walletView()]],
   warehouse: [['stock', '🏬', 'Entrepôt', () => warehouseView()]],
-  admin: [['dash', '📊', 'Tableau', (c) => adminDashboard(c)], ['orders', '📦', 'Commandes', () => adminOrders()], ['users', '👥', 'Utilisateurs', () => adminUsers()], ['products', '🛍️', 'Produits', () => adminProducts()],
+  admin: [['dash', '📊', 'Tableau', (c) => adminDashboard(c)], ['stats', '📈', 'Statistiques', () => adminStats()], ['orders', '📦', 'Commandes', () => adminOrders()], ['users', '👥', 'Utilisateurs', () => adminUsers()], ['products', '🛍️', 'Produits', () => adminProducts()],
     ['cash', '🏦', 'Caisses', () => adminCash()], ['remit', '📲', 'Reversements', () => adminRemittances()], ['withdrawals', '💸', 'Retraits', () => adminWithdrawals()], ['deposit', '➕', 'Dépôts', () => adminDeposit()], ['settings', '⚙️', 'Réglages', () => adminSettings()], ['audit', '📜', 'Journal', () => adminAudit()]]
 };
 
@@ -54,10 +55,11 @@ async function route() {
   const [, a, b] = location.hash.split('/');
   const pub = (node) => render(h('div', {}, node));
   if (a === 'c' && b) return pub(clientOrderView(b));          // page publique du client
+  if (a === 'suivi' && b) return pub(trackView(b));              // suivi de commande pour le client
   if (a === 'demande-donnees') return pub(dataRequestView());
   if (!user) { try { user = (await get('/auth/me')).user; } catch { user = null; } }
   if (!user) {
-    if (a === 'register') return pub(registerView());
+    if (a === 'register') return pub(registerView({ ref: b }));
     if (a === 'forgot') return pub(forgotView());
     return pub(loginView({ contact, onLogin: (u) => { user = u; location.hash = '#/app/'; } }));
   }

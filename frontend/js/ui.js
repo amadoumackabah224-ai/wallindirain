@@ -37,7 +37,7 @@ export const CAUSE_LABEL = { customer_refusal: 'Refus du client', defective: 'D�
 export const WALLET_KIND = {
   deposit: 'Dépôt', stock_purchase: 'Achat de stock', seller_gain: 'Gain de vente', supplier_payment: 'Paiement produit', team_pay: 'Rémunération',
   return_fees: 'Frais de retour', return_fee_supplier: 'Frais de retour (produit défectueux)', prepaid_refund: 'Remboursement de stock', transport_loss: 'Compensation transport',
-  cash_shortage: 'Manque de caisse', withdrawal: 'Retrait', withdrawal_refund: 'Retrait refusé (remboursé)'
+  cash_shortage: 'Manque de caisse', withdrawal: 'Retrait', referral_bonus: 'Bonus de parrainage', withdrawal_refund: 'Retrait refusé (remboursé)'
 };
 
 /** Photo de profil, ou initiales si la personne n'en a pas. `ver` force le rechargement après un changement. */

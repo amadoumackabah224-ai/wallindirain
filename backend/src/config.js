@@ -36,7 +36,7 @@ export function loadConfig() {
     };
   // Identité de l'éditeur, affichée dans les pages légales (/legal/…). Tout champ vide apparaît « À COMPLÉTER » dans la page.
   const legal = {
-    version: '2026-10-22',                         // à changer à chaque modification des conditions ou de la politique
+    version: '2026-10-23',                         // à changer à chaque modification des conditions ou de la politique
     name: (env.LEGAL_NAME || '').trim(), form: (env.LEGAL_FORM || '').trim(), address: (env.LEGAL_ADDRESS || '').trim(),
     email: (env.LEGAL_EMAIL || '').trim(), rccm: (env.LEGAL_RCCM || '').trim(), nif: (env.LEGAL_NIF || '').trim(),
     director: (env.LEGAL_DIRECTOR || '').trim(), hostingRegion: (env.HOSTING_REGION || '').trim(), returnDays: (env.LEGAL_RETURN_DAYS || '').trim()

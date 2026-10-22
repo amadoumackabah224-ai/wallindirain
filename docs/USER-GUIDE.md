@@ -42,3 +42,11 @@ Tableau de bord (commandes par statut, résultat, comptes et produits à valider
 ## Retraits (vendeur, fournisseur, personnel payé)
 
 Minimum 50 000 GNF, identité vérifiée par l'administration, Orange Money ou MTN MoMo. Étapes : demande → code à 6 chiffres reçu par message → confirmation → paiement manuel par l'administration (le virement n'est pas automatique en version 1).
+
+## Nouveautés : suivi, chiffres, parrainage, alertes
+- **Suivi client** : chaque commande a un lien secret `…/#/suivi/…`. Le client le reçoit après sa commande ; le vendeur peut le copier ou l'envoyer sur WhatsApp depuis sa commande. Il montre seulement l'étape de la commande (jamais l'adresse, le téléphone, le vendeur ni le fournisseur) et expire 90 jours après la dernière étape.
+- **Mes chiffres** (vendeur) : commandes, taux de livraison, échecs, gains par semaine, 5 produits les plus rentables.
+- **Statistiques** (administrateur) : produits, call centers, livreurs, causes de retour, sur 7 jours à 1 an.
+- **Client à risque** : un numéro déjà refusé ou raté déclenche une alerte pour le vendeur, le call center et le livreur (le motif n'est vu que du call center).
+- **WhatsApp en un clic** : boutons pour écrire au client (call center, vendeur, livreur). Le message est pré-rempli, envoyé par la personne depuis son propre téléphone, sans passer par l'API payante.
+- **Parrainage** : Profil → Parrainage. Réglages de l'administrateur : `referral_bonus` (GNF, 0 = désactivé) et `referral_orders_required` (commandes livrées du filleul). Le bonus est versé une seule fois par filleul, par écriture double (plateforme → parrain), avec le même délai de déblocage que la commande. Surveillez les parrainages entre comptes liés (un vendeur qui crée de faux comptes).
