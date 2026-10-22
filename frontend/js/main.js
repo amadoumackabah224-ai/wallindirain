@@ -1,7 +1,7 @@
 // Point d'entrée de l'interface : routage, session, navigation par rôle.
 import { h, ROLE_LABEL, toast, spinner, avatar, legalLinks } from './ui.js';
 import { get, post, setUnauthorizedHandler } from './api.js';
-import { loginView, registerView, forgotView, clientOrderView, dataRequestView } from './views/auth.js';
+import { loginView, registerView, forgotView, clientOrderView, dataRequestView, flags } from './views/auth.js';
 import { profileView } from './views/profile.js';
 import { helpButton } from './views/support.js';
 import { walletView } from './views/wallet.js';
@@ -68,4 +68,4 @@ async function route() {
 setUnauthorizedHandler(() => { if (user) { user = null; toast('Session expirée : reconnectez-vous.', 'bad'); location.hash = '#/login'; route(); } });
 window.addEventListener('hashchange', route);
 render(spinner());
-get('/public/info').then((i) => { contact = i.contact_phone; }).catch(() => {}).finally(route);
+get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; }).catch(() => {}).finally(route);

@@ -65,12 +65,11 @@ export function profileView({ onChanged }) {
         kv([['Nom', p.name], ['Téléphone de connexion', fmtPhone(p.phone)], ['Membre depuis', fmtDate(p.created_at)]]),
         h('p', { class: 'small muted' }, 'Le numéro de connexion ne peut pas être changé ici : contactez l\'équipe (bouton Aide) si vous avez changé de numéro.'),
         h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: rename }, 'Modifier mon nom'))),
-      h('div', { class: 'card' }, h('h2', {}, 'Adresse e-mail'),
+      p.email_enabled && h('div', { class: 'card' }, h('h2', {}, 'Adresse e-mail'),
         p.email ? h('p', {}, h('b', {}, p.email), ' ', h('span', { class: p.email_verified ? 'badge ok' : 'badge warn' }, p.email_verified ? 'Confirmée' : 'À confirmer'))
           : h('p', { class: 'muted' }, 'Aucune adresse e-mail enregistrée.'),
         h('p', { class: 'small muted' }, p.email_verified ? 'Vous pouvez vous connecter avec cette adresse, et vos codes (mot de passe oublié) arrivent dans votre boîte e-mail.'
           : 'Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes de mot de passe oublié dans votre boîte e-mail.'),
-        !p.email_enabled && h('p', { class: 'small muted' }, 'L\'envoi d\'e-mails n\'est pas encore activé sur cette plateforme.'),
         h('div', { class: 'gap' },
           p.email && !p.email_verified && h('button', { class: 'btn btn-sm btn-gold', onclick: verifyEmail }, 'Saisir le code reçu'),
           p.email && !p.email_verified && h('button', { class: 'btn btn-sm btn-ghost', onclick: resendEmail }, 'Renvoyer le code'),
