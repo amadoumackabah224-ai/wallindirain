@@ -29,7 +29,7 @@ export function loginView({ onLogin, contact }) {
     h('p', { class: 'auth-foot' }, `Besoin d'aide : ${fmtPhone(contact)}`));
 }
 
-export function registerView() {
+export function registerView({ ref } = {}) {
   const role = h('select', {}, h('option', { value: 'seller' }, 'Vendeur : je vends des produits en ligne'), h('option', { value: 'supplier' }, 'Fournisseur : je propose des produits'));
   const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
   const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
@@ -38,6 +38,7 @@ export function registerView() {
   const syncDoc = () => {
     const sup = role.value === 'supplier';
     doc.required = sup;
+    refField.replaceChildren(sup ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
     docField.replaceChildren(field(sup ? 'Pièce d\'identité' : 'Pièce d\'identité (facultative pour l\'instant)', doc, sup ? 'Obligatoire pour un fournisseur : elle est vérifiée avant l\'activation du compte. Saisissez seulement le numéro, aucune photo n\'est demandée.' : 'Vous pourrez l\'ajouter plus tard, avant votre premier retrait d\'argent. Seul le numéro est demandé, aucune photo.'));
   };
   role.addEventListener('change', syncDoc);
@@ -45,21 +46,23 @@ export function registerView() {
   const pw = h('input', { type: 'password', required: true, minlength: 8, maxlength: 128, autocomplete: 'new-password' });
   const payMethod = h('select', {}, h('option', { value: 'orange_money' }, 'Orange Money'), h('option', { value: 'mtn_momo' }, 'MTN MoMo'));
   const email = h('input', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', maxlength: 254, placeholder: 'nom@exemple.com (facultatif)' });
+  const referral = h('input', { type: 'text', maxlength: 12, autocapitalize: 'characters', spellcheck: 'false', value: ref || '', placeholder: 'Facultatif' });
+  const refField = h('div');
   const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 16, placeholder: 'Laisser vide = mon numéro de téléphone' });
   const out = h('div');
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}), ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
+      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(role.value === 'seller' && referral.value.trim() ? { referral_code: referral.value.trim() } : {}), ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}), ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
         payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) });
-      out.replaceChildren(h('div', { class: 'notice ok' }, r.message), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
+      out.replaceChildren(h('div', { class: 'notice ok' }, r.message), r.referral_applied === false && h('div', { class: 'notice warn' }, 'Le code de parrainage n\'a pas été reconnu : votre compte est créé sans parrain.'), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
   } },
     h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
     flags.email && field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
-    docField,
+    docField, refField,
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
     field('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
@@ -116,7 +119,9 @@ export function clientOrderView(code) {
           h('h2', {}, `Référence ${r.ref}`),
           h('p', {}, 'Un conseiller Wallindirain va vous appeler très bientôt pour confirmer votre commande. Gardez votre téléphone allumé.'),
           h('p', {}, 'Après confirmation par notre équipe, un livreur vous contactera. Vous payez à la livraison, une fois le colis en main. Si un code de livraison vous est envoyé par message, ne le donnez au livreur qu\'à la réception du colis.'),
-          kv([['Total à payer à la livraison', amount(r.sale_total)]]));
+          kv([['Total à payer à la livraison', amount(r.sale_total)]]),
+          r.track_token && h('a', { class: 'btn btn-ghost btn-block mt', href: `#/suivi/${r.track_token}` }, 'Suivre ma commande'),
+          r.track_token && h('p', { class: 'small muted' }, 'Enregistrez cette page dans vos favoris pour suivre votre commande.'));
       } catch (ex) { errToast(ex); btn.disabled = false; }
     } },
       h('h2', {}, 'Vos informations'),

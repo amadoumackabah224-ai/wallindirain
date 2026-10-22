@@ -1,5 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -32,12 +32,15 @@ function orderCard(o, refresh) {
   };
   const cancel = action(async () => { if (await confirmBox('Annuler cette commande ?', 'Elle n\'a pas encore été appelée.', 'Oui, annuler', true)) { await post(`/seller/orders/${o.id}/cancel`); } },
     { ok: 'Commande annulée', refresh });
-  return h('div', { class: 'card order' },
-    h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.formula === 'C' && badge('Produit propre', 'grey'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
-    kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', `${o.customer_name} · ${fmtPhone(o.customer_phone)}`], ['Livraison', `${o.commune}, ${o.address}`],
+  const trackUrl = `${location.origin}/#/suivi/${o.track_token}`;
+  const copyTrack = async () => { try { await navigator.clipboard.writeText(trackUrl); toast('Lien de suivi copié', 'ok'); } catch { toast(trackUrl, 'ok'); } };
+  return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` },
+    h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad'), o.formula === 'C' && badge('Produit propre', 'grey'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
+    o.risk_flag && o.status !== 'delivered' && h('div', { class: 'notice bad' }, h('b', {}, '⚠ Client à risque. '), `Ce numéro a déjà eu ${o.risk_incidents || 1} commande(s) non aboutie(s) sur Wallindirain. Prévenez-le que le paiement à la livraison est obligatoire.`),
+    kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', h('span', { class: 'gap' }, `${o.customer_name} · `, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, c'est votre vendeur. Suivez votre commande ${o.ref} ici : ${trackUrl}`))], ['Livraison', `${o.commune}, ${o.address}`],
       ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain)],
       o.failure_reason && ['Dernier échec', o.failure_reason]]),
-    h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
+    h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
 }
 
 export function sellerCatalog() {

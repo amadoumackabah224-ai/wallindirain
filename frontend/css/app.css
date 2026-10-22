@@ -179,3 +179,12 @@ label.f input[type="file"] { padding: 10px; }
 .legal-doc h1 { font-size: 1.3rem; }
 .legal-links .linklike { padding: 6px 2px; font-size: .85rem; }
 .auth-foot .legal-links .linklike { color: var(--gold-2); }
+
+/* Tableaux de bord et suivi de commande */
+.stat { text-align: center; } .stat-n { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
+.bars { display: grid; gap: 8px; } .bar-row { display: grid; grid-template-columns: minmax(70px, 28%) 1fr auto; gap: 8px; align-items: center; font-size: .9rem; }
+.bar-t { background: rgba(127, 127, 127, .18); border-radius: 6px; height: 14px; overflow: hidden; } .bar-f { display: block; height: 100%; background: var(--gold, #c9a227); border-radius: 6px; min-width: 2px; }
+.bar-v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.track { list-style: none; margin: 16px 0; padding: 0 0 0 4px; } .track li { position: relative; padding: 0 0 16px 28px; }
+.track li::before { content: ''; position: absolute; left: 0; top: 3px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; background: transparent; }
+.track li.now b { text-decoration: underline; } .track li.done::before { background: var(--ok, #2e9e5b); border-color: var(--ok, #2e9e5b); } .track li.now::before { background: var(--gold, #c9a227); border-color: var(--gold, #c9a227); }
