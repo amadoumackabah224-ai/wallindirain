@@ -14,20 +14,42 @@ const PROVIDERS = {
   async simulated() { return 'simulated'; },
 
   // API officielle WhatsApp Business (Meta Cloud API).
-  // IMPORTANT : hors fenêtre de 24 h, WhatsApp n'accepte que des modèles de message (templates)
-  // préalablement approuvés par Meta. Voir docs/DEPLOIEMENT.md pour déclarer vos modèles.
-  async whatsapp({ to, body }, cfg) {
+  // Hors fenêtre de 24 h (cas de tous nos messages : le client n'a pas écrit le premier), WhatsApp n'accepte
+  // QUE des modèles de message (templates) approuvés à l'avance par Meta. On envoie donc des modèles :
+  //   - un modèle « code » (code de livraison, de retrait, mot de passe oublié) : 1 variable = le code
+  //   - un modèle « info » (confirmation, retrait payé, alertes…) : 1 variable = le texte
+  // Voir docs/MESSAGES.md pour les créer et les faire approuver.
+  async whatsapp(msg, cfg) {
     if (!cfg.whatsappToken || !cfg.whatsappPhoneId) throw new Error('WHATSAPP_TOKEN / WHATSAPP_PHONE_ID manquants');
     const res = await fetch(`https://graph.facebook.com/v20.0/${cfg.whatsappPhoneId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.whatsappToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messaging_product: 'whatsapp', to: toInternational(to), type: 'text', text: { body } }),
+      body: JSON.stringify(buildWhatsappPayload(msg, cfg)),
       signal: AbortSignal.timeout(10_000)
     });
     if (!res.ok) throw new Error(`WhatsApp ${res.status}: ${(await res.text()).slice(0, 200)}`);
     return 'sent';
   }
 };
+
+const CODE_TEMPLATES = { delivery_code: /Code de livraison : (\d{4})/, withdrawal_code: /GNF : (\d{6})/, password_reset: /est (\d{6})/ };
+// WhatsApp refuse les retours à la ligne, tabulations et suites de plus de 4 espaces dans une variable de modèle
+const clean = (t) => String(t).replace(/[\r\n\t]+/g, ' ').replace(/ {5,}/g, '    ').trim().slice(0, 900);
+
+/** Construit la requête WhatsApp (modèle approuvé) pour un message de la file. Exporté pour les tests. */
+export function buildWhatsappPayload({ to, body, template }, cfg) {
+  const code = CODE_TEMPLATES[template] && body.match(CODE_TEMPLATES[template])?.[1];
+  const lang = { code: cfg.whatsappLang || 'fr' };
+  const base = { messaging_product: 'whatsapp', to: toInternational(to), type: 'template' };
+  if (code) {
+    const components = [{ type: 'body', parameters: [{ type: 'text', text: code }] }];
+    // modèle de catégorie « Authentification » : le bouton « Copier le code » reçoit aussi le code
+    if (cfg.whatsappCodeButton) components.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] });
+    return { ...base, template: { name: cfg.whatsappTemplateCode || 'wld_code', language: lang, components } };
+  }
+  const text = clean(body.replace(/^Wallindirain\s*:\s*/, ''));
+  return { ...base, template: { name: cfg.whatsappTemplateInfo || 'wld_info', language: lang, components: [{ type: 'body', parameters: [{ type: 'text', text }] }] } };
+}
 
 export function startWorker({ db, cfg, log }) {
   const send = PROVIDERS[cfg.messaging.provider];

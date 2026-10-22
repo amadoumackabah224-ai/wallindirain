@@ -60,6 +60,10 @@ export function loadConfig() {
       provider: env.MESSAGE_PROVIDER || 'simulated', // simulated | whatsapp
       whatsappToken: env.WHATSAPP_TOKEN || '',
       whatsappPhoneId: env.WHATSAPP_PHONE_ID || '',
+      whatsappTemplateCode: (env.WHATSAPP_TEMPLATE_CODE || 'wld_code').trim(),   // modèle approuvé pour les codes
+      whatsappTemplateInfo: (env.WHATSAPP_TEMPLATE_INFO || 'wld_info').trim(),   // modèle approuvé pour les autres messages
+      whatsappLang: (env.WHATSAPP_LANG || 'fr').trim(),
+      whatsappCodeButton: env.WHATSAPP_CODE_BUTTON === '1',                      // 1 si le modèle « code » est de catégorie Authentification
     },
     // e-mails (connexion par adresse e-mail, mot de passe oublié) : voir docs/EMAIL.md
     email: {
@@ -78,6 +82,7 @@ export function loadConfig() {
   if (cfg.email.provider === 'brevo' && (!cfg.email.apiKey || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cfg.email.from))) {
     problems.push('EMAIL_API_KEY et EMAIL_FROM (adresse valide) sont obligatoires avec EMAIL_PROVIDER=brevo');
   }
+  for (const k of ['whatsappTemplateCode', 'whatsappTemplateInfo']) if (!/^[a-z0-9_]{1,512}$/.test(cfg.messaging[k])) problems.push('Les noms de modèles WhatsApp (WHATSAPP_TEMPLATE_*) ne contiennent que minuscules, chiffres et _');
   if (cfg.showTestCodes && (cfg.messaging.provider !== 'simulated' || cfg.email.provider !== 'simulated')) problems.push('SHOW_TEST_CODES=1 est réservé au mode test (MESSAGE_PROVIDER et EMAIL_PROVIDER = simulated)');
   if (legal.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legal.email)) problems.push('LEGAL_EMAIL n\'est pas une adresse e-mail valide');
   if (legal.returnDays && !/^[0-9]{1,3}$/.test(legal.returnDays)) problems.push('LEGAL_RETURN_DAYS doit être un nombre de jours (ex. 7)');
