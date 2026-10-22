@@ -37,7 +37,7 @@ before(async () => {
 });
 after(async () => { await srv.close(); await db.owner.end(); await db.app.end(); });
 
-test('KYC : images obligatoires, examen par l\'administrateur, transparence des consultations', async () => {
+test('KYC : images obligatoires, examen par l\'administrateur, consultations tracées pour l\'admin seulement', async () => {
   const s = await new Client().login('633000001'); const a = await new Client().login('620000000'); const o = await new Client().login('633000002');
   const sid = (await db.owner.query(`SELECT id FROM users WHERE phone='633000001'`)).rows[0].id;
   assert.equal((await s.get('/api/me/identity')).json.status, 'none');
@@ -58,13 +58,13 @@ test('KYC : images obligatoires, examen par l\'administrateur, transparence des 
   assert.equal((await o.get(`/api/identity/${sid}/front`)).status, 403);
   assert.equal((await new Client().get(`/api/identity/${sid}/front`)).status, 401);
   assert.equal((await s.get(`/api/identity/${sid}/front`)).status, 200);          // la personne voit ses images, sans trace
-  assert.deepEqual((await s.get('/api/me/identity')).json.views, []);
+  assert.equal((await s.get('/api/me/identity')).json.views, undefined);   // la personne ne voit jamais l'historique des consultations
   const img = await a.get(`/api/identity/${sid}/front`);
   assert.equal(img.status, 200); assert.equal(img.headers.get('content-type'), 'image/png'); assert.equal(img.headers.get('cache-control'), 'no-store');
   assert.equal((await a.get(`/api/identity/${sid}/back`)).status, 404);
-  // la consultation par l'admin est visible par la personne
-  const views = (await s.get('/api/me/identity')).json.views;
-  assert.equal(views.length, 1); assert.equal(views[0].by, 'Admin KYC'); assert.equal(views[0].side, 'front');
+  // la consultation par l'admin est tracée pour l'administration, mais n'est jamais montrée à la personne
+  assert.equal((await s.get('/api/me/identity')).json.views, undefined);
+  assert.equal((await db.owner.query(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'identity_image_viewed'`)).rows[0].n, 1);
   // les colonnes d'images ne sont pas lisibles directement par l'application
   await assert.rejects(db.app.query('SELECT front FROM identity_documents'));
   // refus avec motif, puis nouvel envoi et validation

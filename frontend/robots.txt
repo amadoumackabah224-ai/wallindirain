@@ -1,3 +1,2 @@
 User-agent: *
-Allow: /llms.txt
 Disallow: /api/

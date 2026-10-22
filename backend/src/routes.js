@@ -502,7 +502,8 @@ export function registerRoutes(app, { db, cfg }) {
     const [order] = await q(`SELECT ${SELLER_ORDER_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.id = $1 AND o.seller_id = $2`, [id, ctx.user.id]);
     if (!order) throw new HttpError(404, 'not_found', 'Commande introuvable');
     return { order,
-      calls: await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
+      // le nom de l'agent n'est jamais montré au vendeur (protection du personnel) : seulement le call center
+      calls: await q('SELECT call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [id]),
       history: await q('SELECT to_status, note, at FROM order_history WHERE order_id = $1 ORDER BY id', [id]) };
   }));
 

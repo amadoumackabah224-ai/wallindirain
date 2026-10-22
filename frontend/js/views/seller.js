@@ -23,7 +23,7 @@ function orderCard(o, refresh) {
     if (!d) return;
     const box = h('div', {},
       h('h3', {}, 'Appels du call center'),
-      d.calls.length ? d.calls.map((c) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, c.agent_name), ` · ${c.call_center}`, h('div', { class: 'small muted' }, fmtDate(c.at), c.note ? ` · ${c.note}` : '')), badge(...RESULT[c.result]))) : h('p', { class: 'muted' }, 'Pas encore appelé.'),
+      d.calls.length ? d.calls.map((c) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, `Appel ${c.call_center || 'du call center'}`), h('div', { class: 'small muted' }, fmtDate(c.at), c.note ? ` · ${c.note}` : '')), badge(...RESULT[c.result]))) : h('p', { class: 'muted' }, 'Pas encore appelé.'),
       h('h3', { class: 'mt' }, 'Suivi'),
       h('ul', { class: 'timeline' }, d.history.map((x) => h('li', {}, statusBadge(x.to_status), ' ', h('span', { class: 'small muted' }, fmtDate(x.at), x.note ? ` · ${x.note}` : '')))));
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
