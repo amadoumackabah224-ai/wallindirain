@@ -5,10 +5,12 @@ import { get, post } from '../api.js';
 const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' });
 const shell = (...c) => h('main', { class: 'auth', id: 'contenu' }, h('div', { class: 'auth-card' }, logo(), ...c, h('div', { class: 'auth-foot' }, legalLinks())));
 const consentBox = (input, text) => h('label', { class: 'f check' }, input, h('span', {}, text));
+// L'option e-mail est masquée tant que l'envoi d'e-mails n'est pas activé sur le serveur (EMAIL_PROVIDER).
+export const flags = { email: false };
 const field = (label, input, hint) => h('label', { class: 'f' }, h('span', {}, label), input, hint && h('div', { class: 'hint' }, hint));
 
 export function loginView({ onLogin, contact }) {
-  const phone = h('input', { type: 'text', inputmode: 'email', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: '6XX XX XX XX ou nom@exemple.com', required: true, maxlength: 254 });
+  const phone = h('input', { type: 'text', inputmode: 'email', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: flags.email ? '6XX XX XX XX ou nom@exemple.com' : '6XX XX XX XX', required: true, maxlength: 254 });
   const pw = h('input', { type: 'password', autocomplete: 'current-password', required: true, maxlength: 128 });
   const err = h('div', { class: 'notice bad hidden', role: 'alert' });
   const form = h('form', { onsubmit: async (e) => {
@@ -19,7 +21,7 @@ export function loginView({ onLogin, contact }) {
     finally { btn.disabled = false; }
   } },
     h('h1', {}, 'Connexion'), err,
-    field('Numéro de téléphone ou adresse e-mail', phone), field('Mot de passe', pw),
+    field(flags.email ? 'Numéro de téléphone ou adresse e-mail' : 'Numéro de téléphone', phone), field('Mot de passe', pw),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Se connecter'),
     h('p', { class: 'center small mt' }, h('a', { href: '#/forgot' }, 'Mot de passe oublié ?')));
   return shell(h('div', { class: 'card' }, form),
@@ -49,14 +51,14 @@ export function registerView() {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(email.value.trim() ? { email: email.value.trim() } : {}), ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
+      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}), ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
         payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) });
       out.replaceChildren(h('div', { class: 'notice ok' }, r.message), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
   } },
-    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, 'Vous pourrez vous connecter avec ce numéro.'),
-    field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
+    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
+    flags.email && field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
     docField,
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
@@ -68,12 +70,12 @@ export function registerView() {
 }
 
 export function forgotView() {
-  const phone = h('input', { type: 'text', inputmode: 'email', autocapitalize: 'none', spellcheck: 'false', required: true, maxlength: 254, placeholder: '6XX XX XX XX ou nom@exemple.com' });
+  const phone = h('input', { type: 'text', inputmode: 'email', autocapitalize: 'none', spellcheck: 'false', required: true, maxlength: 254, placeholder: flags.email ? '6XX XX XX XX ou nom@exemple.com' : '6XX XX XX XX' });
   const box = h('div');
   const step1 = h('form', { onsubmit: async (e) => {
     e.preventDefault();
     try { const r = await post('/auth/forgot', { identifier: phone.value.trim() }); toast(r.message, 'ok'); showStep2(); } catch (ex) { errToast(ex); }
-  } }, h('h1', {}, 'Mot de passe oublié'), field('Votre adresse e-mail confirmée ou votre numéro', phone, 'Le code est envoyé dans votre boîte e-mail si votre adresse est confirmée (pensez à vérifier les courriers indésirables).'), h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Recevoir un code'));
+  } }, h('h1', {}, 'Mot de passe oublié'), field(flags.email ? 'Votre adresse e-mail confirmée ou votre numéro' : 'Votre numéro de téléphone', phone, flags.email ? 'Le code est envoyé dans votre boîte e-mail si votre adresse est confirmée (pensez à vérifier les courriers indésirables).' : 'Si le code n\'arrive pas, appelez le numéro de contact : l\'administration vous enverra un mot de passe temporaire.'), h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Recevoir un code'));
   function showStep2() {
     const code = h('input', { class: 'code-input', inputmode: 'numeric', maxlength: 6, required: true, autocomplete: 'one-time-code' });
     const pw = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password' });
