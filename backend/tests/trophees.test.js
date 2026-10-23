@@ -45,7 +45,7 @@ after(async () => { await srv.close(); await db.owner.end(); await db.app.end();
 const setSetting = (k, v) => db.owner.query('UPDATE settings SET value = $2 WHERE key = $1', [k, v]);
 
 test('trophées : seuils sur les ventes livrées, classement sans montants des autres', async () => {
-  await setSetting('trophy_bronze', 150000); await setSetting('trophy_silver', 450000); await setSetting('trophy_gold', 900000); await setSetting('trophy_diamond', 2000000);
+  await setSetting('trophy_bronze', 150000); await setSetting('trophy_silver', 450000); await setSetting('trophy_gold', 900000); await setSetting('trophy_platinum', 2000000); await setSetting('trophy_diamond', 3000000); await setSetting('trophy_blue_diamond', 4000000);
   const s = await loginAs(w.seller);
   const first = await s.get('/api/seller/ranking'); let r = first.json;
   assert.equal(r.tier, 'none'); assert.equal(r.rank, null); assert.equal(r.next_tier, 'bronze');
@@ -66,11 +66,11 @@ test('trophées : seuils sur les ventes livrées, classement sans montants des a
   assert.ok(pending.id);
   for (let i = 0; i < 4; i++) { const o = await order(w.seller); await deliver(db, w, o.id, o.ref); }
   r = (await s.get('/api/seller/ranking')).json;
-  assert.equal(r.tier, 'gold'); assert.equal(r.next_tier, 'diamond'); assert.equal(Number(r.next_at), 2000000); assert.equal(Number(r.tier_from), 900000);
-  assert.deepEqual(r.tiers.map((t) => t.tier), ['bronze', 'silver', 'gold', 'diamond']);
-  await setSetting('trophy_diamond', 900000);
+  assert.equal(r.tier, 'gold'); assert.equal(r.next_tier, 'platinum'); assert.equal(Number(r.next_at), 2000000); assert.equal(Number(r.tier_from), 900000);
+  assert.deepEqual(r.tiers.map((t) => t.tier), ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'blue_diamond']);
+  await setSetting('trophy_blue_diamond', 900000); await setSetting('trophy_platinum', 600000); await setSetting('trophy_diamond', 700000);
   r = (await s.get('/api/seller/ranking')).json;
-  assert.equal(r.tier, 'diamond'); assert.equal(r.next_tier, null);
+  assert.equal(r.tier, 'blue_diamond'); assert.equal(r.next_tier, null);
 });
 
 test('trophées : retrait du classement, droits et mois', async () => {

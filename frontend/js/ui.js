@@ -21,6 +21,10 @@ function append(el, children) {
 }
 
 export const fmtGNF = (n) => `${Math.round(Number(n) || 0).toLocaleString('fr-FR').replace(/ | /g, ' ')} GNF`;
+/** « 25 min », « 3 h », « 2 j » : temps écoulé depuis une date. */
+export const since = (d) => { if (!d) return ''; const m = Math.max(0, Math.round((Date.now() - new Date(String(d).replace(' ', 'T').replace(/\+00$/, 'Z')).getTime()) / 60000)); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} j`; };
+/** Colis affecté mais pas récupéré depuis plus de `hours` heures (0 = alerte désactivée). */
+export const pickupLate = (o, hours) => o.status === 'assigned' && hours > 0 && o.assigned_since && Date.now() - new Date(String(o.assigned_since).replace(' ', 'T').replace(/\+00$/, 'Z')).getTime() > hours * 3600_000;
 export const fmtDate = (d) => d ? new Date(d.replace(' ', 'T').replace(/\+00$/, 'Z')).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
 export const fmtPhone = (p) => (p || '').replace(/(\d{3})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4');
 

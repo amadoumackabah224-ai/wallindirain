@@ -1,12 +1,12 @@
 // Espace livreur : récupérer, livrer avec le code du client, signaler un échec.
-import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, proofButton, FAIL_LABEL } from '../ui.js';
+import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, since, pickupLate, proofButton, FAIL_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 
 export function courierOrders() {
-  return liveView(() => get('/courier/orders'), ({ orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code }, refresh) => h('div', {},
+  return liveView(() => get('/courier/orders'), ({ orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
     h('h1', {}, 'Mes livraisons'),
     h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(cash_to_hand_over)), h('div', { class: 'l' }, 'Argent encaissé à remettre à l\'administration (tout manque vous est débité). Onglet « Caisse » pour reverser par transfert.'),
       cash_pending_validation > 0 && h('div', { class: 'small muted' }, `+ ${fmtGNF(cash_pending_validation)} déjà reversés par transfert, en attente de validation`)),
@@ -37,6 +37,7 @@ export function courierOrders() {
         if (v) await post(`/courier/orders/${o.id}/fail`, { reason: v.reason });
       }, { ok: 'Échec signalé : le chef call center va réaffecter', refresh });
       return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad')),
+        pickupLate(o, pickup_alert_hours) && h('div', { class: 'notice bad' }, h('b', {}, `⏰ Colis affecté depuis ${since(o.assigned_since)}. `), 'Récupérez-le maintenant, ou prévenez le chef call center si vous ne pouvez pas.'),
         o.risk_flag && h('div', { class: 'notice warn' }, 'Ce client a déjà refusé ou raté une livraison : confirmez avec lui avant de vous déplacer.'),
         kv([['Client', o.customer_name], ['Téléphone', h('span', { class: 'gap' }, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, je suis votre livreur Wallindirain pour la commande ${o.ref}. Je suis en route, merci de rester joignable.`))], ['Adresse', `${o.commune}, ${o.address}`], o.note && ['Note', o.note], ['Colis', `${o.product_name} × ${o.qty}`], ['À encaisser', amount(o.amount_to_collect)], o.payment_method && ['Paiement déclaré', badge(PAY[o.payment_method], 'ok')]]),
         h('div', { class: 'gap mt' },

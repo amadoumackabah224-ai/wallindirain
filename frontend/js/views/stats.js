@@ -108,7 +108,7 @@ export function referralCard() {
   });
 }
 
-const TIER = { none: ['', 'Pas encore de trophée'], bronze: ['🥉', 'Bronze'], silver: ['🥈', 'Argent'], gold: ['🥇', 'Or'], diamond: ['💎', 'Diamant'] };
+const TIER = { none: ['', 'Pas encore de trophée'], bronze: ['🥉', 'Bronze'], silver: ['🥈', 'Argent'], gold: ['🥇', 'Or'], platinum: ['🏆', 'Platine'], diamond: ['💎', 'Diamant'], blue_diamond: ['🔷', 'Diamant Bleu'] };
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
 /** Trophée du vendeur + classement du mois (seuls rang, prénom, livraisons et trophée sont visibles des autres). */

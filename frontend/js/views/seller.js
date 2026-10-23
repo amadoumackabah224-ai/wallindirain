@@ -4,7 +4,7 @@ import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
 
-export function sellerOrders() {
+export function sellerOrders({ goTo } = {}) {
   let filter = '';
   const host = h('div');
   const FILTERS = [['', 'Toutes'], ['new', 'Nouvelles'], ['confirmed', 'Confirmées'], ['on_the_way', 'En route'], ['delivered', 'Livrées'], ['failed', 'Échecs']];
@@ -14,7 +14,7 @@ export function sellerOrders() {
     host.replaceChildren(liveView(() => get(`/seller/orders${filter ? `?status=${filter}` : ''}`), ({ orders }, refresh) => orders.length ? h('div', {}, orders.map((o) => orderCard(o, refresh))) : empty('📦', 'Aucune commande pour le moment'), { poll: 20000 }));
   }
   load();
-  return h('div', {}, h('h1', {}, 'Mes commandes'), chips, host);
+  return h('div', {}, h('h1', {}, 'Mes commandes'), startCard(goTo), chips, host);
 }
 
 function orderCard(o, refresh) {
@@ -128,4 +128,42 @@ function importCard() {
     h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: save }, 'Enregistrer le lien')),
     h('label', { class: 'f mt' }, h('span', {}, 'Ou tableau collé (CSV)'), csv),
     h('button', { class: 'btn btn-gold mt', type: 'button', onclick: run }, 'Importer mes commandes'), out);
+}
+
+const STEPS = [
+  ['identity', 'Faire vérifier mon identité', 'profile'],
+  ['payout', 'Indiquer mon numéro Orange / MTN pour les retraits', 'profile'],
+  ['price', 'Fixer mon prix de vente sur un produit', 'catalog'],
+  ['link', 'Créer mon lien de vente et le partager', 'catalog'],
+  ['order', 'Recevoir ou saisir ma première commande', 'new'],
+];
+
+/** Liste « pour bien démarrer » : disparaît quand tout est fait. */
+function startCard(goTo) {
+  const host = h('div');
+  get('/seller/start').then(({ steps, complete }) => {
+    if (complete) return;
+    const done = STEPS.filter(([k]) => steps[k]).length;
+    host.replaceChildren(h('div', { class: 'card' },
+      h('h3', {}, `Pour bien démarrer (${done}/${STEPS.length})`),
+      STEPS.map(([k, label, to]) => h('div', { class: 'list-item' },
+        h('span', {}, steps[k] ? '✅' : '⬜'), ' ',
+        h('div', { class: 'grow' }, label),
+        !steps[k] && goTo && h('button', { class: 'btn btn-ghost', onclick: () => goTo(to) }, 'Y aller'))),
+      h('button', { class: 'btn btn-ghost mt', onclick: showGuide }, '📖 Guide du vendeur')));
+  }).catch(() => {});
+  return host;
+}
+
+function showGuide() {
+  const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
+    h('div', { class: 'modal' },
+      h('h2', {}, 'Guide du vendeur'),
+      h('h3', {}, '1. Choisir un produit'), h('p', {}, 'Dans Catalogue, choisissez un produit et fixez votre prix de vente. Votre gain = prix de vente − prix fournisseur − frais de livraison − commission.'),
+      h('h3', {}, '2. Trouver des clients'), h('p', {}, 'Créez un lien de vente et partagez-le (WhatsApp, Facebook, TikTok). Le client remplit son nom, son téléphone et son quartier.'),
+      h('h3', {}, '3. Le call center appelle'), h('p', {}, 'Chaque commande est confirmée par téléphone. Vous suivez les appels dans Commandes.'),
+      h('h3', {}, '4. Livraison et paiement'), h('p', {}, 'Le livreur encaisse à la livraison. Votre gain arrive dans le Portefeuille après validation de la caisse.'),
+      h('h3', {}, '5. Retirer votre argent'), h('p', {}, 'Dans Portefeuille, demandez un retrait vers votre numéro Orange ou MTN.'),
+      h('button', { class: 'btn btn-ghost btn-block mt', onclick: () => overlay.remove() }, 'Fermer')));
+  document.body.append(overlay);
 }
