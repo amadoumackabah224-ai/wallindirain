@@ -557,6 +557,9 @@ export function registerRoutes(app, { db, cfg }) {
     return { days, ...t, delivery_rate: done ? Math.round((t.delivered * 1000) / done) / 10 : null, weeks, products, failed_by_cause: failedByCause };
   }));
 
+  app.get('/api/seller/ranking', guard(SEL, async (ctx) => (await q('SELECT fn_seller_ranking($1) AS r', [ctx.user.id]))[0].r));
+  app.post('/api/seller/ranking-visibility', guard(SEL, async (ctx) => { await fn('fn_set_ranking_visibility', ctx.user.id, ctx.body.hidden === true); }));
+
   app.get('/api/me/referral', guard(['seller', 'supplier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
 
   app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {

@@ -1,6 +1,6 @@
 // Tableaux de bord (vendeur, administrateur), suivi de commande pour le client, parrainage.
 import { h, fmtGNF, fmtDate, liveView, table, empty, kv, toast, CAUSE_LABEL } from '../ui.js';
-import { get } from '../api.js';
+import { get, post } from '../api.js';
 
 const PERIODS = [[7, '7 jours'], [30, '30 jours'], [90, '3 mois'], [365, '1 an']];
 const pct = (v) => (v == null ? '–' : `${String(v).replace('.', ',')} %`);
@@ -28,6 +28,10 @@ function withPeriod(title, load, render) {
 
 /** Tableau de bord du vendeur. */
 export function sellerStats() {
+  return h('div', {}, rankingCard(), sellerStatsBody());
+}
+
+function sellerStatsBody() {
   return withPeriod('Mes chiffres', (d) => get(`/seller/stats?days=${d}`), (s) => {
     if (!s.total) return empty('📊', 'Pas encore de commande sur cette période');
     const weekLabel = (iso) => `Sem. du ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -101,5 +105,33 @@ export function referralCard() {
       r.bonus > 0 && h('div', { class: 'gap' },
         h('a', { class: 'btn btn-sm btn-gold', href: `https://wa.me/?text=${encodeURIComponent(msg)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Inviter sur WhatsApp'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: copy }, 'Copier mon lien')));
+  });
+}
+
+const TIER = { none: ['', 'Pas encore de trophée'], bronze: ['🥉', 'Bronze'], silver: ['🥈', 'Argent'], gold: ['🥇', 'Or'] };
+const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+/** Trophée du vendeur + classement du mois (seuls rang, prénom, livraisons et trophée sont visibles des autres). */
+function rankingCard() {
+  return liveView(() => get('/seller/ranking'), (r, refresh) => {
+    const [icon, name] = TIER[r.tier];
+    const [, nextName] = TIER[r.next_tier || 'none'];
+    const month = `${MONTHS[Number(r.month.slice(5, 7)) - 1]} ${r.month.slice(0, 4)}`;
+    const toggle = async () => { try { await post('/seller/ranking-visibility', { hidden: !r.hidden }); refresh(); } catch (e) { toast(e.message, 'bad'); } };
+    return h('div', { class: 'card' },
+      h('h2', {}, 'Trophées et classement'),
+      h('p', {}, h('b', {}, `${icon} ${name}`.trim()), r.next_tier ? ` · encore ${fmtGNF(Math.max(0, Number(r.next_at) - Number(r.lifetime)))} de ventes livrées pour le trophée ${nextName}.` : ' · niveau maximum atteint, bravo !'),
+      h('p', { class: 'small muted' }, 'Seules les commandes livrées et encaissées comptent.'),
+      h('h3', {}, `Classement de ${month}`),
+      r.hidden
+        ? h('p', { class: 'muted' }, 'Vous êtes masqué du classement : personne ne voit votre nom et vous n\'y figurez pas.')
+        : r.rank
+          ? h('p', {}, `Vous êtes ${r.rank}${r.rank === 1 ? 'er' : 'e'} sur ${r.participants} · ${r.my_delivered} livraison(s) · ${fmtGNF(r.my_sales)}.`)
+          : h('p', { class: 'muted' }, 'Aucune livraison ce mois-ci : une première livraison vous place dans le classement.'),
+      r.top.length
+        ? table(['Rang', 'Vendeur', 'Livraisons', 'Trophée'], r.top.map((t) => [t.rank, t.me ? `${t.name} (vous)` : t.name, t.delivered, TIER[t.tier][0] || '–']))
+        : null,
+      h('p', { class: 'small muted mt' }, 'Les autres vendeurs ne voient jamais vos montants : seulement votre rang, votre prénom et l\'initiale de votre nom, votre nombre de livraisons et votre trophée.'),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: toggle }, r.hidden ? 'Réapparaître dans le classement' : 'Me retirer du classement'));
   });
 }
