@@ -1,5 +1,5 @@
 // Call center : agents (file d'appel) et chef (affectation aux livreurs).
-import { h, ask, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL } from '../ui.js';
+import { h, ask, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -40,7 +40,7 @@ export function myCalls() {
 }
 
 export function chiefAssign() {
-  return liveView(() => get('/chief/orders'), ({ orders, couriers }, refresh) => {
+  return liveView(() => get('/chief/orders'), ({ orders, couriers, pickup_alert_hours }, refresh) => {
     const groups = [['À affecter', ['confirmed']], ['Échecs de livraison', ['failed']], ['En livraison', ['assigned', 'picked_up', 'on_the_way']], ['Retours attendus en entrepôt', ['return_pending']]];
     return h('div', {}, h('h1', {}, 'Affectation des livreurs'),
       groups.map(([title, sts]) => {
@@ -52,7 +52,7 @@ export function chiefAssign() {
           }, { ok: 'Commande affectée', refresh });
           const toWh = action(async () => { if (await confirmBox('Retour en entrepôt ?', 'Le magasinier réceptionnera le colis et indiquera la cause.')) await post(`/chief/orders/${o.id}/return`); }, { ok: 'Retour demandé', refresh });
           const cancel = action(async () => { const v = await ask({ title: `Annuler ${o.ref}`, submit: 'Annuler la commande', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/chief/orders/${o.id}/cancel`, { reason: v.reason }); }, { ok: 'Commande annulée', refresh });
-          return h('div', { class: 'card order' }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.courier_name && badge(o.courier_name, 'grey'), o.failure_reason && badge(FAIL_LABEL[o.failure_reason], 'bad')),
+          return h('div', { class: 'card order' }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.courier_name && badge(o.courier_name, 'grey'), pickupLate(o, pickup_alert_hours) && badge(`Non récupéré depuis ${since(o.assigned_since)}`, 'bad'), o.failure_reason && badge(FAIL_LABEL[o.failure_reason], 'bad')),
             kv([['Client', `${o.customer_name} · ${fmtPhone(o.customer_phone)}`], ['Livraison', `${o.commune}, ${o.address}`], ['Produit', `${o.product_name} × ${o.qty}`], ['Total', amount(o.sale_total)]]),
             h('div', { class: 'gap mt' }, ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-gold', onclick: assign }, o.status === 'confirmed' ? 'Affecter à un livreur' : 'Réaffecter'),
               o.status === 'failed' && h('button', { class: 'btn btn-sm btn-ghost', onclick: toWh }, 'Retour en entrepôt'), ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
