@@ -171,8 +171,7 @@ function adminSettingsMain() {
     h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'),
     trophyCard(settings, refresh),
     h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.filter((s) => !s.key.startsWith('trophy_')).map((s) => [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
-    h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Zones et tarifs de livraison (quartier ou ville)'), h('button', { class: 'btn btn-sm btn-gold', onclick: action(async () => { const v = await ask({ title: 'Nouvelle zone', submit: 'Ajouter', fields: [{ name: 'commune', label: 'Quartier ou ville' }, { name: 'fee', label: 'Tarif (GNF)', type: 'number' }] }); if (v) await post('/admin/rates', { commune: v.commune, fee: Number(v.fee) }); }, { ok: 'Zone ajoutée', refresh }) }, '+ Zone')),
-      table(['Quartier ou ville', 'Tarif', 'État', ''], rates.map((r) => [r.commune, amount(r.fee), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: `Livraison ${r.commune}`, submit: 'Enregistrer', fields: [{ name: 'fee', label: 'Tarif (GNF)', type: 'number', value: r.fee }, { name: 'active', label: 'Zone active (proposée aux clients et vendeurs)', type: 'checkbox', value: r.active }] }); if (v) await post('/admin/rates', { commune: r.commune, fee: Number(v.fee), active: v.active }); }, { ok: 'Zone enregistrée', refresh }) }, 'Modifier')])))));
+    zonesCard(rates, refresh)));
 }
 
 export function adminAudit() {
@@ -305,4 +304,29 @@ function trophyCard(settings, refresh) {
   return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Trophées des vendeurs'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit }, 'Modifier les montants')),
     h('p', { class: 'small muted' }, 'Un vendeur obtient un trophée quand ses commandes livrées et encaissées (produits des fournisseurs, pas ses produits personnels) atteignent le montant. Le changement s\'applique tout de suite à tous les vendeurs.'),
     h('div', { class: 'trophy-grid' }, TROPHY_ORDER.map((t) => h('div', { class: 'trophy-cell' }, trophy(t, 56), h('b', {}, TROPHY[t].name), h('span', { class: 'small' }, fmtGNF(val(t)))))));
+}
+
+/** Zones de livraison : les zones actives (avec tarif), puis les zones à configurer (sans tarif, non proposées). */
+function zonesCard(rates, refresh) {
+  const active = rates.filter((r) => r.active);
+  const todo = rates.filter((r) => !r.active && Number(r.fee) === 0);
+  const off = rates.filter((r) => !r.active && Number(r.fee) > 0);
+  const save = (r, title) => action(async () => {
+    const v = await ask({ title, submit: 'Enregistrer', fields: [{ name: 'fee', label: 'Tarif (GNF)', type: 'number', inputmode: 'numeric', value: Number(r.fee) || '' }, { name: 'active', label: 'Zone active (proposée aux clients et aux vendeurs)', type: 'checkbox', value: r.active || Number(r.fee) === 0 }] });
+    if (v) await post('/admin/rates', { commune: r.commune, fee: Number(v.fee), active: v.active });
+  }, { ok: 'Zone enregistrée', refresh });
+  const add = action(async () => {
+    const v = await ask({ title: 'Nouvelle zone', submit: 'Ajouter', fields: [{ name: 'commune', label: 'Quartier ou ville' }, { name: 'fee', label: 'Tarif (GNF)', type: 'number', inputmode: 'numeric' }] });
+    if (v) await post('/admin/rates', { commune: v.commune, fee: Number(v.fee) });
+  }, { ok: 'Zone ajoutée', refresh });
+  const search = h('input', { type: 'search', placeholder: 'Chercher un quartier ou une ville', 'aria-label': 'Chercher une zone' });
+  const rows = todo.map((r) => h('tr', { 'data-name': r.commune.toLowerCase() }, h('td', {}, r.commune), h('td', {}, h('button', { class: 'btn btn-sm btn-gold', onclick: save(r, `Tarif de livraison : ${r.commune}`) }, 'Fixer le tarif'))));
+  search.addEventListener('input', () => { const q = search.value.trim().toLowerCase(); rows.forEach((tr) => { tr.hidden = q !== '' && !tr.dataset.name.includes(q); }); });
+  return h('div', { class: 'card' },
+    h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Zones et tarifs de livraison'), h('button', { class: 'btn btn-sm btn-gold', onclick: add }, '+ Zone')),
+    h('p', { class: 'small muted' }, 'Seules les zones actives avec un tarif sont proposées aux clients et aux vendeurs.'),
+    table(['Quartier ou ville', 'Tarif', 'État', ''], [...active, ...off].map((r) => [r.commune, amount(r.fee), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: save(r, `Livraison ${r.commune}`) }, 'Modifier')])),
+    todo.length > 0 && h('details', { class: 'mt' }, h('summary', {}, `Zones à configurer (${todo.length}) : sans tarif, non proposées`),
+      h('div', { class: 'mt' }, search),
+      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Quartier ou ville'), h('th', { scope: 'col' }, h('span', { class: 'sr' }, 'Actions')))), h('tbody', {}, rows)))));
 }
