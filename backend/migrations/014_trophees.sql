@@ -1,18 +1,21 @@
 -- =====================================================================
 -- Migration 014 : trophées et classement mensuel des vendeurs.
--- Basé uniquement sur les commandes LIVRÉES (donc encaissées par le livreur).
+-- Basé uniquement sur les commandes LIVRÉES (donc encaissées par le livreur) de produits des FOURNISSEURS du catalogue :
+-- les ventes de produits personnels du vendeur ne comptent pas.
 -- Les autres vendeurs ne voient jamais les montants : seulement rang, prénom + initiale, nombre de livraisons, trophée.
 -- =====================================================================
 INSERT INTO settings(key, value, label) VALUES
   ('trophy_bronze', 1000000,  'Trophée Bronze : ventes livrées cumulées (GNF)'),
   ('trophy_silver', 5000000,  'Trophée Argent : ventes livrées cumulées (GNF)'),
-  ('trophy_gold',   20000000, 'Trophée Or : ventes livrées cumulées (GNF)');
+  ('trophy_gold',   20000000, 'Trophée Or : ventes livrées cumulées (GNF)'),
+  ('trophy_diamond', 50000000, 'Trophée Diamant : ventes livrées cumulées (GNF)');
 
 -- un vendeur peut se retirer du classement
 ALTER TABLE users ADD COLUMN hide_ranking boolean NOT NULL DEFAULT false;
 
 CREATE FUNCTION _trophy_tier(p_sales numeric) RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT CASE WHEN p_sales >= _setting('trophy_gold') THEN 'gold'
+  SELECT CASE WHEN p_sales >= _setting('trophy_diamond') THEN 'diamond'
+              WHEN p_sales >= _setting('trophy_gold') THEN 'gold'
               WHEN p_sales >= _setting('trophy_silver') THEN 'silver'
               WHEN p_sales >= _setting('trophy_bronze') THEN 'bronze'
               ELSE 'none' END
@@ -23,7 +26,7 @@ CREATE FUNCTION _month_ranking() RETURNS TABLE(seller_id uuid, sales bigint, del
   WITH m AS (
     SELECT o.seller_id, sum(o.sale_total)::bigint AS sales, count(*)::int AS delivered
       FROM orders o JOIN users s ON s.id = o.seller_id
-     WHERE o.status = 'delivered' AND o.delivered_at >= date_trunc('month', now())
+     WHERE o.status = 'delivered' AND o.product_id IS NOT NULL AND o.delivered_at >= date_trunc('month', now())
        AND s.deleted_at IS NULL AND s.status = 'active' AND NOT s.hide_ranking
      GROUP BY o.seller_id)
   SELECT m.seller_id, m.sales, m.delivered, rank() OVER (ORDER BY m.sales DESC, m.delivered DESC) FROM m
@@ -39,14 +42,15 @@ END $$;
 CREATE FUNCTION fn_seller_ranking(p_actor uuid) RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
 DECLARE
   u users; v_start timestamptz := date_trunc('month', now());
-  v_life bigint; v_tier text; v_next text; v_next_at bigint;
+  v_life bigint; v_from bigint; v_tier text; v_next text; v_next_at bigint;
   v_rank int; v_n int; v_sales bigint := 0; v_deliv int := 0; v_top jsonb;
 BEGIN
   u := _require(p_actor, ARRAY['seller']::user_role[]);
-  SELECT COALESCE(sum(sale_total), 0) INTO v_life FROM orders WHERE seller_id = u.id AND status = 'delivered';
+  SELECT COALESCE(sum(sale_total), 0) INTO v_life FROM orders WHERE seller_id = u.id AND status = 'delivered' AND product_id IS NOT NULL;
   v_tier := _trophy_tier(v_life);
-  v_next := CASE v_tier WHEN 'none' THEN 'bronze' WHEN 'bronze' THEN 'silver' WHEN 'silver' THEN 'gold' ELSE NULL END;
-  v_next_at := CASE v_next WHEN 'bronze' THEN _setting('trophy_bronze') WHEN 'silver' THEN _setting('trophy_silver') WHEN 'gold' THEN _setting('trophy_gold') END;
+  v_next := CASE v_tier WHEN 'none' THEN 'bronze' WHEN 'bronze' THEN 'silver' WHEN 'silver' THEN 'gold' WHEN 'gold' THEN 'diamond' ELSE NULL END;
+  v_next_at := CASE v_next WHEN 'bronze' THEN _setting('trophy_bronze') WHEN 'silver' THEN _setting('trophy_silver') WHEN 'gold' THEN _setting('trophy_gold') WHEN 'diamond' THEN _setting('trophy_diamond') END;
+  v_from := CASE v_tier WHEN 'bronze' THEN _setting('trophy_bronze') WHEN 'silver' THEN _setting('trophy_silver') WHEN 'gold' THEN _setting('trophy_gold') WHEN 'diamond' THEN _setting('trophy_diamond') ELSE 0 END;
 
   SELECT count(*) INTO v_n FROM _month_ranking();
   SELECT rk, sales, delivered INTO v_rank, v_sales, v_deliv FROM _month_ranking() WHERE seller_id = u.id;
@@ -58,14 +62,17 @@ BEGIN
               || CASE WHEN position(' ' IN trim(s.full_name)) > 0
                       THEN ' ' || upper(left(regexp_replace(trim(s.full_name), '^.*\s', ''), 1)) || '.' ELSE '' END,
       'delivered', t.delivered,
-      'tier', _trophy_tier((SELECT COALESCE(sum(x.sale_total), 0) FROM orders x WHERE x.seller_id = t.seller_id AND x.status = 'delivered')),
+      'tier', _trophy_tier((SELECT COALESCE(sum(x.sale_total), 0) FROM orders x WHERE x.seller_id = t.seller_id AND x.status = 'delivered' AND x.product_id IS NOT NULL)),
       'me', t.seller_id = u.id) ORDER BY t.rk, t.delivered DESC), '[]'::jsonb)
     INTO v_top
     FROM (SELECT * FROM _month_ranking() ORDER BY rk, delivered DESC LIMIT 10) t JOIN users s ON s.id = t.seller_id;
 
   RETURN jsonb_build_object('month', to_char(v_start, 'YYYY-MM'), 'rank', v_rank, 'participants', v_n,
     'my_sales', v_sales, 'my_delivered', v_deliv, 'lifetime', v_life, 'tier', v_tier,
-    'next_tier', v_next, 'next_at', v_next_at, 'hidden', u.hide_ranking, 'top', v_top);
+    'next_tier', v_next, 'next_at', v_next_at, 'tier_from', v_from,
+    'tiers', jsonb_build_array(
+      jsonb_build_object('tier', 'bronze', 'at', _setting('trophy_bronze')), jsonb_build_object('tier', 'silver', 'at', _setting('trophy_silver')),
+      jsonb_build_object('tier', 'gold', 'at', _setting('trophy_gold')), jsonb_build_object('tier', 'diamond', 'at', _setting('trophy_diamond'))), 'hidden', u.hide_ranking, 'top', v_top);
 END $$;
 
 DO $$

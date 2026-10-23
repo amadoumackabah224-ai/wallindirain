@@ -1,5 +1,5 @@
 // Tableaux de bord (vendeur, administrateur), suivi de commande pour le client, parrainage.
-import { h, fmtGNF, fmtDate, liveView, table, empty, kv, toast, CAUSE_LABEL } from '../ui.js';
+import { h, fmtGNF, fmtDate, liveView, table, empty, kv, toast, badge, CAUSE_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PERIODS = [[7, '7 jours'], [30, '30 jours'], [90, '3 mois'], [365, '1 an']];
@@ -108,7 +108,7 @@ export function referralCard() {
   });
 }
 
-const TIER = { none: ['', 'Pas encore de trophée'], bronze: ['🥉', 'Bronze'], silver: ['🥈', 'Argent'], gold: ['🥇', 'Or'] };
+const TIER = { none: ['', 'Pas encore de trophée'], bronze: ['🥉', 'Bronze'], silver: ['🥈', 'Argent'], gold: ['🥇', 'Or'], diamond: ['💎', 'Diamant'] };
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
 /** Trophée du vendeur + classement du mois (seuls rang, prénom, livraisons et trophée sont visibles des autres). */
@@ -121,7 +121,11 @@ function rankingCard() {
     return h('div', { class: 'card' },
       h('h2', {}, 'Trophées et classement'),
       h('p', {}, h('b', {}, `${icon} ${name}`.trim()), r.next_tier ? ` · encore ${fmtGNF(Math.max(0, Number(r.next_at) - Number(r.lifetime)))} de ventes livrées pour le trophée ${nextName}.` : ' · niveau maximum atteint, bravo !'),
-      h('p', { class: 'small muted' }, 'Seules les commandes livrées et encaissées comptent.'),
+      r.next_tier && progress(Math.round(((Number(r.lifetime) - Number(r.tier_from)) * 100) / Math.max(1, Number(r.next_at) - Number(r.tier_from)))),
+      h('div', { class: 'list' }, r.tiers.map((t) => h('div', { class: 'list-item' },
+        h('span', {}, TIER[t.tier][0]), ' ', h('div', { class: 'grow' }, `${TIER[t.tier][1]} : ${fmtGNF(t.at)} de ventes livrées`),
+        Number(r.lifetime) >= Number(t.at) ? badge('Obtenu', 'ok') : badge('À gagner', 'grey')))),
+      h('p', { class: 'small muted' }, `Total livré à ce jour : ${fmtGNF(r.lifetime)}. Seules comptent les commandes livrées et encaissées de produits des fournisseurs : vos propres produits ne comptent pas.`),
       h('h3', {}, `Classement de ${month}`),
       r.hidden
         ? h('p', { class: 'muted' }, 'Vous êtes masqué du classement : personne ne voit votre nom et vous n\'y figurez pas.')
@@ -134,4 +138,10 @@ function rankingCard() {
       h('p', { class: 'small muted mt' }, 'Les autres vendeurs ne voient jamais vos montants : seulement votre rang, votre prénom et l\'initiale de votre nom, votre nombre de livraisons et votre trophée.'),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: toggle }, r.hidden ? 'Réapparaître dans le classement' : 'Me retirer du classement'));
   });
+}
+
+function progress(percent) {
+  const fill = h('span', { class: 'bar-f' });
+  fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  return h('div', { class: 'bars' }, h('div', { class: 'bar-row' }, h('span', { class: 'bar-t' }, fill), h('span', { class: 'bar-v' }, `${Math.max(0, Math.min(100, percent))} %`)));
 }
