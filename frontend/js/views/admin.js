@@ -1,5 +1,5 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
-import { h, ask, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND } from '../ui.js';
+import { h, ask, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER } from '../ui.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
 
@@ -169,7 +169,8 @@ export function adminSettings() {
 function adminSettingsMain() {
   return liveView(() => get('/admin/settings'), ({ settings, rates }, refresh) => h('div', {}, h('h1', {}, 'Réglages'),
     h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'),
-    h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.map((s) => [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
+    trophyCard(settings, refresh),
+    h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.filter((s) => !s.key.startsWith('trophy_')).map((s) => [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
     h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Zones et tarifs de livraison (quartier ou ville)'), h('button', { class: 'btn btn-sm btn-gold', onclick: action(async () => { const v = await ask({ title: 'Nouvelle zone', submit: 'Ajouter', fields: [{ name: 'commune', label: 'Quartier ou ville' }, { name: 'fee', label: 'Tarif (GNF)', type: 'number' }] }); if (v) await post('/admin/rates', { commune: v.commune, fee: Number(v.fee) }); }, { ok: 'Zone ajoutée', refresh }) }, '+ Zone')),
       table(['Quartier ou ville', 'Tarif', 'État', ''], rates.map((r) => [r.commune, amount(r.fee), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: `Livraison ${r.commune}`, submit: 'Enregistrer', fields: [{ name: 'fee', label: 'Tarif (GNF)', type: 'number', value: r.fee }, { name: 'active', label: 'Zone active (proposée aux clients et vendeurs)', type: 'checkbox', value: r.active }] }); if (v) await post('/admin/rates', { commune: r.commune, fee: Number(v.fee), active: v.active }); }, { ok: 'Zone enregistrée', refresh }) }, 'Modifier')])))));
 }
@@ -290,4 +291,18 @@ function adminSubscriptions() {
       on && table(['Vendeur', 'Téléphone', 'Abonnement', ''], sellers.map((s) => [s.full_name, fmtPhone(s.phone), s.paid ? badge(`Payé jusqu'au ${new Date(s.paid_until).toLocaleDateString('fr-FR')}`, 'ok') : badge('Non payé', 'warn'),
         h('button', { class: 'btn btn-sm btn-gold', onclick: charge(s) }, 'Encaisser')]), { empty: empty('👥', 'Aucun vendeur') }));
   });
+}
+
+/** Trophées des vendeurs : montant de ventes livrées (produits des fournisseurs) à atteindre pour chaque niveau. */
+function trophyCard(settings, refresh) {
+  const val = (t) => Number(settings.find((s) => s.key === `trophy_${t}`)?.value || 0);
+  const edit = action(async () => {
+    const v = await ask({ title: 'Montants des trophées (GNF)', text: 'Ventes livrées cumulées à atteindre, produits des fournisseurs seulement. Chaque niveau doit être plus haut que le précédent.', submit: 'Enregistrer',
+      fields: TROPHY_ORDER.map((t) => ({ name: t, label: TROPHY[t].name, type: 'number', inputmode: 'numeric', value: val(t) })) });
+    if (!v) return;
+    await post('/admin/trophies', Object.fromEntries(TROPHY_ORDER.map((t) => [t, Number(v[t])])));
+  }, { ok: 'Montants des trophées enregistrés', refresh });
+  return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Trophées des vendeurs'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit }, 'Modifier les montants')),
+    h('p', { class: 'small muted' }, 'Un vendeur obtient un trophée quand ses commandes livrées et encaissées (produits des fournisseurs, pas ses produits personnels) atteignent le montant. Le changement s\'applique tout de suite à tous les vendeurs.'),
+    h('div', { class: 'trophy-grid' }, TROPHY_ORDER.map((t) => h('div', { class: 'trophy-cell' }, trophy(t, 56), h('b', {}, TROPHY[t].name), h('span', { class: 'small' }, fmtGNF(val(t)))))));
 }
