@@ -915,6 +915,13 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/admin/settings', guard(ADM, async () => ({
     settings: await q('SELECT key, value, label FROM settings ORDER BY key'), rates: await q('SELECT commune, fee, active FROM delivery_rates ORDER BY active DESC, commune') })));
   app.post('/api/admin/settings', guard(ADM, async (ctx) => { await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
+  // Trophées : les six montants d'un coup, positifs et strictement croissants
+  app.post('/api/admin/trophies', guard(ADM, async (ctx) => {
+    const tiers = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'blue_diamond'];
+    const vals = tiers.map((t) => v.int(ctx.body[t], `Trophée ${t}`, { min: 1, max: 1e11 }));
+    for (let i = 1; i < vals.length; i++) if (vals[i] <= vals[i - 1]) throw new HttpError(400, 'invalid_input', 'Chaque trophée doit demander plus de ventes que le précédent');
+    for (let i = 0; i < tiers.length; i++) await fn('fn_admin_set_setting', ctx.user.id, `trophy_${tiers[i]}`, vals[i]);
+  }));
   app.post('/api/admin/rates', guard(ADM, async (ctx) => { await fn('fn_admin_set_delivery_rate', ctx.user.id, v.str(ctx.body.commune, 'Quartier ou ville', { min: 2, max: 60 }), v.int(ctx.body.fee, 'Tarif', { min: 0, max: 1e6 }), ctx.body.active !== false); }));
 
   app.get('/api/admin/audit', guard(ADM, async (ctx) => {

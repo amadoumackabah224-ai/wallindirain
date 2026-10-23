@@ -94,3 +94,19 @@ test('trophées : retrait du classement, droits et mois', async () => {
   assert.equal((await a.post('/api/seller/ranking-visibility', { hidden: true })).status, 403);
   assert.equal((await new Client().get('/api/seller/ranking')).status, 401);
 });
+
+test('trophées : l\'administrateur règle les six montants', async () => {
+  const a = await loginAs(w.admin);
+  const ok = { bronze: 1000, silver: 2000, gold: 3000, platinum: 4000, diamond: 5000, blue_diamond: 6000 };
+  assert.equal((await a.post('/api/admin/trophies', ok)).status, 200);
+  const got = Object.fromEntries((await db.owner.query(`SELECT key, value FROM settings WHERE key LIKE 'trophy\\_%'`)).rows.map((r) => [r.key, Number(r.value)]));
+  assert.equal(got.trophy_bronze, 1000); assert.equal(got.trophy_blue_diamond, 6000);
+  assert.equal((await a.post('/api/admin/trophies', { ...ok, gold: 2000 })).status, 400);          // pas strictement croissant
+  assert.equal((await a.post('/api/admin/trophies', { ...ok, bronze: 0 })).status, 400);
+  assert.equal((await a.post('/api/admin/trophies', { ...ok, silver: undefined })).status, 400);
+  assert.equal(Number((await db.owner.query(`SELECT value FROM settings WHERE key = 'trophy_gold'`)).rows[0].value), 3000);   // rien n'a changé
+  assert.ok((await db.owner.query(`SELECT 1 FROM audit_log WHERE action = 'setting_changed' AND entity_id = 'trophy_bronze'`)).rows.length >= 1);
+  const s = await loginAs(w.seller);
+  assert.equal((await s.post('/api/admin/trophies', ok)).status, 403);
+  assert.deepEqual((await s.get('/api/seller/ranking')).json.tiers.map((x) => Number(x.at)), [1000, 2000, 3000, 4000, 5000, 6000]);
+});

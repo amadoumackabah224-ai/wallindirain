@@ -196,3 +196,33 @@ export function liveView(load, render, { poll = 0 } = {}) {
   if (poll) timer = setInterval(() => { if (!root.isConnected) clearInterval(timer); else if (!document.querySelector('.overlay')) refresh(); }, poll);
   return root;
 }
+
+// ---------- Trophées : coupe dessinée en SVG (aucun style en ligne : la politique de sécurité les interdit) ----------
+export const TROPHY = {
+  none: { icon: '', name: 'Pas encore de trophée', c1: '#cfd6e0', c2: '#9aa5b5' },
+  bronze: { name: 'Bronze', c1: '#e0a064', c2: '#8c5a1f' },
+  silver: { name: 'Argent', c1: '#f1f3f6', c2: '#8d96a3' },
+  gold: { name: 'Or', c1: '#ffe27a', c2: '#b8860b' },
+  platinum: { name: 'Platine', c1: '#f4f8fc', c2: '#8aa3bd', ring: true },
+  diamond: { name: 'Diamant', c1: '#e6fbff', c2: '#35b6d6', gem: true },
+  blue_diamond: { name: 'Diamant Bleu', c1: '#6db6ff', c2: '#0b3d91', gem: true, spark: true },
+};
+export const TROPHY_ORDER = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'blue_diamond'];
+let trophyId = 0;
+export function trophy(tier = 'none', size = 56) {
+  const t = TROPHY[tier] || TROPHY.none;
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (name, attrs = {}, ...kids) => { const n = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); n.append(...kids); return n; };
+  const id = `tg${++trophyId}`;
+  const svg = el('svg', { viewBox: '0 0 64 64', width: size, height: size, role: 'img', 'aria-label': tier === 'none' ? 'Trophée à gagner' : `Trophée ${t.name}`, class: `trophy${tier === 'none' ? ' trophy-none' : ''}` },
+    el('defs', {}, el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '1' }, el('stop', { offset: '0', 'stop-color': t.c1 }), el('stop', { offset: '1', 'stop-color': t.c2 }))),
+    el('path', { d: 'M16 12H9c0 10 4 14 9 15M48 12h7c0 10-4 14-9 15', fill: 'none', stroke: t.c2, 'stroke-width': '3', 'stroke-linecap': 'round' }),
+    el('path', { d: 'M16 6h32v18c0 10-7 18-16 18S16 34 16 24z', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1.5' }),
+    el('rect', { x: '29', y: '41', width: '6', height: '11', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1' }),
+    el('rect', { x: '20', y: '52', width: '24', height: '7', rx: '2', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1.5' }));
+  if (t.gem) svg.append(el('path', { d: 'M32 12l9 9-9 14-9-14z', fill: '#ffffff', 'fill-opacity': '.85', stroke: t.c2, 'stroke-width': '1' }), el('path', { d: 'M23 21h18M32 12v23', stroke: t.c2, 'stroke-width': '.8', fill: 'none' }));
+  else if (tier !== 'none') svg.append(el('path', { d: 'M32 12l3.1 6.4 7 .9-5.1 4.9 1.3 7-6.3-3.4-6.3 3.4 1.3-7-5.1-4.9 7-.9z', fill: '#ffffff', 'fill-opacity': '.8' }));
+  if (t.ring) svg.append(el('circle', { cx: '32', cy: '24', r: '14', fill: 'none', stroke: '#ffffff', 'stroke-opacity': '.7', 'stroke-width': '1.2' }));
+  if (t.spark) svg.append(el('path', { d: 'M8 4v6M5 7h6M56 2v5M53.5 4.5h5', stroke: t.c1, 'stroke-width': '1.6', 'stroke-linecap': 'round' }));
+  return svg;
+}
