@@ -16,6 +16,7 @@ export function adminDashboard({ goTo }) {
     h('div', { class: 'grid g3 mb' },
       h('div', { onclick: () => goTo('users') }, kpi('Fournisseurs à valider', d.suppliers_pending, d.suppliers_pending ? 'alert' : '')),
       h('div', { onclick: () => goTo('products') }, kpi('Produits à valider', d.products_pending, d.products_pending ? 'alert' : '')),
+      h('div', { onclick: () => goTo('orders') }, kpi('Colis affectés non récupérés', d.pickups_late, d.pickups_late ? 'alert' : '')),
       h('div', { onclick: () => goTo('withdrawals') }, kpi('Retraits à payer', d.withdrawals_pending, d.withdrawals_pending ? 'alert' : '')),
       h('div', { onclick: () => goTo('remit') }, kpi('Reversements livreurs à valider', d.remittances_pending, d.remittances_pending ? 'alert' : '')),
       h('div', { onclick: () => goTo('support') }, kpi('Messages non lus', d.support_unread, d.support_unread ? 'alert' : '')),

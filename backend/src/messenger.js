@@ -77,6 +77,7 @@ export function startWorker({ db, cfg, log }) {
     });
   }
   const releaseLocks = () => db.query('SELECT fn_release_stale_locks() AS n');
+  const pickupReminders = () => db.query('SELECT fn_pickup_reminders() AS n');
 
   // Conservation limitée : purge des données périmées (voir politique de confidentialité), au démarrage puis toutes les 6 h
   const purge = async () => { const r = await db.query('SELECT fn_purge_old_data() AS r'); await db.query('SELECT fn_purge_support()'); log({ level: 'info', msg: 'purge des données périmées', ...r.rows[0].r }); };
@@ -86,6 +87,7 @@ export function startWorker({ db, cfg, log }) {
     setTimeout(purgeSafe, 30_000),
     setInterval(purgeSafe, 6 * 3600_000),
     setInterval(() => { if (!stopped) flushMessages().catch((e) => log({ level: 'error', msg: 'worker messages', err: String(e) })); }, 3000),
+    setInterval(() => { if (!stopped) pickupReminders().catch((e) => log({ level: 'error', msg: 'rappels livreurs', err: String(e) })); }, 600_000),
     setInterval(() => { if (!stopped) releaseLocks().catch((e) => log({ level: 'error', msg: 'worker verrous', err: String(e) })); }, 60_000)
   ];
   timers.forEach((t) => t.unref());

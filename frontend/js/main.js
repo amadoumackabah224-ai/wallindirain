@@ -19,7 +19,7 @@ let contact = '624390707';
 
 // Onglets par rôle : [clé, icône, libellé, fonction de vue]
 const TABS = {
-  seller: [['orders', '📦', 'Commandes', () => sellerOrders()], ['new', '➕', 'Nouvelle', (c) => sellerNewOrder(c)], ['catalog', '🛍️', 'Catalogue', () => sellerCatalog()], ['stats', '📊', 'Mes chiffres', () => sellerStats()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
+  seller: [['orders', '📦', 'Commandes', (c) => sellerOrders(c)], ['new', '➕', 'Nouvelle', (c) => sellerNewOrder(c)], ['catalog', '🛍️', 'Catalogue', () => sellerCatalog()], ['stats', '📊', 'Mes chiffres', () => sellerStats()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
   supplier: [['products', '📦', 'Produits', () => supplierProducts()], ['orders', '🚚', 'Colis', () => supplierOrders()], ['wallet', '💰', 'Portefeuille', () => walletView()]],
   agent: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['wallet', '💰', 'Gains', () => walletView()]],
   call_chief: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['assign', '🏍️', 'Affectation', () => chiefAssign()], ['wallet', '💰', 'Gains', () => walletView()]],

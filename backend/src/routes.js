@@ -53,6 +53,10 @@ export function registerRoutes(app, { db, cfg }) {
     ctx.cookies.push(`${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${cfg.prod ? '; Secure' : ''}`);
   };
 
+  // moment de la dernière affectation d'un livreur (pour détecter un colis non récupéré)
+  const ASSIGNED_SINCE = `(SELECT max(h.at) FROM order_history h WHERE h.order_id = o.id AND h.to_status = 'assigned')`;
+  const pickupHours = async () => Number((await q(`SELECT value FROM settings WHERE key = 'pickup_alert_hours'`))[0]?.value ?? 0);
+
   const ANY_ROLE = ['admin', 'seller', 'supplier', 'agent', 'call_chief', 'courier', 'warehouse'];
   // vérifie le mot de passe actuel de la personne connectée (actions sensibles)
   async function requirePassword(ctx, pw) {
@@ -557,6 +561,17 @@ export function registerRoutes(app, { db, cfg }) {
     return { days, ...t, delivery_rate: done ? Math.round((t.delivered * 1000) / done) / 10 : null, weeks, products, failed_by_cause: failedByCause };
   }));
 
+  // Liste « pour bien démarrer » du vendeur : ce qui est fait, ce qui reste à faire
+  app.get('/api/seller/start', guard(SEL, async (ctx) => {
+    const [r] = await q(`SELECT
+        u.identity_verified AS identity, (u.payout_phone IS NOT NULL) AS payout,
+        EXISTS (SELECT 1 FROM seller_prices p WHERE p.seller_id = u.id) AS price,
+        EXISTS (SELECT 1 FROM seller_links l WHERE l.seller_id = u.id) AS link,
+        EXISTS (SELECT 1 FROM orders o WHERE o.seller_id = u.id) AS order_done
+      FROM users u WHERE u.id = $1`, [ctx.user.id]);
+    return { steps: { identity: r.identity, payout: r.payout, price: r.price, link: r.link, order: r.order_done }, complete: Object.values(r).every(Boolean) };
+  }));
+
   app.get('/api/me/referral', guard(['seller', 'supplier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
 
   app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {
@@ -599,7 +614,8 @@ export function registerRoutes(app, { db, cfg }) {
   // Chef : affectation aux livreurs
   const CHIEF = ['call_chief', 'admin'];
   app.get('/api/chief/orders', guard(CHIEF, async () => ({
-    orders: await q(`SELECT ${CALL_COLS}, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at
+    pickup_alert_hours: await pickupHours(),
+    orders: await q(`SELECT ${CALL_COLS}, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
         WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
     couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders
@@ -617,9 +633,10 @@ export function registerRoutes(app, { db, cfg }) {
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
           o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at,
           o.risk_flag, (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
-          op.method AS payment_method
+          ${ASSIGNED_SINCE} AS assigned_since, op.method AS payment_method
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN order_payments op ON op.order_id = o.id
         WHERE o.courier_id = $1 AND o.status IN ('assigned','picked_up','on_the_way') ORDER BY o.created_at`, [ctx.user.id]),
+    pickup_alert_hours: await pickupHours(),
     cash_to_hand_over: Number((await q('SELECT COALESCE(sum(amount),0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL AND remittance_id IS NULL', [ctx.user.id]))[0].s),
     cash_pending_validation: Number((await q('SELECT COALESCE(sum(amount),0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL AND remittance_id IS NOT NULL', [ctx.user.id]))[0].s),
     max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value),
@@ -695,6 +712,7 @@ export function registerRoutes(app, { db, cfg }) {
         (SELECT count(*) FROM users WHERE role = 'supplier' AND status = 'pending')::int AS suppliers_pending,
         (SELECT count(*) FROM products WHERE status = 'pending' AND deleted_at IS NULL)::int AS products_pending,
         (SELECT count(*) FROM arrivals WHERE counted_qty IS NULL)::int AS arrivals_pending,
+        (SELECT count(*) FROM orders o WHERE o.status = 'assigned' AND (SELECT value::int FROM settings WHERE key = 'pickup_alert_hours') > 0 AND (SELECT max(h.at) FROM order_history h WHERE h.order_id = o.id AND h.to_status = 'assigned') < now() - make_interval(hours => (SELECT value::int FROM settings WHERE key = 'pickup_alert_hours')))::int AS pickups_late,
         (SELECT count(*) FROM withdrawals WHERE status = 'requested')::int AS withdrawals_pending,
         (SELECT count(*) FROM remittances WHERE status = 'pending')::int AS remittances_pending,
         (SELECT COALESCE(sum(amount),0)::bigint FROM courier_cash_entries WHERE count_id IS NULL) AS cash_outstanding,
