@@ -28,3 +28,8 @@ Exécuter `docs/retour-arriere-017.sql` sur la branche de test : il retire la ta
 
 ## 4. Seulement ensuite
 Accord explicite → fusion de `feature/protections` → la migration s'applique au démarrage. Sauvegarder (branche Neon) juste avant.
+
+## Journal des refus du garde-fou : limites
+- Écrit par le serveur **après** le refus, dans une transaction séparée : si le serveur s'arrête entre les deux, ou si cette écriture échoue, le refus a bien lieu mais n'est pas journalisé.
+- Au plus une ligne par minute pour un même vendeur (ou client anonyme), parcours et zone : la fréquence réelle des refus n'est donc pas comptée. Un client anonyme qui change de zone peut écrire une ligne par zone connue (limité par la limite de requêtes par adresse).
+- Visible dans le journal d'audit de l'administrateur : action `order_refused_pay_guard`, zone, parcours (`vendeur`, `lien`, `import`). Les parcours « api directe » en base ne passent pas par ce journal.

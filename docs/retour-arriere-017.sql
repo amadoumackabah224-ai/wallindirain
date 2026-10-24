@@ -14,7 +14,8 @@ DROP FUNCTION IF EXISTS _orders_courier_guard();
 DROP INDEX IF EXISTS wallet_settle_once_uq;
 DROP INDEX IF EXISTS wallet_team_pay_once_uq;
 DROP FUNCTION IF EXISTS fn_seller_create_order_once(uuid, text, uuid, text, bigint, int, text, text, text, text, text, boolean);
-DROP FUNCTION IF EXISTS fn_public_order_once(text, text, int, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_public_order_once(text, text, int, text, text, text, text, text);
+DROP FUNCTION IF EXISTS fn_audit_guard_refusal(uuid, text, text);
 DROP FUNCTION IF EXISTS _request_key_ok(text);
 DROP TABLE IF EXISTS order_requests;
 

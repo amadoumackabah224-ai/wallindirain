@@ -13,6 +13,7 @@ import { migrate, splitSql } from '../src/migrate.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..', '..');
 const PW = 'Secret123';
+const VER = '2026-10-24';
 const KEY = (n) => `prot-test-key-${String(n).padStart(8, '0')}`;
 let db, w, product, srv, base, n = 0;
 const setting = (k, v) => db.owner.query('UPDATE settings SET value = $2 WHERE key = $1', [k, v]);
@@ -103,7 +104,7 @@ test('lien public : même clé = même référence et même jeton ; autre conten
   const code = await call(db.app, 'fn_seller_create_link', w.seller, product);
   const code2 = await call(db.app, 'fn_seller_create_link', w.seller2, product);
   const ph = phone(); const before = await count('SELECT count(*)::int AS n FROM orders');
-  const pub = (link, key, over = {}) => call(db.app, 'fn_public_order_once', link, key, 1, 'Mariama Diallo', over.phone ?? ph, 'Kaloum', over.address ?? 'Marché de Kaloum');
+  const pub = (link, key, over = {}) => call(db.app, 'fn_public_order_once', link, key, 1, 'Mariama Diallo', over.phone ?? ph, 'Kaloum', over.address ?? 'Marché de Kaloum', VER);
   const a = await pub(code, KEY(20)); const b = await pub(code, KEY(20));
   assert.equal(b.ref, a.ref); assert.equal(b.track_token, a.track_token); assert.equal(a.replayed, false); assert.equal(b.replayed, true);
   assert.ok(a.track_token);
@@ -114,7 +115,7 @@ test('lien public : même clé = même référence et même jeton ; autre conten
   await expectErr(pub(code, null), 'key_required');
   await expectErr(pub('inconnu', KEY(21)), 'not_found');
   const ph5 = phone();
-  const par = await Promise.all(Array.from({ length: 5 }, () => call(db.app, 'fn_public_order_once', code2, KEY(22), 1, 'Abdoulaye Bah', ph5, 'Kaloum', 'Rue 3')));
+  const par = await Promise.all(Array.from({ length: 5 }, () => call(db.app, 'fn_public_order_once', code2, KEY(22), 1, 'Abdoulaye Bah', ph5, 'Kaloum', 'Rue 3', VER)));
   assert.equal(new Set(par.map((r) => r.ref)).size, 1);                                                            // contenus identiques sauf téléphone : une seule passe, les autres sont refusées
 });
 
@@ -204,7 +205,7 @@ test('garde-fou : paie fixe supérieure aux frais = création refusée sur les t
     reqs: await count('SELECT count(*)::int AS n FROM order_requests'), msgs: await count('SELECT count(*)::int AS n FROM messages') });
   const before = await snap();
   await expectErr(create(w.seller, KEY(60)), 'courier_pay_exceeds_fee');
-  await expectErr(call(db.app, 'fn_public_order_once', code, KEY(61), 1, 'Client Public', phone(), 'Kaloum', 'Rue 2'), 'courier_pay_exceeds_fee');
+  await expectErr(call(db.app, 'fn_public_order_once', code, KEY(61), 1, 'Client Public', phone(), 'Kaloum', 'Rue 2', VER), 'courier_pay_exceeds_fee');
   await expectErr(call(db.app, 'fn_seller_import_order', w.seller, 'cd'.repeat(32), product, null, null, 1, 'Client Imp', phone(), 'Kaloum', 'Rue 8', null, false), 'courier_pay_exceeds_fee');
   assert.deepEqual(await snap(), before);
   const r = await new Client().post(`/api/public/link/${code}/order`, { qty: 1, name: 'Client Web', phone: phone(), commune: 'Kaloum', address: 'Rue 9 Kaloum', accepted: true, request_key: KEY(62) });
@@ -251,6 +252,89 @@ test('administrateur : zone à tarif nul, tarif sous la paie fixe, paie fixe tro
   assert.equal(Number((await db.owner.query(`SELECT value FROM settings WHERE key = 'courier_share_bps'`)).rows[0].value), 0);   // le plafond n'est pas une valeur
   assert.match((await db.owner.query(`SELECT label FROM settings WHERE key = 'courier_share_bps'`)).rows[0].label, /maximum 9000/);
   assert.equal(await count('SELECT count(*)::int AS n FROM fn_ledger_check()'), 0);
+});
+
+// ---------------------------------------------------------------- consentement : pas de doublon au rejeu
+const consentState = async () => (await db.owner.query(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(c::text, ',' ORDER BY id)), '') AS h FROM consents c WHERE kind = 'order'`)).rows[0];
+test('consentement : un seul par commande publique créée ; rejeu, refus et clé réutilisée n\'en ajoutent pas ; l\'existant est intact', async () => {
+  const code = await call(db.app, 'fn_seller_create_link', w.seller, product);
+  const anon = new Client(); const ph = phone();
+  const body = { qty: 1, name: 'Client Consent', phone: ph, commune: 'Kaloum', address: 'Rue 11 Kaloum', accepted: true };
+  const s0 = await consentState();
+  assert.equal((await anon.post(`/api/public/link/${code}/order`, { ...body, request_key: KEY(70) })).status, 201);
+  const s1 = await consentState(); assert.equal(s1.n, s0.n + 1);
+  for (let i = 0; i < 3; i++) assert.equal((await anon.post(`/api/public/link/${code}/order`, { ...body, request_key: KEY(70) })).status, 200);   // rejeux
+  assert.equal((await consentState()).h, s1.h);                                                          // ni ajout ni modification
+  assert.equal((await anon.post(`/api/public/link/${code}/order`, { ...body, phone: phone(), request_key: KEY(70) })).status, 409);   // clé réutilisée
+  assert.equal((await consentState()).h, s1.h);
+  assert.equal((await anon.post(`/api/public/link/${code}/order`, { ...body, accepted: false, request_key: KEY(71) })).status, 400);       // case non cochée
+  assert.equal((await consentState()).h, s1.h);
+  srv.resetLimits(); const phPar = phone();
+  const par = await Promise.all(Array.from({ length: 5 }, () => anon.post(`/api/public/link/${code}/order`, { ...body, phone: phPar, request_key: KEY(72), name: 'Client Parallele' })));
+  assert.ok(par.every((r) => [200, 201, 409].includes(r.status)));
+  assert.equal((await consentState()).n, s1.n + 1);                                                       // 5 envois simultanés : un consentement
+  const h = (await db.owner.query(`SELECT subject_hash FROM consents WHERE kind = 'order' ORDER BY id DESC LIMIT 1`)).rows[0].subject_hash;
+  assert.match(h, /^[0-9a-f]{64}$/); assert.ok(!h.includes(ph));                                          // empreinte, jamais le numéro
+  await assert.rejects(db.owner.query(`UPDATE consents SET version = 'x' WHERE kind = 'order'`), /append|immuable|interdit|not allowed/i);   // toujours en ajout seul
+});
+test('consentement : un refus du garde-fou ou un lien inconnu n\'en laisse aucun', async () => {
+  const code = await call(db.app, 'fn_seller_create_link', w.seller, product);
+  const s0 = await consentState();
+  await expectErr(call(db.app, 'fn_public_order_once', 'inconnu', KEY(73), 1, 'Client X', phone(), 'Kaloum', 'Rue 1', VER), 'not_found');
+  await expectErr(call(db.app, 'fn_public_order_once', code, KEY(74), 1, 'Client X', phone(), 'Kaloum', 'Rue 1', null), 'invalid_input');   // version absente
+  await setting('courier_share_bps', 0); await setting('courier_pay', 30000);
+  await expectErr(call(db.app, 'fn_public_order_once', code, KEY(75), 1, 'Client X', phone(), 'Kaloum', 'Rue 1', VER), 'courier_pay_exceeds_fee');
+  await setting('courier_pay', 5000);
+  assert.deepEqual(await consentState(), s0);
+});
+
+// ---------------------------------------------------------------- journal des refus du garde-fou
+let since = 0;                                                                                              // le journal est en ajout seul : on compte à partir d'un repère
+const mark = async () => { since = Number((await db.owner.query('SELECT COALESCE(max(id), 0) AS m FROM audit_log')).rows[0].m); };
+const refusals = async () => (await db.owner.query(`SELECT actor_id, entity, entity_id, details::text AS d FROM audit_log WHERE action = 'order_refused_pay_guard' AND id > $1 ORDER BY id`, [since])).rows;
+test('journal du garde-fou : refus journalisé sur les trois parcours, sans la paie, sans doublon rapproché, sans effet financier', async (t) => {
+  t.after(() => setting('courier_pay', 5000));
+  const code = await call(db.app, 'fn_seller_create_link', w.seller, product);
+  await mark();
+  await setting('courier_share_bps', 0); await setting('courier_pay', 30000);                           // état forcé : Dixinn 25 000 < 30 000
+  const fin = async () => (await db.owner.query(`SELECT (SELECT count(*) FROM wallet_entries)::text || (SELECT count(*) FROM orders) || (SELECT count(*) FROM order_requests) || (SELECT reserved_qty FROM products WHERE id = $1) AS x,
+    (SELECT md5(string_agg(key || value::text, ',' ORDER BY key)) FROM settings) AS s, (SELECT md5(string_agg(commune || fee::text, ',' ORDER BY commune)) FROM delivery_rates) AS z`, [product])).rows[0];
+  const before = await fin();
+  const anon = new Client(); const login = new Client();
+  const sp = (await db.owner.query('SELECT phone FROM users WHERE id = $1', [w.seller])).rows[0].phone;
+  assert.equal((await login.post('/api/auth/login', { identifier: sp, password: PW })).status, 200);
+  const pub = await anon.post(`/api/public/link/${code}/order`, { qty: 1, name: 'Client Web', phone: phone(), commune: 'Dixinn', address: 'Rue 9 Kaloum', accepted: true, request_key: KEY(80) });
+  assert.equal(pub.status, 409); assert.equal(pub.json.error, 'courier_pay_exceeds_fee');
+  const sel = await login.post('/api/seller/orders', { product_id: product, qty: 1, customer_name: 'Client Form', customer_phone: phone(), commune: 'Dixinn', address: 'Rue 5 Kaloum', request_key: KEY(81) });
+  assert.equal(sel.status, 409);
+  const csv = `nom,telephone,quartier,adresse,produit\nClient Imp,${phone()},Dixinn,Rue 8 Kaloum,Montre connectée\n`;
+  const imp = await login.post('/api/seller/import', { csv }); assert.equal(imp.status, 200); assert.equal(imp.json.created, 0); assert.equal(imp.json.errors.length, 1);
+  const rows = await refusals();
+  assert.deepEqual(rows.map((r) => JSON.parse(r.d).source).sort(), ['import', 'lien', 'vendeur']);
+  assert.ok(rows.every((r) => r.entity === 'delivery_rate' && r.entity_id === 'Dixinn'));
+  assert.equal(rows.find((r) => JSON.parse(r.d).source === 'lien').actor_id, null);                       // client anonyme
+  assert.equal(rows.find((r) => JSON.parse(r.d).source === 'vendeur').actor_id, w.seller);
+  for (const r of rows) assert.doesNotMatch(r.d + r.entity_id, /30\s?000|25\s?000|\d{4,}/);               // ni paie, ni tarif, ni montant, ni numéro
+  assert.doesNotMatch(JSON.stringify([pub.json, sel.json]), /30000|30\s000/);                              // pas non plus dans la réponse
+  // même refus dans la minute : pas de ligne en plus
+  await anon.post(`/api/public/link/${code}/order`, { qty: 1, name: 'Client Web', phone: phone(), commune: 'Dixinn', address: 'Rue 9 Kaloum', accepted: true, request_key: KEY(82) });
+  assert.equal((await refusals()).length, 3);
+  assert.deepEqual(await fin(), before);                                                                   // aucun écriture, commande, stock, réglage ni tarif modifié
+});
+test('journal du garde-fou : autres refus non journalisés ; appel direct borné ; l\'application n\'écrit pas dans le journal', async () => {
+  await mark();
+  const ph = phone(); await create(w.seller, KEY(90), { phone: ph });
+  await expectErr(create(w.seller, KEY(91), { phone: ph }), 'duplicate_order');
+  const anon = new Client();
+  await anon.post(`/api/public/link/inconnu/order`, { qty: 1, name: 'Client', phone: phone(), commune: 'Kaloum', address: 'Rue 1 Kaloum', accepted: true, request_key: KEY(92) });
+  assert.equal((await refusals()).length, 0);                                                              // seuls les refus du garde-fou sont journalisés
+  await call(db.app, 'fn_audit_guard_refusal', null, 'autre', 'Kaloum');                                    // source inconnue : ignoré
+  await call(db.app, 'fn_audit_guard_refusal', null, 'lien', 'Zone <script>inventée</script>');             // zone inconnue : aucun texte libre dans le journal
+  await call(db.app, 'fn_audit_guard_refusal', w.supplier, 'vendeur', 'Kaloum');                            // acteur non vendeur : enregistré sans acteur
+  const r = await refusals(); assert.equal(r.length, 1); assert.equal(r[0].actor_id, null);
+  await assert.rejects(db.app.query(`INSERT INTO audit_log(action) VALUES ('x')`), /permission denied/);
+  const f = (await db.owner.query(`SELECT prosecdef, proconfig::text AS c, has_function_privilege('wld_app', oid, 'EXECUTE') AS e FROM pg_proc WHERE proname = 'fn_audit_guard_refusal'`)).rows[0];
+  assert.equal(f.prosecdef, true); assert.match(f.c, /search_path=public, pg_temp/); assert.equal(f.e, true);
 });
 
 // ---------------------------------------------------------------- droits

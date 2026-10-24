@@ -93,3 +93,5 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 - Déclencheur `orders_courier_guard` : refuse toute commande dont la paie du livreur dépasse les frais de livraison.
 - Plafond technique `courier_share_bps` ≤ 9000 (aucune valeur modifiée).
 - Retour arrière : `docs/retour-arriere-017.sql`. Contrôle de production : `docs/rapport-production-017.sql`. Procédure : `docs/PROCEDURE-017.md`.
+- Consentement client (lien public) : enregistré par `fn_public_order_once`, dans la même transaction que la commande et seulement à la première création (jamais sur un rejeu ni un refus). Les consentements existants ne sont jamais modifiés (table en ajout seul).
+- `fn_audit_guard_refusal(acteur, source, zone)` : journalise (action `order_refused_pay_guard`) un refus du garde-fou, appelée par le serveur après l'annulation de la transaction. Aucune paie ni montant ; zone connue seulement ; au plus une ligne par minute pour (acteur, source, zone).

@@ -74,7 +74,7 @@ BEGIN
 END $$;
 
 -- Lien public : le jeton de suivi n'est rendu qu'à celui qui rejoue exactement la même demande
-CREATE FUNCTION fn_public_order_once(p_link text, p_key text, p_qty int, p_cname text, p_cphone text, p_commune text, p_address text)
+CREATE FUNCTION fn_public_order_once(p_link text, p_key text, p_qty int, p_cname text, p_cphone text, p_commune text, p_address text, p_version text)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_scope text; v_fp text; r order_requests; o orders; v_res jsonb; v_oid uuid;
 BEGIN
@@ -89,6 +89,9 @@ BEGIN
     SELECT * INTO o FROM orders WHERE id = r.order_id;
     RETURN jsonb_build_object('ref', o.ref, 'sale_total', o.sale_total, 'track_token', o.track_token, 'replayed', true);
   END IF;
+  -- Consentement enregistré ici, dans la même transaction que la commande, et seulement à la première création :
+  -- un rejeu n'en ajoute pas, un refus (garde-fou, stock…) n'en laisse pas. Les consentements existants ne sont jamais touchés.
+  PERFORM fn_record_consent('order', NULL, p_cphone, p_version);
   v_res := fn_public_order(p_link, p_qty, p_cname, p_cphone, p_commune, p_address);
   SELECT id INTO v_oid FROM orders WHERE ref = v_res->>'ref';
   INSERT INTO order_requests(scope, req_key, order_id, fingerprint) VALUES (v_scope, p_key, v_oid, v_fp);
@@ -209,6 +212,23 @@ BEGIN
                      'return_fee_supplier','prepaid_refund','transport_loss','referral_bonus')
           OR (w.kind = 'team_pay' AND w.amount > 0))
    GROUP BY w.order_id, w.user_id, w.kind HAVING count(*) > 1;
+END $$;
+
+
+-- ---------- Journal des refus du garde-fou ----------
+-- Le refus annule la transaction : il ne peut pas s'écrire lui-même. L'application appelle donc cette fonction APRÈS le refus,
+-- dans une transaction séparée. Rien de financier n'est écrit ni lu : ni paie du livreur, ni montant du client.
+CREATE FUNCTION fn_audit_guard_refusal(p_actor uuid, p_source text, p_commune text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_zone text; v_actor uuid;
+BEGIN
+  IF p_source IS NULL OR p_source NOT IN ('vendeur','lien','import') THEN RETURN; END IF;
+  SELECT commune INTO v_zone FROM delivery_rates WHERE commune = trim(COALESCE(p_commune, ''));
+  IF v_zone IS NULL THEN RETURN; END IF;                                  -- zone inconnue : on n'écrit rien (pas de texte libre dans le journal)
+  SELECT id INTO v_actor FROM users WHERE id = p_actor AND role = 'seller';
+  IF EXISTS (SELECT 1 FROM audit_log WHERE action = 'order_refused_pay_guard' AND entity_id = v_zone
+             AND actor_id IS NOT DISTINCT FROM v_actor AND details->>'source' = p_source AND at > now() - interval '60 seconds') THEN RETURN; END IF;
+  PERFORM _audit(v_actor, 'order_refused_pay_guard', 'delivery_rate', v_zone,
+                 jsonb_build_object('source', p_source, 'raison', 'tarif de la zone insuffisant pour la paie du livreur'));
 END $$;
 
 -- ---------- Droits (même boucle que les migrations précédentes) ----------

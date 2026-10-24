@@ -18,6 +18,16 @@ export function registerRoutes(app, { db, cfg }) {
     const ph = args.map((_, i) => `$${i + 1}`).join(',');
     return (await db.query(`SELECT ${name}(${ph}) AS r`, args)).rows[0].r;
   };
+  // Refus du garde-fou de paie : la transaction est annulée, donc on le journalise après coup, dans une transaction à part.
+  // Au mieux : si cet enregistrement échoue, la commande reste refusée et l'erreur d'origine est renvoyée telle quelle.
+  const refusalLogged = async (source, actor, commune, run) => {
+    try { return await run(); } catch (e) {
+      if (e?.code === 'WLD01' && String(e.message).startsWith('courier_pay_exceeds_fee|')) {
+        await fn('fn_audit_guard_refusal', actor, source, commune).catch(() => {});
+      }
+      throw e;
+    }
+  };
   const q = (text, params) => db.query(text, params).then((r) => r.rows);
 
   // ---------- utilitaires ----------
@@ -201,9 +211,9 @@ export function registerRoutes(app, { db, cfg }) {
     if (b.accepted !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter la politique de confidentialité pour commander');
     const custPhone = v.phone(b.phone, 'Votre numéro');
     const key = v.requestKey(b.request_key);
-    await fn('fn_record_consent', 'order', null, custPhone, cfg.legal.version);
-    const r = await fn('fn_public_order_once', ctx.params.code, key, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
-      v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
+    const commune = v.str(b.commune, 'Commune', { max: 60 });
+    const r = await refusalLogged('lien', null, commune, () => fn('fn_public_order_once', ctx.params.code, key, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
+      v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, commune, v.str(b.address, 'Adresse', { min: 3, max: 300 }), cfg.legal.version));
     ctx.status = r.replayed ? 200 : 201;
     return r;
   });
@@ -502,11 +512,11 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
     const own = b.product_id == null || b.product_id === '';
-    const r = await fn('fn_seller_create_order_once', ctx.user.id, v.requestKey(b.request_key), own ? null : v.uuid(b.product_id, 'Produit'),
+    const r = await refusalLogged('vendeur', ctx.user.id, typeof b.commune === 'string' ? b.commune : '', () => fn('fn_seller_create_order_once', ctx.user.id, v.requestKey(b.request_key), own ? null : v.uuid(b.product_id, 'Produit'),
       own ? v.str(b.own_product_name, 'Nom du produit', { min: 2, max: 120 }) : null,
       b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
-      v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true);
+      v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true));
     ctx.status = r.replayed ? 200 : 201;
     return r;
   }));
@@ -547,8 +557,8 @@ export function registerRoutes(app, { db, cfg }) {
         const price = parsePrice(r.price);
         const qty = r.qty ? Number(r.qty.replace(/\D/g, '')) : 1;
         if (!prod && !price) throw new Error(`Produit « ${r.product} » absent du catalogue : indiquez un prix pour le traiter comme votre propre produit`);
-        const res = await fn('fn_seller_import_order', ctx.user.id, rowHash(ctx.user.id, r), prod ? prod.id : null, prod ? null : r.product, price, qty,
-          r.name, phone, zone, address.slice(0, 300), r.note ? r.note.slice(0, 300) : null, isYes(r.confirmed));
+        const res = await refusalLogged('import', ctx.user.id, zone, () => fn('fn_seller_import_order', ctx.user.id, rowHash(ctx.user.id, r), prod ? prod.id : null, prod ? null : r.product, price, qty,
+          r.name, phone, zone, address.slice(0, 300), r.note ? r.note.slice(0, 300) : null, isYes(r.confirmed)));
         if (res.duplicate) out.duplicates++; else out.created++;
       } catch (e) { out.errors.push({ line: r.line, message: e.message?.replace(/^[a-z_]+\|/, '') || 'Erreur' }); }
     }
