@@ -1,5 +1,5 @@
 // Profil : nom, photo, mot de passe, numéro de versement, accès à mes droits sur mes données.
-import { h, ask, fmtPhone, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, legalLinks } from '../ui.js';
+import { h, ask, fmtPhone, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, showLegal } from '../ui.js';
 import { get, post } from '../api.js';
 import { kycCard } from './kyc.js';
 import { referralCard } from './stats.js';
@@ -77,12 +77,27 @@ export function profileView({ onChanged }) {
           h('button', { class: 'btn btn-sm btn-ghost', onclick: setEmail }, p.email ? 'Changer mon adresse' : 'Ajouter mon adresse'))),
       PAYOUT_ROLES.includes(p.role) && h('div', { class: 'card' }, h('h2', {}, 'Numéro de versement'),
         p.payout ? h('p', {}, `${OPERATOR[p.payout.method]} · `, h('b', {}, fmtPhone(p.payout.phone))) : h('p', { class: 'muted' }, 'Aucun numéro enregistré.'),
+        h('p', { class: 'small muted' }, 'Ce numéro sert uniquement à vous verser votre argent.'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: changePayout }, p.payout ? 'Changer mon numéro' : 'Enregistrer mon numéro')),
       PAYOUT_ROLES.includes(p.role) && kycCard(p.id),
       ['seller', 'supplier'].includes(p.role) && referralCard(),
       h('div', { class: 'card' }, h('h2', {}, 'Sécurité'), h('p', { class: 'muted small' }, 'Changer votre mot de passe déconnecte vos autres appareils.'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: changePw }, 'Changer mon mot de passe')),
+      documentsCard(),
       h('div', { class: 'card' }, h('h2', {}, 'Mes données'), h('p', { class: 'small' }, 'Vous pouvez demander l\'accès à vos données, leur correction ou la suppression de votre compte.'),
-        h('a', { class: 'btn btn-sm btn-ghost', href: '#/demande-donnees' }, 'Exercer mes droits'), legalLinks()));
+        h('a', { class: 'btn btn-sm btn-ghost', href: '#/demande-donnees' }, 'Exercer mes droits')));
+  });
+}
+
+/** « Mes documents » : uniquement les textes du rôle de la personne, avec la version qu'elle a acceptée. */
+function documentsCard() {
+  return liveView(() => get('/me/legal'), (m) => {
+    const many = new Set(m.pages.map((p) => p.audience).filter((a) => a !== 'public')).size > 1;
+    const AUD = { client: 'client', seller: 'vendeur', supplier: 'fournisseur', courier: 'livreur', team: 'équipe' };
+    return h('div', { class: 'card' }, h('h2', {}, 'Mes documents'),
+      h('p', { class: 'small muted' }, m.accepted_at ? `Version acceptée : ${m.accepted_version} (le ${fmtDate(m.accepted_at)}).` : (m.pending ? 'Vous n\'avez pas encore accepté les textes.' : 'Aucun accord demandé pour ce compte.')),
+      h('div', { class: 'list' }, m.pages.map((p) => h('div', { class: 'list-item' },
+        h('div', { class: 'grow' }, many && p.audience !== 'public' ? `${p.title} (${AUD[p.audience]})` : p.title),
+        h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => showLegal(p.slug, p.audience === 'public' ? undefined : p.audience) }, 'Lire')))));
   });
 }

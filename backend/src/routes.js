@@ -4,7 +4,7 @@
 import { HttpError, v, page } from './http.js';
 import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
-import { legalMissing, createLegal, PAGES as LEGAL_PAGES } from './legal.js';
+import { legalMissing, createLegal, docsFor, canRead, audienceOf, SUMMARY, AUDIENCE_LABEL, OPEN_AUDIENCES } from './legal.js';
 import { answer, suggestions, topic, topics } from './assistant.js';
 import { parseSheetUrl, fetchSheetCsv, parseCsv, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
@@ -109,6 +109,7 @@ export function registerRoutes(app, { db, cfg }) {
       message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
   });
 
+  const legalPending = async (user) => user.role !== 'admin' && (await q('SELECT fn_legal_status($1, $2) AS s', [user.id, cfg.legal.version]))[0].s.pending;
   app.post('/api/auth/login', async (ctx) => {
     const ip = clientIp(ctx.req);
     const phone = v.identifier(ctx.body.identifier ?? ctx.body.phone);   // numéro OU adresse e-mail vérifiée
@@ -128,7 +129,7 @@ export function registerRoutes(app, { db, cfg }) {
     const token = newToken();
     await fn('fn_session_create', u.id, tokenHash(token));
     setCookie(ctx, token, 12 * 3600);
-    return { user: { id: u.id, role: u.role, name: u.full_name } };
+    return { user: { id: u.id, role: u.role, name: u.full_name, legal_pending: await legalPending(u) } };
   });
 
   app.post('/api/auth/logout', async (ctx) => {
@@ -140,7 +141,7 @@ export function registerRoutes(app, { db, cfg }) {
 
   app.get('/api/auth/me', guard(null, async (ctx) => ({ user: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.full_name,
     phone: ctx.user.phone, email: ctx.user.email, email_verified: ctx.user.email_verified, team: ctx.user.team, identity_verified: ctx.user.identity_verified,
-    has_avatar: (await q('SELECT 1 FROM avatars WHERE user_id = $1', [ctx.user.id])).length > 0 } })));
+    has_avatar: (await q('SELECT 1 FROM avatars WHERE user_id = $1', [ctx.user.id])).length > 0, legal_pending: await legalPending(ctx.user) } })));
 
   app.post('/api/auth/forgot', async (ctx) => {
     const ident = v.identifier(ctx.body.identifier ?? ctx.body.phone);
@@ -296,12 +297,43 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   // Les textes légaux sont lus DANS l'application (fenêtre de lecture), y compris avant la connexion : ils doivent rester accessibles pour consentir
   const legalPages = createLegal(cfg);
-  app.get('/api/public/legal', async () => ({ pages: LEGAL_PAGES.map(([slug, title]) => ({ slug, title })), version: cfg.legal.version }));
+  // Visiteur connecté ou non : le public (client, vendeur…) détermine les textes proposés
+  const viewerOf = async (ctx) => {
+    const token = parseCookies(ctx.req.headers.cookie)[COOKIE];
+    if (!token) return null;
+    return (await q('SELECT * FROM fn_session_user($1)', [tokenHash(token)]))[0] || null;
+  };
+  const viewerAudience = async (ctx) => {
+    const viewer = await viewerOf(ctx);
+    const own = viewer ? audienceOf(viewer.role) : null;
+    const asked = String(ctx.query.audience || '');
+    if (!viewer) return OPEN_AUDIENCES.includes(asked) ? asked : null;      // avant l'inscription ou la commande
+    if (own === 'all') return ['client', 'seller', 'supplier', 'courier', 'team'].includes(asked) ? asked : 'all';
+    return own;                                                             // un connecté ne voit que les textes de son rôle
+  };
+  app.get('/api/public/legal', async (ctx) => {
+    const aud = await viewerAudience(ctx);
+    return { audience: aud, label: AUDIENCE_LABEL[aud] || null, pages: docsFor(aud).map(({ slug, title, audience }) => ({ slug, title, audience })), version: cfg.legal.version };
+  });
   app.get('/api/public/legal/:slug', async (ctx) => {
-    const page = /^[a-z-]+$/.test(ctx.params.slug) ? legalPages.content(ctx.params.slug) : null;
+    const slug = /^[a-z-]+$/.test(ctx.params.slug) ? ctx.params.slug : '';
+    const viewer = await viewerOf(ctx);
+    const page = canRead(slug, viewer ? audienceOf(viewer.role) : null) ? legalPages.content(slug) : null;
     if (!page) throw new HttpError(404, 'not_found', 'Page introuvable');
     return page;
   });
+  // Accord de la personne connectée sur les textes de son rôle (administrateur : pas d'accord demandé)
+  app.get('/api/me/legal', guard(ANY_ROLE, async (ctx) => {
+    const aud = audienceOf(ctx.user.role);
+    const st = (await q('SELECT fn_legal_status($1, $2) AS s', [ctx.user.id, cfg.legal.version]))[0].s;
+    return { audience: aud, label: AUDIENCE_LABEL[aud] || 'Administrateur', summary: SUMMARY[aud] || null, version: cfg.legal.version, accepted_version: st.accepted_version, accepted_at: st.accepted_at,
+      pending: ctx.user.role !== 'admin' && st.pending, pages: docsFor(aud).map(({ slug, title, audience }) => ({ slug, title, audience })) };
+  }));
+  app.post('/api/me/legal/accept', guard(ANY_ROLE, async (ctx) => {
+    if (ctx.body.accept !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter pour continuer');
+    await fn('fn_legal_accept', ctx.user.id, cfg.legal.version);
+    return { ok: true };
+  }));
   // L'assistant est réservé aux personnes connectées
   app.post('/api/assistant', guard(ANY_ROLE, async (ctx) => {
     limit(`bot:${ctx.user.id}`, 60, 600_000);

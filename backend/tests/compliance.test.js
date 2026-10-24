@@ -195,19 +195,24 @@ test('assistant : réservé aux personnes connectées ; thèmes, sujets, questio
   assert.equal(nf.json.found, false); assert.ok(Array.isArray(nf.json.related)); assert.equal(nf.json.team, true);
 });
 
-test('textes légaux lus dans l\'application : liste, contenu, accessibles avant connexion, champs échappés', async () => {
+test('textes légaux lus dans l\'application : chacun ses textes, accessibles avant connexion pour client, vendeur et fournisseur, champs échappés', async () => {
   const c = new Client();
   const l = await c.get('/api/public/legal');
-  assert.equal(l.status, 200); assert.equal(l.json.pages.length, PAGES.length);
+  assert.equal(l.status, 200); assert.deepEqual(l.json.pages.map((x) => x.slug), ['mentions-legales', 'cookies']);     // visiteur : textes publics seulement
+  assert.equal((await c.get('/api/public/legal?audience=client')).json.pages.length, 5);
   for (const [slug, title] of PAGES) {
+    const open = !/livreur|equipe/.test(slug);
     const r = await c.get(`/api/public/legal/${slug}`);
+    if (!open) { assert.equal(r.status, 404, slug); continue; }                                                          // livreurs et équipe : connectés seulement
     assert.equal(r.status, 200, slug); assert.equal(r.json.title, title); assert.ok(r.json.html.length > 300);
     assert.ok(!/<html|<script/i.test(r.json.html), 'fragment seulement, sans script');
+    assert.ok(!/\{\{|include:/.test(r.json.html), `champ ou morceau non remplacé : ${slug}`);
   }
   const m = await c.get('/api/public/legal/mentions-legales');
   assert.match(m.json.html, /Société &lt;Test&gt; &amp; Fils/);
   assert.equal((await c.get('/api/public/legal/inconnue')).status, 404);
   assert.equal((await c.get('/api/public/legal/..%2fconfig')).status, 404);
+  assert.equal((await c.get('/api/public/legal/conditions')).status, 404);                                                // l\'ancien texte mélangé n\'existe plus
 });
 
 test('messagerie avec l\'équipe : connecté, visiteur, réponse, mot de passe temporaire', async () => {
