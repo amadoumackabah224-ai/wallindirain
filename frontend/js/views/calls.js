@@ -47,7 +47,7 @@ export function chiefAssign() {
         const list = orders.filter((o) => sts.includes(o.status));
         return h('div', {}, h('h2', { class: 'mt' }, `${title} (${list.length})`), list.length ? list.map((o) => {
           const assign = action(async () => {
-            const v = await ask({ title: `Affecter ${o.ref}`, text: `${o.commune} · ${o.address}`, submit: 'Affecter', fields: [{ name: 'courier', label: 'Livreur', type: 'select', value: o.courier_id, options: couriers.map((c) => [c.id, `${c.full_name} (${c.open_orders} en cours)`]) }] });
+            const v = await ask({ title: `Affecter ${o.ref}`, text: `${o.commune} · ${o.address}`, submit: 'Affecter', fields: [{ name: 'courier', label: 'Livreur', type: 'select', value: o.courier_id, options: couriers.map((c) => [c.id, `${c.full_name} (${c.open_orders} en cours)${c.availability === 'unavailable' ? ' · indisponible' : ''}${c.zones.length ? ` · ${c.zones.join(', ')}` : ''}`]) }] });
             if (v) await post(`/chief/orders/${o.id}/assign`, { courier_id: v.courier });
           }, { ok: 'Commande affectée', refresh });
           const toWh = action(async () => { if (await confirmBox('Retour en entrepôt ?', 'Le magasinier réceptionnera le colis et indiquera la cause.')) await post(`/chief/orders/${o.id}/return`); }, { ok: 'Retour demandé', refresh });

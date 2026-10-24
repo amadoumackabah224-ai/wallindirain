@@ -6,8 +6,12 @@ const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoM
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 
 export function courierOrders() {
-  return liveView(() => get('/courier/orders'), ({ orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
+  return liveView(() => Promise.all([get('/courier/orders'), get('/courier/profile')]).then(([o, profile]) => ({ ...o, profile })), ({ profile, orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
     h('h1', {}, 'Mes livraisons'),
+    h('div', { class: 'card gap mb' }, h('div', { class: 'grow' }, h('b', {}, profile.availability === 'available' ? 'Vous êtes disponible' : 'Vous êtes indisponible'),
+      h('div', { class: 'small muted' }, profile.zones.length ? `Zones : ${profile.zones.join(', ')}` : 'Aucune zone définie : l\'administration vous les attribue.')),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: action(() => post('/courier/availability', { available: profile.availability !== 'available' }), { ok: 'Disponibilité mise à jour', refresh }) },
+        profile.availability === 'available' ? 'Me mettre indisponible' : 'Me mettre disponible')),
     h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(cash_to_hand_over)), h('div', { class: 'l' }, 'Argent encaissé à remettre à l\'administration (tout manque vous est débité). Onglet « Caisse » pour reverser par transfert.'),
       cash_pending_validation > 0 && h('div', { class: 'small muted' }, `+ ${fmtGNF(cash_pending_validation)} déjà reversés par transfert, en attente de validation`)),
     orders.length ? orders.map((o) => {

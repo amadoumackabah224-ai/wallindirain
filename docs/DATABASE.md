@@ -95,3 +95,10 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 - Retour arrière : `docs/retour-arriere-017.sql`. Contrôle de production : `docs/rapport-production-017.sql`. Procédure : `docs/PROCEDURE-017.md`.
 - Consentement client (lien public) : enregistré par `fn_public_order_once`, dans la même transaction que la commande et seulement à la première création (jamais sur un rejeu ni un refus). Les consentements existants ne sont jamais modifiés (table en ajout seul).
 - `fn_audit_guard_refusal(acteur, source, zone)` : journalise (action `order_refused_pay_guard`) un refus du garde-fou, appelée par le serveur après l'annulation de la transaction. Aucune paie ni montant ; zone connue seulement ; au plus une ligne par minute pour (acteur, source, zone).
+
+## Profil du livreur (migration 018)
+
+- `courier_profiles(courier_id, vehicle, availability, updated_at, updated_by)` et `courier_zones(courier_id, commune)` : véhicule, disponibilité et zones couvertes. Aucune donnée personnelle ni financière.
+- Fonctions : `fn_admin_set_courier_profile`, `fn_admin_set_courier_zones` (administrateur), `fn_courier_set_availability`, `fn_courier_profile` (le livreur, pour lui seul).
+- **L'affectation ne change pas** : le chef peut toujours affecter n'importe quel livreur actif, même indisponible ou sans zone. Ces informations aident à choisir et préparent la répartition automatique (migration 020).
+- Retour arrière : `docs/retour-arriere-018.sql` (efface seulement les profils et zones).

@@ -334,3 +334,27 @@ function zonesCard(rates, settings, refresh) {
       h('div', { class: 'mt' }, search),
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Quartier ou ville'), h('th', { scope: 'col' }, h('span', { class: 'sr' }, 'Actions')))), h('tbody', {}, rows)))));
 }
+
+const VEHICLE = { moto: 'Moto', velo: 'Vélo', voiture: 'Voiture', pied: 'À pied' };
+
+// Livreurs : véhicule, zones couvertes, disponibilité (information d'aide à l'affectation ; l'affectation reste manuelle)
+export function adminCouriers() {
+  return liveView(() => get('/admin/couriers'), ({ couriers, zones }, refresh) => h('div', {}, h('h1', {}, 'Livreurs'),
+    h('p', { class: 'small muted' }, 'Les zones et la disponibilité aident le chef call center à choisir. Un livreur sans zone peut toujours être affecté à la main. Les comptes se créent dans « Utilisateurs ».'),
+    h('div', { class: 'card' }, table(['Livreur', 'Statut', 'Véhicule', 'Zones couvertes', 'Disponibilité', 'En cours', ''], couriers.map((c) => {
+      const setVehicle = action(async () => {
+        const v = await ask({ title: `Véhicule de ${c.full_name}`, submit: 'Enregistrer', fields: [{ name: 'vehicle', label: 'Véhicule', type: 'select', value: c.vehicle || '', options: [['', 'Non précisé'], ...Object.entries(VEHICLE)] }] });
+        if (v) await post(`/admin/couriers/${c.id}/profile`, { vehicle: v.vehicle || null });
+      }, { ok: 'Véhicule enregistré', refresh });
+      const setZones = action(async () => {
+        const v = await ask({ title: `Zones de ${c.full_name}`, text: 'Cochez les zones que ce livreur couvre.', submit: 'Enregistrer', fields: zones.map((z, i) => ({ name: `z${i}`, label: z.commune, type: 'checkbox', value: c.zones.includes(z.commune), required: false })) });
+        if (v) await post(`/admin/couriers/${c.id}/zones`, { communes: zones.filter((z, i) => v[`z${i}`]).map((z) => z.commune) });
+      }, { ok: 'Zones enregistrées', refresh });
+      return [h('div', {}, h('b', {}, c.full_name), h('div', { class: 'small muted' }, fmtPhone(c.phone))),
+        badge({ active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[c.status] || c.status, { active: 'ok', pending: 'warn', suspended: 'bad' }[c.status]),
+        c.vehicle ? VEHICLE[c.vehicle] : h('span', { class: 'small muted' }, 'non précisé'),
+        c.zones.length ? c.zones.join(', ') : h('span', { class: 'small muted' }, 'aucune (affectation manuelle seulement)'),
+        c.availability === 'available' ? badge('Disponible', 'ok') : badge('Indisponible', 'warn'), String(c.open_orders),
+        h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: setZones }, 'Zones'), h('button', { class: 'btn btn-sm btn-ghost', onclick: setVehicle }, 'Véhicule'))];
+    }), { empty: empty('🏍️', 'Aucun livreur : créez un compte livreur dans « Utilisateurs »') }))));
+}

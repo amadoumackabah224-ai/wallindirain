@@ -374,7 +374,7 @@ test('rapport de production : 7 requêtes en lecture seule, valides, sans résul
   const rows = [];
   for (const s of stmts) rows.push((await db.owner.query(s)).rows);
   for (const i of [0, 1, 2, 3, 4]) assert.equal(rows[i].length, 0, `requête ${i + 1}`);
-  assert.equal(rows[5].length, 1); assert.equal(rows[6][0].name, '017_protections.sql');
+  assert.equal(rows[5].length, 1); assert.ok(rows[6].some((r) => r.name === '017_protections.sql'));   // les migrations suivantes (018…) s'ajoutent après
 });
 
 // ---------------------------------------------------------------- remise à zéro (à la fin : elle vide l'activité)
@@ -416,7 +416,7 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
   const funcs = async () => (await owner.query(`SELECT p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || p.prosecdef::text || ':' || COALESCE(p.proconfig::text, '') || ':' || COALESCE(p.proacl::text, '') AS f
       FROM pg_proc p WHERE p.proname IN ('fn_seller_import_order','fn_admin_reset_activity','fn_admin_set_delivery_rate','fn_admin_set_setting','fn_ledger_check','fn_seller_create_order','fn_public_order')
       ORDER BY 1`)).rows.map((r) => r.f);
-  const tablePrivs = async () => (await owner.query(`SELECT string_agg(table_name || '.' || column_name, ',' ORDER BY table_name, column_name) AS g FROM information_schema.column_privileges WHERE grantee = 'wld_app' AND privilege_type = 'SELECT'`)).rows[0].g;
+  const tablePrivs = async () => (await owner.query(`SELECT string_agg(table_name || '.' || column_name, ',' ORDER BY table_name, column_name) AS g FROM information_schema.column_privileges WHERE grantee = 'wld_app' AND privilege_type = 'SELECT' AND table_name NOT IN ('courier_profiles','courier_zones')`)).rows[0].g;
   const labelOf = async () => (await owner.query(`SELECT label FROM settings WHERE key = 'courier_share_bps'`)).rows[0].label;
 
   const A = { data: await data(), funcs: await funcs(), privs: await tablePrivs(), label: await labelOf() };
