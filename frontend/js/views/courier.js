@@ -6,10 +6,24 @@ const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoM
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 
 export function courierOrders() {
-  return liveView(() => get('/courier/orders'), ({ orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
+  return liveView(() => Promise.all([get('/courier/orders'), get('/courier/profile'), get('/courier/offers')]).then(([o, profile, off]) => ({ ...o, profile, offers: off.offers })), ({ profile, offers, orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
     h('h1', {}, 'Mes livraisons'),
+    h('div', { class: 'card gap mb' }, h('div', { class: 'grow' }, h('b', {}, profile.availability === 'available' ? 'Vous êtes disponible' : 'Vous êtes indisponible'),
+      h('div', { class: 'small muted' }, profile.zones.length ? `Zones : ${profile.zones.join(', ')}` : 'Aucune zone définie : l\'administration vous les attribue.')),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: action(() => post('/courier/availability', { available: profile.availability !== 'available' }), { ok: 'Disponibilité mise à jour', refresh }) },
+        profile.availability === 'available' ? 'Me mettre indisponible' : 'Me mettre disponible')),
     h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(cash_to_hand_over)), h('div', { class: 'l' }, 'Argent encaissé à remettre à l\'administration (tout manque vous est débité). Onglet « Caisse » pour reverser par transfert.'),
       cash_pending_validation > 0 && h('div', { class: 'small muted' }, `+ ${fmtGNF(cash_pending_validation)} déjà reversés par transfert, en attente de validation`)),
+    offers.length > 0 && h('div', {}, h('h2', {}, `Propositions de mission (${offers.length})`), offers.map((m) => {
+      const accept = action(() => post(`/courier/offers/${m.id}/accept`), { ok: 'Mission acceptée : elle apparaît dans vos livraisons', refresh });
+      const refuse = action(async () => {
+        const v = await ask({ title: `Refuser ${m.ref}`, text: 'Aucune pénalité. Le motif aide à mieux répartir les missions.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif', type: 'select', options: [['', 'Je ne précise pas'], ['too_far', 'Trop loin'], ['busy', 'Déjà occupé'], ['vehicle', 'Véhicule indisponible'], ['other', 'Autre']] }] });
+        if (v) await post(`/courier/offers/${m.id}/refuse`, { reason: v.reason || null });
+      }, { ok: 'Proposition refusée', refresh });
+      return h('div', { class: 'card order' }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, m.ref), badge(`Réponse avant ${new Date(m.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`, 'warn'), m.retry && badge('Nouvelle tentative', 'grey')),
+        kv([['Zone', m.commune], ['Produit', `${m.product} × ${m.qty}`], ['À encaisser', amount(m.amount_to_collect)], ['Votre rémunération', amount(m.courier_pay)]]),
+        h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok', onclick: accept }, 'Accepter'), h('button', { class: 'btn btn-ghost', onclick: refuse }, 'Refuser')));
+    })),
     orders.length ? orders.map((o) => {
       const step = (path, ok) => action(() => post(`/courier/orders/${o.id}/${path}`), { ok, refresh });
       const deliver = action(async () => {

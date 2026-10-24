@@ -12,7 +12,9 @@ export class HttpError extends Error {
 const STATUS_BY_CODE = {
   forbidden: 403, unauthorized: 401, not_found: 404, locked: 423, too_many: 429,
   already_taken: 409, duplicate_order: 409, invalid_state: 409, out_of_stock: 409, phone_taken: 409,
-  too_late: 409, margin_locked: 409, insufficient_funds: 409, ledger_mismatch: 500, config: 500
+  too_late: 409, margin_locked: 409, insufficient_funds: 409, ledger_mismatch: 500, config: 500,
+  key_reused: 409, courier_pay_exceeds_fee: 409, zone_fee_below_courier_pay: 409, key_required: 400,
+  offer_open: 409, already_offered: 409, max_offers_reached: 409, courier_unavailable: 409, courier_busy: 409, offer_expired: 409, offer_unavailable: 409
 };
 
 /** Transforme une erreur SQL métier ("code|Message") en erreur HTTP. */
@@ -140,6 +142,11 @@ export const v = {
   // numéro (9 chiffres) OU adresse e-mail : renvoie la forme normalisée
   identifier(x, name = 'Numéro ou adresse e-mail') {
     return typeof x === 'string' && x.includes('@') ? v.email(x, name) : v.phone(x, name);
+  },
+  // clé d'envoi unique d'un formulaire (anti double commande)
+  requestKey(x) {
+    if (typeof x !== 'string' || !/^[A-Za-z0-9-]{16,64}$/.test(x)) throw new HttpError(400, 'key_required', 'Rechargez la page puis réessayez : la demande n\'a pas pu être identifiée');
+    return x;
   },
   oneOf(x, list, name) { if (!list.includes(x)) throw new HttpError(400, 'invalid_input', `${name} invalide`); return x; },
   bool(x, name) { if (typeof x !== 'boolean') throw new HttpError(400, 'invalid_input', `${name} invalide`); return x; }

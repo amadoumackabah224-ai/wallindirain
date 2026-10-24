@@ -1,5 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -90,12 +90,14 @@ export function sellerNewOrder({ goTo }) {
       h('div', { class: 'hint' }, `Doit couvrir au moins la livraison et le call center.`)));
     const catBox = h('label', { class: 'f' }, h('span', {}, 'Produit du catalogue'), product);
     own.addEventListener('change', () => { ownBox.classList.toggle('hidden', !own.checked); catBox.classList.toggle('hidden', own.checked); });
+    const requestKey = newRequestKey();      // une clé par ouverture du formulaire : un envoi répété renvoie la même commande
     const form = h('form', { onsubmit: async (e) => {
       e.preventDefault(); const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const body = { qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value, already_confirmed: already.checked };
+        const body = { request_key: requestKey, qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value, already_confirmed: already.checked };
         if (own.checked) { body.own_product_name = ownName.value; body.unit_price = Number(price.value); } else body.product_id = product.value;
         const r = await post('/seller/orders', body);
+        if (r.replayed) { toast(`Commande ${r.ref} déjà enregistrée : aucune seconde commande n'a été créée`, 'ok'); goTo('orders'); return; }
         toast(`Commande ${r.ref} créée${r.status === 'confirmed' ? ' : prête à être affectée à un livreur' : r.risk ? ' (client à surveiller)' : ''}`, 'ok'); goTo('orders');
       } catch (ex) { toast(ex.message, 'bad'); btn.disabled = false; }
     } },

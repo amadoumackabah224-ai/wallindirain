@@ -50,3 +50,5 @@ Ce document décrit ce qui est **en place et testé**, puis ce qui **n'est pas c
 - Mises à jour régulières du système, de Docker et des images (`docker compose pull && docker compose up -d --build`).
 - Surveiller : erreurs 5xx dans `docker compose logs app`, `ledger_problems` du tableau de bord, messages en échec, espace disque des sauvegardes.
 - Conserver les sauvegardes hors du serveur, tester la restauration chaque mois.
+
+- **Double soumission** : clé de demande obligatoire + verrou en base ; **double règlement** : index uniques sur le registre ; **paie du livreur** : jamais supérieure aux frais (déclencheur + contrôles administrateur). Une nouvelle fonction interne `_xxx` doit être précédée de `REVOKE ALL ON ALL FUNCTIONS … FROM PUBLIC` dans sa migration (oubli corrigé en 017, vérifié par test).

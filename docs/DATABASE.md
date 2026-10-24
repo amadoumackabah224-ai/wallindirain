@@ -84,3 +84,29 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 2. Fonction `CREATE OR REPLACE FUNCTION fn_…`, avec `_require(p_actor, ARRAY[…])` en première ligne.
 3. Relancer `node src/migrate.js` : la nouvelle migration s'applique ; le script de droits de `004` ne rattrape **pas** les fonctions créées après lui : ajoutez en fin de migration `ALTER FUNCTION … SECURITY DEFINER SET search_path = public, pg_temp; REVOKE ALL ON FUNCTION … FROM PUBLIC; GRANT EXECUTE ON FUNCTION … TO wld_app;`.
 4. Ajouter un test dans `backend/tests/rules.test.js`.
+
+
+## Protections (migration 017)
+
+- `order_requests(scope, req_key, order_id, fingerprint)` : mémorise les clés de demande (anti double commande). Table **non lisible** par l'application ; seules les fonctions `fn_seller_create_order_once` et `fn_public_order_once` y accèdent. Les futures migrations doivent l'exclure de la boucle de droits.
+- Index uniques `wallet_settle_once_uq` et `wallet_team_pay_once_uq` : un règlement ne s'écrit qu'une fois par commande, utilisateur et type.
+- Déclencheur `orders_courier_guard` : refuse toute commande dont la paie du livreur dépasse les frais de livraison.
+- Plafond technique `courier_share_bps` ≤ 9000 (aucune valeur modifiée).
+- Retour arrière : `docs/retour-arriere-017.sql`. Contrôle de production : `docs/rapport-production-017.sql`. Procédure : `docs/PROCEDURE-017.md`.
+- Consentement client (lien public) : enregistré par `fn_public_order_once`, dans la même transaction que la commande et seulement à la première création (jamais sur un rejeu ni un refus). Les consentements existants ne sont jamais modifiés (table en ajout seul).
+- `fn_audit_guard_refusal(acteur, source, zone)` : journalise (action `order_refused_pay_guard`) un refus du garde-fou, appelée par le serveur après l'annulation de la transaction. Aucune paie ni montant ; zone connue seulement ; au plus une ligne par minute pour (acteur, source, zone).
+
+## Profil du livreur (migration 018)
+
+- `courier_profiles(courier_id, vehicle, availability, updated_at, updated_by)` et `courier_zones(courier_id, commune)` : véhicule, disponibilité et zones couvertes. Aucune donnée personnelle ni financière.
+- Fonctions : `fn_admin_set_courier_profile`, `fn_admin_set_courier_zones` (administrateur), `fn_courier_set_availability`, `fn_courier_profile` (le livreur, pour lui seul).
+- **L'affectation ne change pas** : le chef peut toujours affecter n'importe quel livreur actif, même indisponible ou sans zone. Ces informations aident à choisir et préparent la répartition automatique (migration 020).
+- Retour arrière : `docs/retour-arriere-018.sql` (efface seulement les profils et zones).
+
+## Propositions de mission (migration 019)
+
+- `mission_offers(order_id, courier_id, offered_by, status, refuse_reason, expires_at…)` : le chef propose, le livreur répond. Une seule proposition ouverte par commande (index unique), une seule fois par livreur et par commande.
+- Accepter appelle `fn_chief_assign` (affectation existante). Refuser ou laisser expirer : aucune écriture financière, aucune pénalité.
+- Réglages ajoutés (modifiables par l'administrateur) : `mission_offer_minutes` (10), `mission_max_offers` (3), `courier_max_open` (3). Une valeur à 0 est traitée comme 1.
+- Expiration vérifiée à chaque appel (`_expire_offers`), sans minuteur. Un refus de l'application annule sa transaction : le statut « expirée » ou « annulée » est écrit à la lecture suivante ; le comportement (refus de l'acceptation tardive) est correct dans tous les cas.
+- **Retours arrière dans l'ordre inverse** : 019, puis 018, puis 017.

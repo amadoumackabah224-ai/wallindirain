@@ -18,6 +18,16 @@ export function registerRoutes(app, { db, cfg }) {
     const ph = args.map((_, i) => `$${i + 1}`).join(',');
     return (await db.query(`SELECT ${name}(${ph}) AS r`, args)).rows[0].r;
   };
+  // Refus du garde-fou de paie : la transaction est annulée, donc on le journalise après coup, dans une transaction à part.
+  // Au mieux : si cet enregistrement échoue, la commande reste refusée et l'erreur d'origine est renvoyée telle quelle.
+  const refusalLogged = async (source, actor, commune, run) => {
+    try { return await run(); } catch (e) {
+      if (e?.code === 'WLD01' && String(e.message).startsWith('courier_pay_exceeds_fee|')) {
+        await fn('fn_audit_guard_refusal', actor, source, commune).catch(() => {});
+      }
+      throw e;
+    }
+  };
   const q = (text, params) => db.query(text, params).then((r) => r.rows);
 
   // ---------- utilitaires ----------
@@ -200,10 +210,11 @@ export function registerRoutes(app, { db, cfg }) {
     const b = ctx.body;
     if (b.accepted !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter la politique de confidentialité pour commander');
     const custPhone = v.phone(b.phone, 'Votre numéro');
-    await fn('fn_record_consent', 'order', null, custPhone, cfg.legal.version);
-    const r = await fn('fn_public_order', ctx.params.code, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
-      v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
-    ctx.status = 201;
+    const key = v.requestKey(b.request_key);
+    const commune = v.str(b.commune, 'Commune', { max: 60 });
+    const r = await refusalLogged('lien', null, commune, () => fn('fn_public_order_once', ctx.params.code, key, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
+      v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, commune, v.str(b.address, 'Adresse', { min: 3, max: 300 }), cfg.legal.version));
+    ctx.status = r.replayed ? 200 : 201;
     return r;
   });
 
@@ -501,12 +512,12 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
     const own = b.product_id == null || b.product_id === '';
-    const r = await fn('fn_seller_create_order', ctx.user.id, own ? null : v.uuid(b.product_id, 'Produit'),
+    const r = await refusalLogged('vendeur', ctx.user.id, typeof b.commune === 'string' ? b.commune : '', () => fn('fn_seller_create_order_once', ctx.user.id, v.requestKey(b.request_key), own ? null : v.uuid(b.product_id, 'Produit'),
       own ? v.str(b.own_product_name, 'Nom du produit', { min: 2, max: 120 }) : null,
       b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
-      v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true);
-    ctx.status = 201;
+      v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true));
+    ctx.status = r.replayed ? 200 : 201;
     return r;
   }));
 
@@ -546,8 +557,8 @@ export function registerRoutes(app, { db, cfg }) {
         const price = parsePrice(r.price);
         const qty = r.qty ? Number(r.qty.replace(/\D/g, '')) : 1;
         if (!prod && !price) throw new Error(`Produit « ${r.product} » absent du catalogue : indiquez un prix pour le traiter comme votre propre produit`);
-        const res = await fn('fn_seller_import_order', ctx.user.id, rowHash(ctx.user.id, r), prod ? prod.id : null, prod ? null : r.product, price, qty,
-          r.name, phone, zone, address.slice(0, 300), r.note ? r.note.slice(0, 300) : null, isYes(r.confirmed));
+        const res = await refusalLogged('import', ctx.user.id, zone, () => fn('fn_seller_import_order', ctx.user.id, rowHash(ctx.user.id, r), prod ? prod.id : null, prod ? null : r.product, price, qty,
+          r.name, phone, zone, address.slice(0, 300), r.note ? r.note.slice(0, 300) : null, isYes(r.confirmed)));
         if (res.duplicate) out.duplicates++; else out.created++;
       } catch (e) { out.errors.push({ line: r.line, message: e.message?.replace(/^[a-z_]+\|/, '') || 'Erreur' }); }
     }
@@ -652,9 +663,18 @@ export function registerRoutes(app, { db, cfg }) {
     orders: await q(`SELECT ${CALL_COLS}, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
         WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
-    couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders
-        FROM users u WHERE u.role = 'courier' AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY u.full_name`)
+    couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders,
+        COALESCE(p.availability, 'available') AS availability, p.vehicle,
+        COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = u.id), '[]'::jsonb) AS zones
+        FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id
+        WHERE u.role = 'courier' AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY u.full_name`)
   })));
+  app.get('/api/chief/offers', guard(CHIEF, async (ctx) => fn('fn_chief_offers', ctx.user.id)));
+  app.post('/api/chief/orders/:id/offer', guard(CHIEF, async (ctx) => {
+    ctx.status = 201;
+    return fn('fn_chief_offer_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur'));
+  }));
+  app.post('/api/chief/offers/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_chief_cancel_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));
   app.post('/api/chief/orders/:id/assign', guard(CHIEF, async (ctx) => { await fn('fn_chief_assign', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur')); }));
   app.post('/api/chief/orders/:id/return', guard(CHIEF, async (ctx) => { await fn('fn_chief_return_to_warehouse', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/chief/orders/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_staff_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
@@ -676,6 +696,17 @@ export function registerRoutes(app, { db, cfg }) {
     max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value),
     require_code: Number((await q(`SELECT value FROM settings WHERE key = 'require_delivery_code'`))[0].value) === 1
   })));
+  app.get('/api/courier/offers', guard(COU, async (ctx) => ({ offers: await fn('fn_courier_offers', ctx.user.id) })));
+  app.post('/api/courier/offers/:id/accept', guard(COU, async (ctx) => { await fn('fn_courier_accept_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));
+  app.post('/api/courier/offers/:id/refuse', guard(COU, async (ctx) => {
+    const r = ctx.body.reason;
+    await fn('fn_courier_refuse_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition'), r == null || r === '' ? null : v.oneOf(r, ['too_far', 'busy', 'vehicle', 'other'], 'Motif'));
+  }));
+  app.get('/api/courier/profile', guard(COU, async (ctx) => fn('fn_courier_profile', ctx.user.id)));
+  app.post('/api/courier/availability', guard(COU, async (ctx) => {
+    if (typeof ctx.body.available !== 'boolean') throw new HttpError(400, 'invalid_input', 'Disponibilité invalide');
+    await fn('fn_courier_set_availability', ctx.user.id, ctx.body.available);
+  }));
   app.post('/api/courier/orders/:id/pickup', guard(COU, async (ctx) => { await fn('fn_courier_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/courier/orders/:id/depart', guard(COU, async (ctx) => { await fn('fn_courier_depart', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/courier/orders/:id/deliver', guard(COU, async (ctx) => {
@@ -804,6 +835,23 @@ export function registerRoutes(app, { db, cfg }) {
           CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance
         FROM users WHERE deleted_at IS NULL AND role <> 'system' AND ($1::text IS NULL OR role::text = $1) AND ($2::text IS NULL OR status::text = $2)
         ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [ctx.query.role || null, ctx.query.status || null, l, offset]) };
+  }));
+  // Livreurs : profil, véhicule, disponibilité et zones couvertes
+  app.get('/api/admin/couriers', guard(ADM, async () => ({
+    couriers: await q(`SELECT u.id, u.full_name, u.phone, u.status, COALESCE(p.availability, 'available') AS availability, p.vehicle,
+        COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = u.id), '[]'::jsonb) AS zones,
+        (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders
+        FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id
+        WHERE u.role = 'courier' AND u.deleted_at IS NULL ORDER BY u.full_name`),
+    zones: await q('SELECT commune FROM delivery_rates ORDER BY commune') })));
+  app.post('/api/admin/couriers/:id/profile', guard(ADM, async (ctx) => {
+    const veh = ctx.body.vehicle;
+    await fn('fn_admin_set_courier_profile', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), veh == null || veh === '' ? null : v.oneOf(veh, ['moto', 'velo', 'voiture', 'pied'], 'Véhicule'));
+  }));
+  app.post('/api/admin/couriers/:id/zones', guard(ADM, async (ctx) => {
+    const list = ctx.body.communes;
+    if (!Array.isArray(list) || list.length > 50 || !list.every((c) => typeof c === 'string' && c.length <= 60)) throw new HttpError(400, 'invalid_input', 'Liste de zones invalide');
+    return fn('fn_admin_set_courier_zones', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), list);
   }));
   app.post('/api/admin/users', guard(ADM, async (ctx) => {
     const b = ctx.body;

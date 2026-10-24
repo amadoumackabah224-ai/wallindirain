@@ -19,7 +19,7 @@ test('conservation : 60 commandes aléatoires avec frais, part livreur et comman
   for (let i = 0; i < 60; i++) {
     if (i % 6 === 0) {   // on change les réglages en cours de route
       await set('fee_order_bps', pick([0, 300, 500, 1000])); await set('fee_unit', pick([0, 500, 2000]));
-      await set('courier_share_bps', pick([0, 5000, 8000, 10000])); await set('margin_bps', pick([1000, 1500, 2000]));
+      await set('courier_share_bps', pick([0, 5000, 8000, 9000])); await set('margin_bps', pick([1000, 1500, 2000]));
     }
     let o;
     try { o = await call(db.app, 'fn_seller_create_order', w.seller, prod, null, 400000 + Math.floor(rnd() * 200) * 1000, 1 + Math.floor(rnd() * 3), 'Client ' + i, ph(), pick(zones), 'Rue ' + i, null, rnd() < 0.4); }
