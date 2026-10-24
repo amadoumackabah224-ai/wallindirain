@@ -411,7 +411,7 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
       (SELECT count(*) FROM wallet_entries)::text || '/' || (SELECT COALESCE(sum(amount),0) FROM wallet_entries)::text || '/' ||
       (SELECT md5(string_agg(w::text, ',' ORDER BY id)) FROM wallet_entries w) AS ecritures,
       (SELECT md5(string_agg(o::text, ',' ORDER BY id)) FROM orders o) AS commandes,
-      (SELECT md5(string_agg(key || '=' || value::text, ',' ORDER BY key)) FROM settings) AS valeurs,
+      (SELECT md5(string_agg(key || '=' || value::text, ',' ORDER BY key)) FROM settings WHERE key NOT IN ('mission_offer_minutes','mission_max_offers','courier_max_open')) AS valeurs,
       (SELECT md5(string_agg(commune || '=' || fee::text || active::text, ',' ORDER BY commune)) FROM delivery_rates) AS zones`)).rows[0];
   const funcs = async () => (await owner.query(`SELECT p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || p.prosecdef::text || ':' || COALESCE(p.proconfig::text, '') || ':' || COALESCE(p.proacl::text, '') AS f
       FROM pg_proc p WHERE p.proname IN ('fn_seller_import_order','fn_admin_reset_activity','fn_admin_set_delivery_rate','fn_admin_set_setting','fn_ledger_check','fn_seller_create_order','fn_public_order')
@@ -431,9 +431,11 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
   assert.equal((await owner.query(`SELECT count(*)::int AS n FROM schema_migrations WHERE name = '017_protections.sql'`)).rows[0].n, 1);
   assert.equal((await owner.query(`SELECT count(*)::int AS n FROM fn_ledger_check()`)).rows[0].n, 0);
 
-  // 2) retour arrière
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-017.sql'), 'utf8');
-  await owner.tx(async (tx) => { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await tx.query(s); } });
+  // 2) retour arrière (dans l'ordre inverse des migrations : 019, 018 — appliquées par migrate() — puis 017)
+  for (const f of ['retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
+    const rb = fs.readFileSync(path.join(root, 'docs', f), 'utf8');
+    await owner.tx(async (tx) => { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await tx.query(s); } });
+  }
   const C = { data: await data(), funcs: await funcs(), privs: await tablePrivs(), label: await labelOf() };
   assert.deepEqual(C.data, A.data);                                                                                  // données financières identiques à l'état d'avant
   assert.deepEqual(C.funcs, A.funcs);                                                                                // texte, sécurité, configuration et droits des fonctions identiques

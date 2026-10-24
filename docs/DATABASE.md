@@ -102,3 +102,11 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 - Fonctions : `fn_admin_set_courier_profile`, `fn_admin_set_courier_zones` (administrateur), `fn_courier_set_availability`, `fn_courier_profile` (le livreur, pour lui seul).
 - **L'affectation ne change pas** : le chef peut toujours affecter n'importe quel livreur actif, même indisponible ou sans zone. Ces informations aident à choisir et préparent la répartition automatique (migration 020).
 - Retour arrière : `docs/retour-arriere-018.sql` (efface seulement les profils et zones).
+
+## Propositions de mission (migration 019)
+
+- `mission_offers(order_id, courier_id, offered_by, status, refuse_reason, expires_at…)` : le chef propose, le livreur répond. Une seule proposition ouverte par commande (index unique), une seule fois par livreur et par commande.
+- Accepter appelle `fn_chief_assign` (affectation existante). Refuser ou laisser expirer : aucune écriture financière, aucune pénalité.
+- Réglages ajoutés (modifiables par l'administrateur) : `mission_offer_minutes` (10), `mission_max_offers` (3), `courier_max_open` (3). Une valeur à 0 est traitée comme 1.
+- Expiration vérifiée à chaque appel (`_expire_offers`), sans minuteur. Un refus de l'application annule sa transaction : le statut « expirée » ou « annulée » est écrit à la lecture suivante ; le comportement (refus de l'acceptation tardive) est correct dans tous les cas.
+- **Retours arrière dans l'ordre inverse** : 019, puis 018, puis 017.

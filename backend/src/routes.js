@@ -669,6 +669,12 @@ export function registerRoutes(app, { db, cfg }) {
         FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id
         WHERE u.role = 'courier' AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY u.full_name`)
   })));
+  app.get('/api/chief/offers', guard(CHIEF, async (ctx) => fn('fn_chief_offers', ctx.user.id)));
+  app.post('/api/chief/orders/:id/offer', guard(CHIEF, async (ctx) => {
+    ctx.status = 201;
+    return fn('fn_chief_offer_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur'));
+  }));
+  app.post('/api/chief/offers/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_chief_cancel_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));
   app.post('/api/chief/orders/:id/assign', guard(CHIEF, async (ctx) => { await fn('fn_chief_assign', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur')); }));
   app.post('/api/chief/orders/:id/return', guard(CHIEF, async (ctx) => { await fn('fn_chief_return_to_warehouse', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/chief/orders/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_staff_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
@@ -690,6 +696,12 @@ export function registerRoutes(app, { db, cfg }) {
     max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value),
     require_code: Number((await q(`SELECT value FROM settings WHERE key = 'require_delivery_code'`))[0].value) === 1
   })));
+  app.get('/api/courier/offers', guard(COU, async (ctx) => ({ offers: await fn('fn_courier_offers', ctx.user.id) })));
+  app.post('/api/courier/offers/:id/accept', guard(COU, async (ctx) => { await fn('fn_courier_accept_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));
+  app.post('/api/courier/offers/:id/refuse', guard(COU, async (ctx) => {
+    const r = ctx.body.reason;
+    await fn('fn_courier_refuse_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition'), r == null || r === '' ? null : v.oneOf(r, ['too_far', 'busy', 'vehicle', 'other'], 'Motif'));
+  }));
   app.get('/api/courier/profile', guard(COU, async (ctx) => fn('fn_courier_profile', ctx.user.id)));
   app.post('/api/courier/availability', guard(COU, async (ctx) => {
     if (typeof ctx.body.available !== 'boolean') throw new HttpError(400, 'invalid_input', 'Disponibilité invalide');
