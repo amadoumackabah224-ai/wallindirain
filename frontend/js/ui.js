@@ -52,13 +52,26 @@ export function avatar(user, size = 40, ver = '') {
 }
 
 /** Ouvre un texte légal DANS l'application (fenêtre de lecture) : chargé à la demande. */
-export const showLegal = (slug) => import('./views/legal.js').then((m) => m.openLegal(slug));
+// Public dont on lit les textes : sert à résoudre « confidentialite » et « conditions » vers le texte du bon rôle.
+const LEGAL_DOC = { client: ['conditions-client', 'confidentialite-client'], seller: ['conditions-vendeur', 'confidentialite-vendeur'], supplier: ['conditions-fournisseur', 'confidentialite-fournisseur'],
+  courier: ['conditions-livreur', 'confidentialite-livreur'], team: ['regles-equipe', 'confidentialite-equipe'] };
+export const AUDIENCE_OF_ROLE = { seller: 'seller', supplier: 'supplier', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team', admin: 'client' };
+let legalAudience = 'client';
+export const setLegalAudience = (a) => { if (LEGAL_DOC[a]) legalAudience = a; };
+/** « conditions » / « confidentialite » deviennent le texte du public concerné ; les autres adresses restent telles quelles. */
+export const resolveLegal = (slug, audience = legalAudience) => (slug === 'conditions' ? LEGAL_DOC[audience]?.[0] : slug === 'confidentialite' ? LEGAL_DOC[audience]?.[1] : slug) || slug;
+export const showLegal = (slug, audience) => import('./views/legal.js').then((m) => m.openLegal(resolveLegal(slug, audience), audience));
 /** Lien-bouton vers un texte légal (reste dans l'application, ne fait pas perdre un formulaire en cours). */
-export const legalLink = (slug, text) => h('button', { class: 'linklike', type: 'button', onclick: () => showLegal(slug) }, text);
-/** Liens légaux, affichés en bas des écrans publics et dans l'application : tout s'ouvre dans l'application. */
-export const legalLinks = () => h('ul', { class: 'legal-links' },
-  [['confidentialite', 'Confidentialité'], ['conditions', 'Conditions'], ['cookies', 'Cookies'], ['retours-remboursements', 'Retours'], ['mentions-legales', 'Mentions légales']]
-    .map(([slug, t]) => h('li', {}, legalLink(slug, t))), h('li', {}, h('a', { href: '#/demande-donnees' }, 'Mes données')));
+export const legalLink = (slug, text, audience) => h('button', { class: 'linklike', type: 'button', onclick: () => showLegal(slug, audience) }, text);
+/** Liens en pied de page, selon qui regarde : visiteur (mentions, cookies), client (ses textes), connecté (« Mes documents » = les textes de son rôle). */
+export const legalLinks = (mode = 'public') => {
+  const items = mode === 'client'
+    ? [['conditions-client', 'Conditions d\'achat'], ['confidentialite-client', 'Confidentialité'], ['retours-remboursements', 'Retours'], ['mentions-legales', 'Mentions légales'], ['cookies', 'Cookies']].map(([slug, t]) => h('li', {}, legalLink(slug, t, 'client')))
+    : mode === 'user'
+      ? [h('li', {}, legalLink('confidentialite', 'Mes documents')), h('li', {}, legalLink('mentions-legales', 'Mentions légales'))]
+      : [h('li', {}, legalLink('mentions-legales', 'Mentions légales')), h('li', {}, legalLink('cookies', 'Cookies')), h('li', {}, h('a', { href: '#/demande-donnees' }, 'Mes données'))];
+  return h('ul', { class: 'legal-links' }, items);
+};
 
 export const spinner = () => h('div', { class: 'spinner', role: 'status', 'aria-label': 'Chargement' });
 export const empty = (icon, text) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon), text);

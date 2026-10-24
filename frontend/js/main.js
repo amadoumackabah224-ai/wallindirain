@@ -1,5 +1,5 @@
 // Point d'entrée de l'interface : routage, session, navigation par rôle.
-import { h, ROLE_LABEL, toast, spinner, avatar, legalLinks } from './ui.js';
+import { h, ROLE_LABEL, toast, spinner, avatar, legalLinks, setLegalAudience, AUDIENCE_OF_ROLE } from './ui.js';
 import { get, post, setUnauthorizedHandler } from './api.js';
 import { loginView, registerView, forgotView, clientOrderView, dataRequestView, flags } from './views/auth.js';
 import { profileView } from './views/profile.js';
@@ -47,7 +47,15 @@ function appShell(tabKey) {
         avatar(user, 34, 'top'), h('div', { class: 'who' }, h('b', { class: 'who-name' }, user.name), h('span', {}, ROLE_LABEL[user.role]))),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: logout }, 'Quitter'))),
     h('nav', { class: 'tabs', 'aria-label': 'Navigation' }, tabs.map((t) => h('button', { class: 'tab', 'aria-current': t[0] === current[0] ? 'page' : null, onclick: () => goTo(t[0]) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, t[1]), t[2]))),
-    main, h('footer', { class: 'app-foot' }, legalLinks()), helpButton({ user }));
+    main, h('footer', { class: 'app-foot' }, legalLinks('user')), helpButton({ user }));
+}
+
+let gateOpen = false;
+// Accord sur les textes du rôle : demandé à la première connexion et à chaque nouvelle version
+async function askLegal() {
+  gateOpen = true;
+  const { legalGate } = await import('./views/legal.js');
+  legalGate({ onAccepted: () => { gateOpen = false; if (user) user.legal_pending = false; }, onQuit: () => { gateOpen = false; logout(); } });
 }
 
 async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; location.hash = '#/login'; }
@@ -64,7 +72,7 @@ async function route() {
     if (a === 'forgot') return pub(forgotView());
     return pub(loginView({ contact, onLogin: (u) => { user = u; location.hash = '#/app/'; } }));
   }
-  if (a === 'app') return render(appShell(b));
+  if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); return; }
   location.hash = '#/app/';
 }
 

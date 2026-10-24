@@ -41,8 +41,11 @@ export function registerView({ ref } = {}) {
     refField.replaceChildren(sup ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
     docField.replaceChildren(field(sup ? 'Pièce d\'identité' : 'Pièce d\'identité (facultative pour l\'instant)', doc, sup ? 'Obligatoire pour un fournisseur : elle est vérifiée avant l\'activation du compte. Saisissez seulement le numéro, aucune photo n\'est demandée.' : 'Vous pourrez l\'ajouter plus tard, avant votre premier retrait d\'argent. Seul le numéro est demandé, aucune photo.'));
   };
-  role.addEventListener('change', syncDoc);
   const accept = h('input', { type: 'checkbox', required: true });
+  // les textes proposés sont ceux du rôle choisi (vendeur ou fournisseur)
+  const consentText = h('span');
+  const syncConsent = () => { const aud = role.value; const suf = aud === 'supplier' ? 'fournisseur' : 'vendeur'; consentText.replaceChildren('J\'ai 18 ans ou plus et j\'accepte les ', legalLink(`conditions-${suf}`, aud === 'supplier' ? 'conditions du fournisseur' : 'conditions du vendeur', aud), ' et la ', legalLink(`confidentialite-${suf}`, 'politique de confidentialité', aud), '.'); };
+  role.addEventListener('change', () => { syncDoc(); syncConsent(); });
   const pw = h('input', { type: 'password', required: true, minlength: 8, maxlength: 128, autocomplete: 'new-password' });
   const payMethod = h('select', {}, h('option', { value: 'orange_money' }, 'Orange Money'), h('option', { value: 'mtn_momo' }, 'MTN MoMo'));
   const email = h('input', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', maxlength: 254, placeholder: 'nom@exemple.com (facultatif)' });
@@ -66,9 +69,9 @@ export function registerView({ ref } = {}) {
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
     field('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
-    consentBox(accept, ['J\'ai 18 ans ou plus et j\'accepte les ', legalLink('conditions', 'conditions d\'utilisation'), ' et la ', legalLink('confidentialite', 'politique de confidentialité'), '.']),
+    h('label', { class: 'f check' }, accept, consentText),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));
-  syncDoc();
+  syncDoc(); syncConsent();
   return shell(h('div', { class: 'card' }, form, out), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, '← Retour à la connexion')));
 }
 
@@ -127,7 +130,7 @@ export function clientOrderView(code) {
       h('h2', {}, 'Vos informations'),
       field('Quantité', qty), field('Votre nom', name), field('Votre téléphone', phone, 'Le conseiller vous appellera à ce numéro.'), field('Quartier ou ville', commune), field('Adresse de livraison', address),
       h('p', { class: 'small muted' }, 'Nous gardons votre nom, votre téléphone et votre adresse uniquement pour confirmer par appel et livrer votre commande.'),
-      consentBox(accepted, ['J\'accepte que mes informations soient utilisées pour cette commande, comme expliqué dans la ', legalLink('confidentialite', 'politique de confidentialité'), ' et les ', legalLink('retours-remboursements', 'règles de retour'), '.']),
+      consentBox(accepted, ['J\'accepte que mes informations soient utilisées pour cette commande, comme expliqué dans la ', legalLink('confidentialite-client', 'politique de confidentialité', 'client'), ', les ', legalLink('conditions-client', 'conditions d\'achat', 'client'), ' et les ', legalLink('retours-remboursements', 'règles de retour', 'client'), '.']),
       h('div', { class: 'total-line' }, h('span', {}, 'Total à payer à la livraison'), total),
       h('button', { class: 'btn btn-gold btn-block mt', type: 'submit' }, 'Commander, payer à la livraison'));
     root.replaceChildren(
@@ -135,7 +138,7 @@ export function clientOrderView(code) {
       h('div', { class: 'card' }, h('h1', {}, p.name), p.description && h('p', {}, p.description), h('div', { class: 'price-big' }, fmtGNF(p.unit_price)),
         p.available > 0 ? h('div', { class: 'badge ok' }, 'Disponible') : h('div', { class: 'badge bad' }, 'Rupture de stock'), h('p', { class: 'small muted' }, 'Paiement uniquement à la réception de votre colis.')),
       p.available > 0 ? h('div', { class: 'card' }, form, done) : h('div', { class: 'notice warn' }, 'Ce produit est momentanément indisponible.'),
-      h('p', { class: 'center small muted' }, `Une question ? Appelez le ${fmtPhone(data.contact_phone)}`), legalLinks());
+      h('p', { class: 'center small muted' }, `Une question ? Appelez le ${fmtPhone(data.contact_phone)}`), legalLinks('client'));
   })();
   return root;
 }
