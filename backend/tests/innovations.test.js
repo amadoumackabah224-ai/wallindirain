@@ -57,7 +57,7 @@ test('suivi client : lien secret, étapes, aucune donnée personnelle', async ()
   assert.equal((await anon.get('/api/public/track/pas-un-jeton')).status, 404);
   // la commande publique renvoie le lien de suivi
   const link = await call(db.app, 'fn_seller_create_link', w.seller, prod);
-  const pub = await anon.post(`/api/public/link/${link}/order`, { qty: 1, name: 'Client Web', phone: ph(), commune: zone, address: 'Rue 9', accepted: true });
+  const pub = await anon.post(`/api/public/link/${link}/order`, { qty: 1, name: 'Client Web', phone: ph(), commune: zone, address: 'Rue 9', accepted: true, request_key: 'innov-test-key-0000001' });
   assert.equal(pub.status, 201); assert.match(pub.json.track_token, /^[0-9a-f]{20}$/);
 });
 

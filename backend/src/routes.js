@@ -200,10 +200,11 @@ export function registerRoutes(app, { db, cfg }) {
     const b = ctx.body;
     if (b.accepted !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter la politique de confidentialité pour commander');
     const custPhone = v.phone(b.phone, 'Votre numéro');
+    const key = v.requestKey(b.request_key);
     await fn('fn_record_consent', 'order', null, custPhone, cfg.legal.version);
-    const r = await fn('fn_public_order', ctx.params.code, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
+    const r = await fn('fn_public_order_once', ctx.params.code, key, v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
       v.str(b.name, 'Nom', { min: 2, max: 100 }), custPhone, v.str(b.commune, 'Commune', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }));
-    ctx.status = 201;
+    ctx.status = r.replayed ? 200 : 201;
     return r;
   });
 
@@ -501,12 +502,12 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
     const own = b.product_id == null || b.product_id === '';
-    const r = await fn('fn_seller_create_order', ctx.user.id, own ? null : v.uuid(b.product_id, 'Produit'),
+    const r = await fn('fn_seller_create_order_once', ctx.user.id, v.requestKey(b.request_key), own ? null : v.uuid(b.product_id, 'Produit'),
       own ? v.str(b.own_product_name, 'Nom du produit', { min: 2, max: 120 }) : null,
       b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
       v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true);
-    ctx.status = 201;
+    ctx.status = r.replayed ? 200 : 201;
     return r;
   }));
 

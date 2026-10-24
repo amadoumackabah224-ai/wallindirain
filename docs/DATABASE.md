@@ -84,3 +84,12 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 2. Fonction `CREATE OR REPLACE FUNCTION fn_…`, avec `_require(p_actor, ARRAY[…])` en première ligne.
 3. Relancer `node src/migrate.js` : la nouvelle migration s'applique ; le script de droits de `004` ne rattrape **pas** les fonctions créées après lui : ajoutez en fin de migration `ALTER FUNCTION … SECURITY DEFINER SET search_path = public, pg_temp; REVOKE ALL ON FUNCTION … FROM PUBLIC; GRANT EXECUTE ON FUNCTION … TO wld_app;`.
 4. Ajouter un test dans `backend/tests/rules.test.js`.
+
+
+## Protections (migration 017)
+
+- `order_requests(scope, req_key, order_id, fingerprint)` : mémorise les clés de demande (anti double commande). Table **non lisible** par l'application ; seules les fonctions `fn_seller_create_order_once` et `fn_public_order_once` y accèdent. Les futures migrations doivent l'exclure de la boucle de droits.
+- Index uniques `wallet_settle_once_uq` et `wallet_team_pay_once_uq` : un règlement ne s'écrit qu'une fois par commande, utilisateur et type.
+- Déclencheur `orders_courier_guard` : refuse toute commande dont la paie du livreur dépasse les frais de livraison.
+- Plafond technique `courier_share_bps` ≤ 9000 (aucune valeur modifiée).
+- Retour arrière : `docs/retour-arriere-017.sql`. Contrôle de production : `docs/rapport-production-017.sql`. Procédure : `docs/PROCEDURE-017.md`.

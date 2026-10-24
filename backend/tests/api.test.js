@@ -117,7 +117,7 @@ test('parcours complet via HTTP + cloisonnement fournisseur / vendeur / client',
   const pub = await anon.get(`/api/public/link/${link}`);
   assert.equal(pub.status, 200); assert.equal(pub.json.product.unit_price, 150000);
   assert.doesNotMatch(pub.text, /Secret|supplier|seller|60000|69000/);
-  const placed = await anon.post(`/api/public/link/${link}/order`, { qty: 1, name: 'Mariama Diallo', phone: '623000001', commune: 'Ratoma', address: 'Kipé, près de la pharmacie', accepted: true });
+  const placed = await anon.post(`/api/public/link/${link}/order`, { qty: 1, name: 'Mariama Diallo', phone: '623000001', commune: 'Ratoma', address: 'Kipé, près de la pharmacie', accepted: true, request_key: 'api-test-key-0000000001' });
   assert.equal(placed.status, 201); const ref = placed.json.ref;
   assert.match(ref, /^WLD-\d+$/);
 
@@ -226,6 +226,6 @@ test('limitation de débit : trop de connexions depuis la même adresse', async 
   assert.equal(last.status, 429);
   const flood = new Client();
   let st;
-  for (let i = 0; i < 12; i++) st = (await flood.post('/api/public/link/inconnu/order', { qty: 1, name: 'Abc', phone: '623999999', commune: 'Ratoma', address: 'Rue 1', accepted: true })).status;
+  for (let i = 0; i < 12; i++) st = (await flood.post('/api/public/link/inconnu/order', { qty: 1, name: 'Abc', phone: '623999999', commune: 'Ratoma', address: 'Rue 1', accepted: true, request_key: 'api-test-key-flood-00001' })).status;
   assert.equal(st, 429);
 });

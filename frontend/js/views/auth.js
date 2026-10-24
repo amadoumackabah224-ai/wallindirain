@@ -1,5 +1,5 @@
 // Écrans publics : connexion, inscription, mot de passe oublié, page de commande du client.
-import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink } from '../ui.js';
+import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink, newRequestKey } from '../ui.js';
 import { get, post } from '../api.js';
 
 const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' });
@@ -111,11 +111,12 @@ export function clientOrderView(code) {
     qty.addEventListener('input', () => { total.textContent = fmtGNF(p.unit_price * (parseInt(qty.value, 10) || 1)); });
     const accepted = h('input', { type: 'checkbox', required: true });
     const done = h('div', { class: 'hidden' });
+    const requestKey = newRequestKey();      // un envoi répété (double clic, réseau lent) ne crée jamais une seconde commande
     const form = h('form', { onsubmit: async (e) => {
       e.preventDefault();
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const r = await post(`/public/link/${encodeURIComponent(code)}/order`, { qty: parseInt(qty.value, 10), name: name.value, phone: phone.value, commune: commune.value, address: address.value, accepted: accepted.checked });
+        const r = await post(`/public/link/${encodeURIComponent(code)}/order`, { request_key: requestKey, qty: parseInt(qty.value, 10), name: name.value, phone: phone.value, commune: commune.value, address: address.value, accepted: accepted.checked });
         form.classList.add('hidden');
         done.classList.remove('hidden');
         done.replaceChildren(h('div', { class: 'notice ok' }, h('b', {}, 'Commande enregistrée !')),

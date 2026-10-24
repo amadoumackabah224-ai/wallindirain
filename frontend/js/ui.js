@@ -20,6 +20,9 @@ function append(el, children) {
   }
 }
 
+/** Clé d'envoi unique d'un formulaire de commande : renvoyée avec la demande, elle empêche une double commande si l'envoi est répété. */
+export const newRequestKey = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID()
+  : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''));
 export const fmtGNF = (n) => `${Math.round(Number(n) || 0).toLocaleString('fr-FR').replace(/ | /g, ' ')} GNF`;
 /** « 25 min », « 3 h », « 2 j » : temps écoulé depuis une date. */
 export const since = (d) => { if (!d) return ''; const m = Math.max(0, Math.round((Date.now() - new Date(String(d).replace(' ', 'T').replace(/\+00$/, 'Z')).getTime()) / 60000)); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} j`; };

@@ -171,7 +171,7 @@ function adminSettingsMain() {
     h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'),
     trophyCard(settings, refresh),
     h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.filter((s) => !s.key.startsWith('trophy_')).map((s) => [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
-    zonesCard(rates, refresh)));
+    zonesCard(rates, settings, refresh)));
 }
 
 export function adminAudit() {
@@ -307,8 +307,11 @@ function trophyCard(settings, refresh) {
 }
 
 /** Zones de livraison : les zones actives (avec tarif), puis les zones à configurer (sans tarif, non proposées). */
-function zonesCard(rates, refresh) {
+function zonesCard(rates, settings, refresh) {
   const active = rates.filter((r) => r.active);
+  const setting = (k) => Number(settings.find((s) => s.key === k)?.value || 0);
+  // avertissement : une zone active dont les frais sont inférieurs à la rémunération fixe du livreur bloquerait les commandes de cette zone
+  const lowZones = setting('courier_share_bps') === 0 ? active.filter((r) => Number(r.fee) < setting('courier_pay')) : [];
   const todo = rates.filter((r) => !r.active && Number(r.fee) === 0);
   const off = rates.filter((r) => !r.active && Number(r.fee) > 0);
   const save = (r, title) => action(async () => {
@@ -325,6 +328,7 @@ function zonesCard(rates, refresh) {
   return h('div', { class: 'card' },
     h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Zones et tarifs de livraison'), h('button', { class: 'btn btn-sm btn-gold', onclick: add }, '+ Zone')),
     h('p', { class: 'small muted' }, 'Seules les zones actives avec un tarif sont proposées aux clients et aux vendeurs.'),
+    lowZones.length > 0 && h('div', { class: 'notice warn', role: 'alert' }, `Attention : ${lowZones.map((r) => r.commune).join(', ')} ${lowZones.length > 1 ? 'ont' : 'a'} un tarif inférieur à la rémunération fixe du livreur (${fmtGNF(setting('courier_pay'))}). Les commandes de ${lowZones.length > 1 ? 'ces zones sont bloquées' : 'cette zone est bloquée'} tant que le tarif ou la rémunération n'est pas corrigé.`),
     table(['Quartier ou ville', 'Tarif', 'État', ''], [...active, ...off].map((r) => [r.commune, amount(r.fee), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: save(r, `Livraison ${r.commune}`) }, 'Modifier')])),
     todo.length > 0 && h('details', { class: 'mt' }, h('summary', {}, `Zones à configurer (${todo.length}) : sans tarif, non proposées`),
       h('div', { class: 'mt' }, search),
