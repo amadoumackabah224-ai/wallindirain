@@ -48,3 +48,10 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 - **Vendeur** : ni fournisseur, ni prix fournisseur (il voit le « prix vendeur » = prix fournisseur + marge).
 - **Agent** : ni gains, ni prix fournisseur. **Livreur** : ni prix fournisseur, ni gains du vendeur, ni le code de livraison. **Magasinier** : aucune donnée financière.
 - Le texte des messages (qui contient des codes à usage unique) n'est jamais renvoyé par l'API, et il est masqué dans l'écran d'administration.
+
+## Tournées (migration 020)
+- `GET /api/chief/tours` — tournées actives et 30 dernières closes (arrêts, livrées, frais, paie prévue, coût réel). Chef/administrateur.
+- `POST /api/chief/tours` — `{courier_id, order_ids[2..200], note?}` → 201 `{id}`. Erreurs : 400 saisie, 404, 409 `invalid_state` / `order_in_tour`.
+- `POST /api/chief/tours/:id/cancel` — annule la tournée (409 si déjà close).
+- `POST /api/chief/tours/:id/cost` — `{cost}` (0 à 100 000 000) ou `{cost: null}` pour effacer. Information seulement.
+- `GET /api/courier/tours` — tournées actives du livreur connecté.

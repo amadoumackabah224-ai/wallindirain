@@ -110,3 +110,9 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 - Réglages ajoutés (modifiables par l'administrateur) : `mission_offer_minutes` (10), `mission_max_offers` (3), `courier_max_open` (3). Une valeur à 0 est traitée comme 1.
 - Expiration vérifiée à chaque appel (`_expire_offers`), sans minuteur. Un refus de l'application annule sa transaction : le statut « expirée » ou « annulée » est écrit à la lecture suivante ; le comportement (refus de l'acceptation tardive) est correct dans tous les cas.
 - **Retours arrière dans l'ordre inverse** : 019, puis 018, puis 017.
+
+## Tournées (020)
+- `tours` (id, courier_id, created_by, status active|closed|cancelled, note, actual_cost, created_at, closed_at).
+- `tour_stops` (tour_id, order_id, position, active) ; index unique : une commande n'a qu'un arrêt actif.
+- Fonctions : `fn_chief_create_tour`, `fn_chief_cancel_tour`, `fn_chief_set_tour_cost`, `fn_chief_tours`, `fn_courier_tours`, interne `_tours_refresh`. Lecture seule pour l'application ; aucune écriture comptable.
+- Retour arrière : `docs/retour-arriere-020.sql`.

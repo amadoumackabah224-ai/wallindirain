@@ -14,7 +14,7 @@ const STATUS_BY_CODE = {
   already_taken: 409, duplicate_order: 409, invalid_state: 409, out_of_stock: 409, phone_taken: 409,
   too_late: 409, margin_locked: 409, insufficient_funds: 409, ledger_mismatch: 500, config: 500,
   key_reused: 409, courier_pay_exceeds_fee: 409, zone_fee_below_courier_pay: 409, key_required: 400,
-  offer_open: 409, already_offered: 409, max_offers_reached: 409, courier_unavailable: 409, courier_busy: 409, offer_expired: 409, offer_unavailable: 409
+  offer_open: 409, already_offered: 409, max_offers_reached: 409, courier_unavailable: 409, courier_busy: 409, offer_expired: 409, offer_unavailable: 409, order_in_tour: 409
 };
 
 /** Transforme une erreur SQL métier ("code|Message") en erreur HTTP. */
