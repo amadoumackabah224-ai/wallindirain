@@ -55,3 +55,7 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 - `POST /api/chief/tours/:id/cancel` — annule la tournée (409 si déjà close).
 - `POST /api/chief/tours/:id/cost` — `{cost}` (0 à 100 000 000) ou `{cost: null}` pour effacer. Information seulement.
 - `GET /api/courier/tours` — tournées actives du livreur connecté.
+
+## Commande par lien fermée (021)
+- `GET /api/public/link/:code` renvoie aussi `orders_open` (false par défaut).
+- `POST /api/public/link/:code/order` → 403 `orders_closed` tant que `PUBLIC_ORDERS` n'est pas égal à `1`.

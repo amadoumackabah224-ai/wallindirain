@@ -198,7 +198,7 @@ test('retours : refus client, défectueux, abîmé en transport', async () => {
   };
   let b = await sum(w.seller);
   let r = await failAndReturn('620000051', 'customer_refusal');
-  assert.equal(await sum(w.seller) - b, -35000);        // livraison 30 000 + call center 5 000
+  assert.equal(await sum(w.seller) - b, 0);             // refus du client : plus aucun frais pour le vendeur (règle de la migration 021)
   assert.equal(r.delta, 0); // la réservation est libérée, le produit reste en stock
   b = await sum(w.supplier);
   r = await failAndReturn('620000052', 'defective');

@@ -202,10 +202,11 @@ export function registerRoutes(app, { db, cfg }) {
         JOIN seller_prices sp ON sp.seller_id = l.seller_id AND sp.product_id = l.product_id
         WHERE l.code = $1`, [ctx.params.code]);
     if (!rows.length) throw new HttpError(404, 'not_found', 'Ce lien n\'est plus valable');
-    return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune'), contact_phone: cfg.contactPhone };
+    return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune'), contact_phone: cfg.contactPhone, orders_open: !cfg.closePublicOrders };
   });
 
   app.post('/api/public/link/:code/order', async (ctx) => {
+    if (cfg.closePublicOrders) throw new HttpError(403, 'orders_closed', 'La commande se fait auprès du vendeur : contactez la personne qui vous a envoyé ce lien');
     limit(`pub-order:${clientIp(ctx.req)}`, 10, 600_000);
     const b = ctx.body;
     if (b.accepted !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter la politique de confidentialité pour commander');
