@@ -65,3 +65,10 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 - `POST /api/seller/orders/:id/pickup` `{detail}` : modifie le lieu (produit du vendeur, avant le départ du colis).
 - `POST /api/supplier/products/:id/pickup` `{detail}` (vide = effacer) ; aussi `pickup_detail` à la création d'un produit gardé chez le fournisseur.
 - Commandes (livreur, chef, vendeur) : `pickup_place` (warehouse|supplier|seller), `pickup_detail`, `pickup_missing`. Le vendeur ne reçoit jamais l'adresse du fournisseur.
+
+## Photos des produits (023)
+- `POST /api/supplier/products/:id/images` `{image: "data:image/jpeg;base64,…"}` → 201 `{id}` (4 photos max, ≤ 450 Ko, JPEG/PNG/WebP).
+- `POST /api/supplier/images/:id/delete`.
+- `GET /api/product-images/:id` : lecture selon le rôle (administration et propriétaire toujours ; autres rôles si produit validé).
+- `GET /api/public/link/:code/photo` : couverture du produit d'un lien valable. `GET /api/public/link/:code` renvoie `has_photo`.
+- Les listes de produits (fournisseur, catalogue vendeur, administrateur) renvoient `image_ids`.

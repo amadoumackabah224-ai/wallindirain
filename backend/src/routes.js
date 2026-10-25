@@ -196,13 +196,24 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   app.get('/api/public/link/:code', async (ctx) => {
     limit(`link:${clientIp(ctx.req)}`, 120, 60_000);
-    const rows = await q(`SELECT p.name, p.description, sp.sale_price AS unit_price, (p.stock_qty - p.reserved_qty) AS available
+    const rows = await q(`SELECT p.name, p.description, sp.sale_price AS unit_price, (p.stock_qty - p.reserved_qty) AS available,
+        EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id) AS has_photo
         FROM seller_links l JOIN products p ON p.id = l.product_id AND p.status = 'approved' AND p.deleted_at IS NULL
         JOIN users u ON u.id = l.seller_id AND u.status = 'active'
         JOIN seller_prices sp ON sp.seller_id = l.seller_id AND sp.product_id = l.product_id
         WHERE l.code = $1`, [ctx.params.code]);
     if (!rows.length) throw new HttpError(404, 'not_found', 'Ce lien n\'est plus valable');
     return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune'), contact_phone: cfg.contactPhone, orders_open: !cfg.closePublicOrders };
+  });
+
+  app.get('/api/public/link/:code/photo', async (ctx) => {
+    limit(`linkphoto:${clientIp(ctx.req)}`, 240, 60_000);
+    const rows = await q('SELECT * FROM fn_public_product_photo($1)', [typeof ctx.params.code === 'string' ? ctx.params.code.slice(0, 40) : '']);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Pas de photo');
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'public, max-age=300';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
   });
 
   app.post('/api/public/link/:code/order', async (ctx) => {
@@ -447,7 +458,8 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   const SUP = ['supplier'];
   app.get('/api/supplier/products', guard(SUP, async (ctx) => ({
-    products: await q(`SELECT id, name, description, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail
+    products: await q(`SELECT id, name, description, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
+        (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = products.id) AS image_ids
         FROM products WHERE supplier_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [ctx.user.id]),
     arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.counted_qty, a.created_at, a.counted_at
         FROM arrivals a JOIN products p ON p.id = a.product_id WHERE p.supplier_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [ctx.user.id])
@@ -461,6 +473,24 @@ export function registerRoutes(app, { db, cfg }) {
     if (b.storage === 'supplier' && b.pickup_detail != null && String(b.pickup_detail).trim() !== '') await fn('fn_supplier_set_pickup', ctx.user.id, id, v.str(b.pickup_detail, 'Adresse de récupération', { min: 3, max: 200 }));
     ctx.status = 201;
     return { id, message: 'Produit proposé. Il sera visible des vendeurs après validation.' };
+  }));
+
+  // Photos du produit (jusqu'à 4) : ajout, suppression ; lecture contrôlée par rôle
+  app.post('/api/supplier/products/:id/images', guard(SUP, async (ctx) => {
+    limit(`prodimg:${ctx.user.id}`, 60, 3600_000);
+    const { mime, buf } = parseImage(ctx.body.image);
+    if (buf.length > 450_000) throw new HttpError(413, 'too_large', 'Photo trop lourde : choisissez une photo plus petite');
+    ctx.status = 201;
+    return { id: await fn('fn_supplier_add_product_image', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), mime, buf) };
+  }), { maxBody: MAX_PROOF_BODY });
+  app.post('/api/supplier/images/:id/delete', guard(SUP, async (ctx) => { await fn('fn_supplier_delete_product_image', ctx.user.id, v.uuid(ctx.params.id, 'Photo')); return { ok: true }; }));
+  app.get('/api/product-images/:id', guard(ANY_ROLE, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_product_image_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Photo')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Photo introuvable');
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'private, max-age=3600';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
   }));
 
   app.post('/api/supplier/products/:id/pickup', guard(SUP, async (ctx) => {
@@ -500,6 +530,7 @@ export function registerRoutes(app, { db, cfg }) {
             (p.supplier_price + p.margin_unit + $2 + $3 + (SELECT value FROM settings WHERE key = 'fee_unit')) AS min_price,
             (p.storage = 'wallindirain') AS can_prepay,
             GREATEST(p.stock_qty - p.reserved_qty, 0) AS available,
+            (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids,
             sp.sale_price, COALESCE(ss.qty, 0) AS my_stock, COALESCE(ss.reserved_qty, 0) AS my_reserved, l.code AS link_code
           FROM products p
           LEFT JOIN seller_prices sp ON sp.product_id = p.id AND sp.seller_id = $1
@@ -975,7 +1006,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/admin/users/:id/verify', guard(ADM, async (ctx) => { await fn('fn_admin_verify_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.bool(ctx.body.verified, 'Vérification')); }));
 
   app.get('/api/admin/products', guard(ADM, async (ctx) => ({
-    products: await q(`SELECT p.id, p.name, p.description, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name AS supplier_name
+    products: await q(`SELECT p.id, p.name, p.description, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name AS supplier_name,
+        (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id WHERE p.deleted_at IS NULL AND ($1::text IS NULL OR p.status::text = $1) ORDER BY p.created_at DESC LIMIT 300`, [ctx.query.status || null])
   })));
   app.post('/api/admin/products/:id/review', guard(ADM, async (ctx) => {
