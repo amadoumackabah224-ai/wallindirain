@@ -102,6 +102,12 @@ export function clientOrderView(code) {
     try { data = await get(`/public/link/${encodeURIComponent(code)}`); }
     catch (e) { root.replaceChildren(h('div', { class: 'hero' }, h('img', { src: '/assets/logo-gold.png', alt: 'Wallindirain' })), h('div', { class: 'card' }, h('h1', {}, 'Lien indisponible'), h('p', {}, e.message))); return; }
     const p = data.product;
+    if (data.orders_open === false) {      // la commande se fait uniquement auprès du vendeur : la page présente seulement le produit
+      root.replaceChildren(h('div', { class: 'hero' }, h('img', { src: '/assets/logo-gold.png', alt: 'Wallindirain' })),
+        h('div', { class: 'card' }, h('h1', {}, p.name), p.description && h('p', {}, p.description), h('p', { class: 'total-line' }, fmtGNF(p.unit_price)),
+          h('div', { class: 'notice' }, 'Pour commander, contactez la personne qui vous a envoyé ce lien : elle enregistre votre commande, puis un conseiller vous appelle pour la confirmer. Vous payez à la livraison.')));
+      return;
+    }
     const qty = h('input', { type: 'number', min: 1, max: Math.min(p.available, 20) || 1, value: 1, required: true });
     const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
     const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX', autocomplete: 'tel' });

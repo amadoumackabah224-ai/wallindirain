@@ -56,6 +56,7 @@ export function loadConfig() {
     // TEST uniquement : montre les codes (livraison, retrait, mot de passe) dans l'écran « Messages » de l'administrateur,
     // puisque rien n'est réellement envoyé. Refusé dès qu'un vrai fournisseur de messages est configuré.
     showTestCodes: env.SHOW_TEST_CODES === '1',
+    closePublicOrders: env.PUBLIC_ORDERS !== '1',   // par défaut, seul le vendeur saisit les commandes ; PUBLIC_ORDERS=1 rouvre la commande par lien (retour arrière sans code)
     messaging: {
       provider: env.MESSAGE_PROVIDER || 'simulated', // simulated | whatsapp
       whatsappToken: env.WHATSAPP_TOKEN || '',
