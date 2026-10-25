@@ -1,5 +1,5 @@
 // Call center : agents (file d'appel) et chef (affectation aux livreurs).
-import { h, ask, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate } from '../ui.js';
+import { h, ask, fmtDate, fmtGNF, fmtPhone, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -40,9 +40,32 @@ export function myCalls() {
 }
 
 export function chiefAssign() {
-  return liveView(() => Promise.all([get('/chief/orders'), get('/chief/offers')]).then(([o, offers]) => ({ ...o, offers })), ({ orders, couriers, offers, pickup_alert_hours }, refresh) => {
+  return liveView(() => Promise.all([get('/chief/orders'), get('/chief/offers'), get('/chief/tours')]).then(([o, offers, t]) => ({ ...o, offers, tours: t.tours })), ({ orders, couriers, offers, tours, pickup_alert_hours }, refresh) => {
     const groups = [['À affecter', ['confirmed']], ['Échecs de livraison', ['failed']], ['En livraison', ['assigned', 'picked_up', 'on_the_way']], ['Retours attendus en entrepôt', ['return_pending']]];
+    const eligible = orders.filter((o) => ['confirmed', 'failed'].includes(o.status) && !tours.some((t) => t.status === 'active' && t.stops.some((st) => st.active && st.order_id === o.id)));
+    const createTour = action(async () => {
+      const v = await ask({ title: 'Créer une tournée', text: 'Cochez au moins 2 commandes, dans l\'ordre où le livreur doit passer. Chaque commande garde son propre suivi et son propre encaissement ; la paie du livreur reste celle de chaque commande.', submit: 'Créer la tournée', fields: [
+        { name: 'courier', label: 'Livreur', type: 'select', options: couriers.map((c) => [c.id, `${c.full_name} (${c.open_orders} en cours)${c.availability === 'unavailable' ? ' · indisponible' : ''}${c.zones.length ? ` · ${c.zones.join(', ')}` : ''}`]) },
+        { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200 },
+        ...eligible.map((o, i) => ({ name: `o${i}`, label: `${o.ref} · ${o.commune}`, type: 'checkbox', value: false, required: false }))] });
+      if (v) await post('/chief/tours', { courier_id: v.courier, note: v.note || undefined, order_ids: eligible.filter((o, i) => v[`o${i}`]).map((o) => o.id) });
+    }, { ok: 'Tournée créée', refresh });
+    const TOUR_LABEL = { active: ['En cours', 'warn'], closed: ['Terminée', 'ok'], cancelled: ['Annulée', 'grey'] };
+    const tourCard = (t) => {
+      const setCost = action(async () => {
+        const v = await ask({ title: 'Coût réel de la tournée', text: 'Carburant, temps du livreur, etc. Information seulement : elle sert à mesurer la rentabilité, rien n\'est écrit dans les comptes.', submit: 'Enregistrer', fields: [{ name: 'cost', label: 'Coût réel (GNF)', type: 'number', value: t.actual_cost ?? '', required: false }] });
+        if (v) await post(`/chief/tours/${t.id}/cost`, { cost: v.cost === '' ? null : Number(v.cost) });
+      }, { ok: 'Coût enregistré', refresh });
+      const cancelTour = action(async () => { if (await confirmBox('Annuler la tournée ?', 'Les commandes restent affectées au livreur, une par une.', 'Annuler la tournée')) await post(`/chief/tours/${t.id}/cancel`); }, { ok: 'Tournée annulée', refresh });
+      const basis = t.actual_cost ?? t.courier_pay_system;
+      return h('div', { class: 'card' }, h('div', { class: 'order-head' }, h('b', {}, t.courier_name), badge(...TOUR_LABEL[t.status]), t.note && h('span', { class: 'small muted' }, t.note)),
+        h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · `, statusBadge(st.status)))),
+        h('div', { class: 'small muted' }, `${t.delivered}/${t.orders} livrées · frais de livraison encaissés ${fmtGNF(t.delivery_fees)} · paie prévue ${fmtGNF(t.courier_pay_system)}${t.actual_cost != null ? ` · coût réel saisi ${fmtGNF(t.actual_cost)}` : ''} · marge de livraison ${fmtGNF(t.delivery_fees - basis)}${t.actual_cost != null ? ' (sur coût réel)' : ' (sur paie prévue)'}`),
+        h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: setCost }, 'Coût réel'), t.status === 'active' && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancelTour }, 'Annuler la tournée')));
+    };
     return h('div', {}, h('h1', {}, 'Affectation des livreurs'),
+      h('div', { class: 'gap mb' }, eligible.length >= 2 && h('button', { class: 'btn btn-gold', onclick: createTour }, '+ Créer une tournée')),
+      tours.length > 0 && h('div', {}, h('h2', {}, `Tournées (${tours.length})`), tours.map(tourCard)),
       groups.map(([title, sts]) => {
         const list = orders.filter((o) => sts.includes(o.status));
         return h('div', {}, h('h2', { class: 'mt' }, `${title} (${list.length})`), list.length ? list.map((o) => {

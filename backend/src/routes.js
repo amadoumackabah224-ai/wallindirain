@@ -675,6 +675,20 @@ export function registerRoutes(app, { db, cfg }) {
     return fn('fn_chief_offer_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur'));
   }));
   app.post('/api/chief/offers/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_chief_cancel_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));
+  // Tournées groupées : plusieurs commandes pour un même livreur, chacune suivie séparément
+  app.get('/api/chief/tours', guard(CHIEF, async (ctx) => ({ tours: await fn('fn_chief_tours', ctx.user.id) })));
+  app.post('/api/chief/tours', guard(CHIEF, async (ctx) => {
+    const b = ctx.body;
+    if (!Array.isArray(b.order_ids) || b.order_ids.length > 200) throw new HttpError(400, 'invalid_input', 'Liste de commandes invalide');
+    const id = await fn('fn_chief_create_tour', ctx.user.id, v.uuid(b.courier_id, 'Livreur'), b.order_ids.map((x) => v.uuid(x, 'Commande')), v.optStr(b.note, 'Note', 200));
+    ctx.status = 201;
+    return { id };
+  }));
+  app.post('/api/chief/tours/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_chief_cancel_tour', ctx.user.id, v.uuid(ctx.params.id, 'Tournée')); }));
+  app.post('/api/chief/tours/:id/cost', guard(CHIEF, async (ctx) => {
+    const c = ctx.body.cost;
+    await fn('fn_chief_set_tour_cost', ctx.user.id, v.uuid(ctx.params.id, 'Tournée'), c == null || c === '' ? null : v.int(c, 'Coût', { min: 0, max: 100000000 }));
+  }));
   app.post('/api/chief/orders/:id/assign', guard(CHIEF, async (ctx) => { await fn('fn_chief_assign', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.uuid(ctx.body.courier_id, 'Livreur')); }));
   app.post('/api/chief/orders/:id/return', guard(CHIEF, async (ctx) => { await fn('fn_chief_return_to_warehouse', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/chief/orders/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_staff_cancel_order', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 })); }));
@@ -696,6 +710,7 @@ export function registerRoutes(app, { db, cfg }) {
     max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value),
     require_code: Number((await q(`SELECT value FROM settings WHERE key = 'require_delivery_code'`))[0].value) === 1
   })));
+  app.get('/api/courier/tours', guard(COU, async (ctx) => ({ tours: await fn('fn_courier_tours', ctx.user.id) })));
   app.get('/api/courier/offers', guard(COU, async (ctx) => ({ offers: await fn('fn_courier_offers', ctx.user.id) })));
   app.post('/api/courier/offers/:id/accept', guard(COU, async (ctx) => { await fn('fn_courier_accept_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));
   app.post('/api/courier/offers/:id/refuse', guard(COU, async (ctx) => {

@@ -374,7 +374,7 @@ test('rapport de production : 7 requêtes en lecture seule, valides, sans résul
   const rows = [];
   for (const s of stmts) rows.push((await db.owner.query(s)).rows);
   for (const i of [0, 1, 2, 3, 4]) assert.equal(rows[i].length, 0, `requête ${i + 1}`);
-  assert.equal(rows[5].length, 1); assert.ok(rows[6].some((r) => r.name === '017_protections.sql'));   // les migrations suivantes (018…) s'ajoutent après
+  assert.equal(rows[5].length, 1); assert.ok(rows[6].length > 0 && rows[6].every((r) => r.name >= '017'));   // les migrations suivantes (018…) s'ajoutent après
 });
 
 // ---------------------------------------------------------------- remise à zéro (à la fin : elle vide l'activité)
@@ -432,7 +432,7 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
   assert.equal((await owner.query(`SELECT count(*)::int AS n FROM fn_ledger_check()`)).rows[0].n, 0);
 
   // 2) retour arrière (dans l'ordre inverse des migrations : 019, 018 — appliquées par migrate() — puis 017)
-  for (const f of ['retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
+  for (const f of ['retour-arriere-020.sql', 'retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
     const rb = fs.readFileSync(path.join(root, 'docs', f), 'utf8');
     await owner.tx(async (tx) => { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await tx.query(s); } });
   }
