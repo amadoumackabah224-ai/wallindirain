@@ -871,8 +871,14 @@ export function registerRoutes(app, { db, cfg }) {
       const bad = communes.find((c) => !known.has(c.trim()));
       if (bad !== undefined) throw new HttpError(400, 'invalid_input', `Zone inconnue : ${bad.slice(0, 60)}`);
     }
-    const id = await fn('fn_admin_create_staff', ctx.user.id, v.phone(b.phone), v.str(b.name, 'Nom', { min: 2, max: 100 }),
+    // numéro de versement (facultatif, les deux champs ensemble) : contrôlé avant de créer le compte
+    const hasPayout = role === 'courier' && b.payout_phone != null && b.payout_phone !== '';
+    const payoutMethod = hasPayout ? v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement') : null;
+    const payoutPhone = hasPayout ? v.phone(b.payout_phone, 'Numéro de versement') : null;
+    const name = v.str(b.name, 'Nom', { min: 2, max: 100 });
+    const id = await fn('fn_admin_create_staff', ctx.user.id, v.phone(b.phone), name,
       role, await hashPassword(b.password), v.optStr(b.team, 'Call center', 80));
+    if (hasPayout) await fn('fn_admin_update_user', ctx.user.id, id, name, null, payoutMethod, payoutPhone);
     if (role === 'courier') {
       if (vehicle) await fn('fn_admin_set_courier_profile', ctx.user.id, id, vehicle);
       if (communes.length) await fn('fn_admin_set_courier_zones', ctx.user.id, id, communes);
