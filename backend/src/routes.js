@@ -766,6 +766,8 @@ export function registerRoutes(app, { db, cfg }) {
     max_attempts: Number((await q(`SELECT value FROM settings WHERE key = 'code_max_attempts'`))[0].value),
     require_code: Number((await q(`SELECT value FROM settings WHERE key = 'require_delivery_code'`))[0].value) === 1
   })));
+  app.post('/api/courier/tours/:id/accept', guard(COU, async (ctx) => { await fn('fn_courier_accept_tour', ctx.user.id, v.uuid(ctx.params.id, 'Tournée')); return { ok: true }; }));
+  app.post('/api/courier/tours/:id/refuse', guard(COU, async (ctx) => { await fn('fn_courier_refuse_tour', ctx.user.id, v.uuid(ctx.params.id, 'Tournée')); return { ok: true }; }));
   app.get('/api/courier/tours', guard(COU, async (ctx) => ({ tours: await fn('fn_courier_tours', ctx.user.id) })));
   app.get('/api/courier/offers', guard(COU, async (ctx) => ({ offers: await fn('fn_courier_offers', ctx.user.id) })));
   app.post('/api/courier/offers/:id/accept', guard(COU, async (ctx) => { await fn('fn_courier_accept_offer', ctx.user.id, v.uuid(ctx.params.id, 'Proposition')); }));

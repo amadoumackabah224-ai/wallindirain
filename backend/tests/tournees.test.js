@@ -21,6 +21,8 @@ const status = async (id) => (await db.owner.query('SELECT status, courier_id FR
 const tours = async (actor = w.chief) => call(db.app, 'fn_chief_tours', actor);
 const finish = async (id) => {                                                                       // livre une commande affectée
   const ref = (await db.owner.query('SELECT ref, courier_id FROM orders WHERE id = $1', [id])).rows[0];
+  const pending = (await db.owner.query(`SELECT t.id FROM tour_stops s JOIN tours t ON t.id = s.tour_id WHERE s.order_id = $1 AND s.active AND t.status = 'proposed'`, [id])).rows[0];
+  if (pending) await call(db.app, 'fn_courier_accept_tour', ref.courier_id, pending.id);                // la tournée proposée est d'abord acceptée par le livreur
   await call(db.app, 'fn_courier_pickup', ref.courier_id, id); await call(db.app, 'fn_courier_depart', ref.courier_id, id);
   await call(db.app, 'fn_courier_deliver', ref.courier_id, id, await codeOf(db, ref.ref));
 };
@@ -64,7 +66,7 @@ test('création : toutes les commandes affectées au livreur, ordre de passage c
   for (const o of ids) { const st = await status(o); assert.equal(st.status, 'assigned'); assert.equal(st.courier_id, w.courier); }
   const t = (await tours()).find((x) => x.id === id);
   assert.deepEqual(t.stops.map((s) => s.order_id), ids); assert.deepEqual(t.stops.map((s) => s.position), [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(t.note, 'Quartier Kaloum'); assert.equal(t.status, 'active'); assert.equal(t.orders, 7);
+  assert.equal(t.note, 'Quartier Kaloum'); assert.equal(t.status, 'proposed'); assert.equal(t.orders, 7);
   assert.equal(await count('SELECT count(*)::int AS n FROM wallet_entries'), wallet);                 // créer une tournée n'écrit rien en argent
   assert.deepEqual(await snap(), before);                                                             // ni réglage ni tarif
   const mine = await call(db.app, 'fn_courier_tours', w.courier); assert.equal(mine.length, 1); assert.equal(mine[0].stops.length, 7);
@@ -87,6 +89,7 @@ test('validations : au moins 2 commandes, pas de doublon, états, livreur, rôle
   const t1 = await create([a, b]);
   await expectErr(create([b, c], w.courier2), 'order_in_tour');
   assert.equal((await status(c)).status, 'confirmed');
+  await call(db.app, 'fn_courier_accept_tour', w.courier, t1);                                        // acceptée : l'annulation laisse les commandes au livreur
   await call(db.app, 'fn_chief_cancel_tour', w.admin, t1);                                           // l'administrateur aussi
   await expectErr(call(db.app, 'fn_chief_cancel_tour', w.chief, t1), 'invalid_state');
   await expectErr(create([b, c, d], w.courier2, w.admin), 'invalid_state');                          // b reste affectée à un autre livreur
@@ -138,9 +141,10 @@ test('annulation et réaffectation : la tournée annulée laisse les commandes a
   const [a, b, c] = await mkMany(3); const id = await create([a, b, c]);
   await call(db.app, 'fn_chief_assign', w.chief, b, w.courier2);                                      // affectation directe imposée
   let t = (await tours()).find((x) => x.id === id);
-  assert.equal(t.stops.find((s) => s.order_id === b).active, false); assert.equal(t.status, 'active');
+  assert.equal(t.stops.find((s) => s.order_id === b).active, false); assert.equal(t.status, 'proposed');
   await call(db.app, 'fn_staff_cancel_order', w.chief, c, 'Client injoignable');
   t = (await tours()).find((x) => x.id === id); assert.equal(t.stops.find((s) => s.order_id === c).active, false);
+  await call(db.app, 'fn_courier_accept_tour', w.courier, id);
   await call(db.app, 'fn_chief_cancel_tour', w.chief, id);
   assert.equal((await status(a)).courier_id, w.courier); assert.equal((await status(a)).status, 'assigned');   // rien n'est repris
   assert.equal((await tours()).find((x) => x.id === id).status, 'cancelled');
@@ -152,7 +156,7 @@ test('concurrence : deux tournées simultanées sur les mêmes commandes, une se
   const res = await Promise.allSettled([create(ids, w.courier), create(ids, w.courier2), create(ids.slice(0, 2), w.courier2)]);
   assert.equal(res.filter((r) => r.status === 'fulfilled').length, 1, JSON.stringify(res.map((r) => r.reason?.message)));
   assert.equal(await count(`SELECT count(*)::int AS n FROM (SELECT order_id FROM tour_stops WHERE active GROUP BY order_id HAVING count(*) > 1) d`), 0);
-  for (const t of await tours()) if (t.status === 'active') await call(db.app, 'fn_chief_cancel_tour', w.chief, t.id);
+  for (const t of await tours()) if (['proposed', 'active'].includes(t.status)) await call(db.app, 'fn_chief_cancel_tour', w.chief, t.id);
 });
 
 test('HTTP : chef crée, consulte, saisit un coût et annule ; livreur voit sa tournée ; accès croisés refusés', async () => {
@@ -193,13 +197,13 @@ test('remise à zéro de l\'activité avec des tournées enregistrées : réussi
 });
 
 test('retour arrière 020 : retire les tournées, restaure la remise à zéro de la 019, rien en argent ; migration rejouable', async () => {
-  const fnames = "'fn_chief_create_tour','fn_chief_cancel_tour','fn_chief_set_tour_cost','fn_chief_tours','fn_courier_tours','_tours_refresh','fn_admin_reset_activity','fn_courier_remit','fn_chief_reorder_tour'";
+  const fnames = "'fn_chief_create_tour','fn_chief_cancel_tour','fn_chief_set_tour_cost','fn_chief_tours','fn_courier_tours','_tours_refresh','fn_admin_reset_activity','fn_courier_remit','fn_chief_reorder_tour','fn_courier_pickup','fn_ledger_check','fn_courier_accept_tour','fn_courier_refuse_tour','_tour_pay_bonus','_tour_release_orders'";
   const snapAll = async () => (await db.owner.query(`SELECT (SELECT count(*) FROM wallet_entries)::text AS ecr,
-     (SELECT md5(string_agg(key || value::text, ',' ORDER BY key)) FROM settings) AS s,
+     (SELECT md5(string_agg(key || value::text, ',' ORDER BY key)) FROM settings WHERE key <> 'tour_bonus_per_extra_order') AS s,
      (SELECT string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || COALESCE(p.proacl::text, '') || ':' || p.prosecdef::text, E'\\n' ORDER BY p.proname, p.oid::text) FROM pg_proc p
         WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' AND p.proname NOT IN (${fnames})) AS fonctions`)).rows[0];
   const before = await snapAll();
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-024.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-020.sql'), 'utf8');   // 024 d'abord (ordre inverse)
+  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-025.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-024.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-020.sql'), 'utf8');   // 024 d'abord (ordre inverse)
   await db.owner.query('BEGIN');
   for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); }
   await db.owner.query('COMMIT');
