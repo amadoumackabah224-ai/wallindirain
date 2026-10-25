@@ -123,3 +123,6 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 ## Photos des produits (023)
 - `product_images` (id, product_id, position 1-4, mime, data bytea 1 000 à 450 000 octets, created_at), `UNIQUE (product_id, position)` ; la colonne `data` n'est pas lisible directement par l'application.
 - Fonctions `fn_supplier_add_product_image`, `fn_supplier_delete_product_image`, `fn_product_image_get`, `fn_public_product_photo`. Retour arrière : `docs/retour-arriere-023.sql`.
+
+## Reversement en espèces, ordre des tournées (024)
+- `remittances` : `method` accepte `cash`, `proof_id` devient facultatif (obligatoire sauf espèces), `handed_to` (nom de la personne qui a reçu). Fonctions `fn_courier_remit` (nouveau paramètre `p_handed_to`), `fn_chief_reorder_tour`, `fn_chief_tours` (montants prévus). Retour arrière : `docs/retour-arriere-024.sql` (refusé s'il existe des espèces).

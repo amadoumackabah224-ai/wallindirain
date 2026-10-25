@@ -3,7 +3,8 @@ import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, act
 import { get, post } from '../api.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
-const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
+const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo', cash: 'Espèces' };
+const TRANSFER = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 
 export function courierOrders() {
   return liveView(() => Promise.all([get('/courier/orders'), get('/courier/profile'), get('/courier/offers'), get('/courier/tours')]).then(([o, profile, off, t]) => ({ ...o, profile, offers: off.offers, tours: t.tours })), ({ profile, offers, tours, orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
@@ -75,7 +76,7 @@ export function courierCash() {
     const remit = action(async () => {
       const v = await ask({ title: 'Reverser par transfert', text: 'Envoyez l\'argent par Orange Money ou MTN MoMo au numéro indiqué par Wallindirain, puis joignez la capture d\'écran. L\'administrateur vérifie et valide.', submit: 'Envoyer pour validation', fields: [
         ...due.map((e) => ({ name: `o_${e.order_id}`, label: `${e.ref} · ${fmtGNF(e.amount)}`, type: 'checkbox', value: true, required: false })),
-        { name: 'method', label: 'Transfert envoyé par', type: 'select', options: Object.entries(OPERATOR) },
+        { name: 'method', label: 'Transfert envoyé par', type: 'select', options: Object.entries(TRANSFER) },
         { name: 'reference', label: 'Référence de la transaction', required: false },
         { name: 'image', label: 'Capture d\'écran du transfert', type: 'image' }] });
       if (!v) return;
@@ -84,14 +85,24 @@ export function courierCash() {
       const proof = (await post('/proofs', { kind: 'remittance', image: v.image })).id;
       await post('/courier/remit', { method: v.method, proof_id: proof, reference: v.reference || undefined, orders: chosen });
     }, { ok: 'Reversement envoyé : en attente de validation', refresh });
+    const remitCash = action(async () => {
+      const v = await ask({ title: 'Remettre en espèces', text: 'Vous avez remis l\'argent encaissé en main propre. Indiquez à qui : l\'administrateur vérifie la somme reçue et valide.', submit: 'Envoyer',
+        fields: [...due.map((e) => ({ name: `o_${e.order_id}`, label: `${e.ref} · ${fmtGNF(e.amount)}`, type: 'checkbox', value: true, required: false })),
+          { name: 'handed_to', label: 'Remis à (nom de la personne)', maxlength: 100 },
+          { name: 'reference', label: 'Précision (lieu, heure…)', required: false, maxlength: 100 }] });
+      if (!v) return;
+      const chosen = due.filter((e) => v[`o_${e.order_id}`]).map((e) => e.order_id);
+      if (!chosen.length) { toast('Cochez au moins une commande remise.', 'bad'); return; }
+      await post('/courier/remit', { method: 'cash', handed_to: v.handed_to, reference: v.reference || undefined, orders: chosen });
+    }, { ok: 'Remise en espèces enregistrée : en attente de validation', refresh });
     const total = due.reduce((a, e) => a + e.amount, 0);
     return h('div', {}, h('h1', {}, 'Caisse'),
       h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(total)), h('div', { class: 'l' }, 'À remettre à l\'administration (en espèces ou par transfert)')),
-      h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Encaissements à remettre'), due.length > 0 && h('button', { class: 'btn btn-sm btn-gold', onclick: remit }, '📲 Reverser par transfert')),
+      h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Encaissements à remettre'), due.length > 0 && [h('button', { class: 'btn btn-sm btn-gold', onclick: remit }, '📲 Reverser par transfert'), h('button', { class: 'btn btn-sm btn-gold', onclick: remitCash }, '💵 Remettre en espèces')]),
         table(['Commande', 'Montant', 'Livrée le', 'Situation'], entries.map((e) => [h('b', {}, e.ref), amount(e.amount), fmtDate(e.created_at), e.in_remittance ? badge('Reversement en attente', 'warn') : badge('À remettre', 'gold')]),
           { empty: empty('✅', 'Rien à remettre pour le moment') })),
-      h('div', { class: 'card' }, h('h2', {}, 'Mes reversements par transfert'), table(['Date', 'Montant', 'Via', 'Statut', ''], remittances.map((r) => [fmtDate(r.created_at), amount(r.amount),
-        `${OPERATOR[r.method]}${r.reference ? ` · ${r.reference}` : ''}`, h('div', {}, badge(...REMIT_STATUS[r.status]), r.status === 'confirmed' && r.received !== r.amount && h('div', { class: 'small muted' }, `Reçu : ${fmtGNF(r.received)}`), r.decision_note && h('div', { class: 'small muted' }, r.decision_note)), proofButton(r.proof_id)]),
+      h('div', { class: 'card' }, h('h2', {}, 'Mes reversements'), table(['Date', 'Montant', 'Via', 'Statut', ''], remittances.map((r) => [fmtDate(r.created_at), amount(r.amount),
+        `${OPERATOR[r.method]}${r.handed_to ? ` · remis à ${r.handed_to}` : ''}${r.reference ? ` · ${r.reference}` : ''}`, h('div', {}, badge(...REMIT_STATUS[r.status]), r.status === 'confirmed' && r.received !== r.amount && h('div', { class: 'small muted' }, `Reçu : ${fmtGNF(r.received)}`), r.decision_note && h('div', { class: 'small muted' }, r.decision_note)), proofButton(r.proof_id)]),
         { empty: empty('📲', 'Aucun reversement par transfert') })));
   }, { poll: 30000 });
 }
