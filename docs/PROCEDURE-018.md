@@ -4,7 +4,7 @@
 
 ## Ce qui est ajouté
 - Deux tables : `courier_profiles` (véhicule, disponibilité) et `courier_zones` (zones couvertes).
-- Écran administrateur « Livreurs » : véhicule, zones, disponibilité, commandes en cours.
+- Création du livreur (bouton « + Créer un livreur » dans « Utilisateurs ») : compte, véhicule et zones en une fois ; « Modifier » permet de les changer ; la ligne du livreur affiche véhicule, zones et disponibilité.
 - Espace livreur : bouton « Me mettre disponible / indisponible » et rappel de ses zones.
 - Le chef voit disponibilité et zones dans la liste d'affectation. L'affectation reste libre.
 

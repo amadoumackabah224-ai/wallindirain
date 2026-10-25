@@ -8,6 +8,7 @@ Base : `/api`. Format : JSON (UTF-8). Les champs exacts de chaque route sont val
 - **Protection CSRF** : toute requête autre que GET doit porter l'en-tête `X-WLD: 1` ; si un en-tête `Origin` est présent, il doit correspondre à l'hôte du serveur.
 - **Erreurs** : `{ "error": "code", "message": "Texte en français" }` avec un statut HTTP : 400 entrée invalide, 401 non connecté, 403 interdit, 404 introuvable, 409 conflit d'état (ex. `already_taken`, `duplicate_order`, `offer_open`, `offer_expired`, `courier_busy`), 413 corps trop gros (> 64 Ko), 423 compte bloqué, 429 trop de requêtes, 500 erreur interne (jamais de détail technique renvoyé).
 - **Clé de demande (`request_key`)** : obligatoire (16 à 64 caractères : lettres, chiffres, tiret) sur `POST /seller/orders` et `POST /public/link/:code/order`. Générée par la page à chaque ouverture du formulaire. Même clé et même contenu : la commande existante est renvoyée (statut 200, `replayed: true`), sans seconde commande, ni stock réservé, ni message. Même clé et contenu différent : 409 `key_reused`. Clé absente : 400 `key_required`. Autres codes 409 : `courier_pay_exceeds_fee`, `zone_fee_below_courier_pay`.
+- **Création d'un livreur** : `POST /admin/users` avec `role: courier` accepte aussi `vehicle` (moto, velo, voiture, pied) et `communes` (liste de zones). Tout est contrôlé avant de créer le compte ; la liste `GET /admin/users` renvoie `vehicle`, `zones` et `availability` pour les livreurs.
 - **Téléphones** : 9 chiffres (`624390707`) ; `+224` et espaces acceptés en entrée.
 - **Montants** : entiers en GNF.
 
