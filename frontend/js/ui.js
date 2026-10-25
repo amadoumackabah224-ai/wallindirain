@@ -39,6 +39,8 @@ export const ORDER_STATUS = {
 export const statusBadge = (s) => { const [t, c] = ORDER_STATUS[s] || [s, 'grey']; return h('span', { class: `badge ${c}` }, t); };
 export const badge = (text, kind = '') => h('span', { class: `badge ${kind}` }, text);
 export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier' };
+export const PICKUP_LABEL = { warehouse: 'Entrepôt Wallindirain', supplier: 'Chez le fournisseur', seller: 'Chez le vendeur' };
+export const pickupText = (o) => `${PICKUP_LABEL[o.pickup_place] ?? '—'}${o.pickup_detail ? ` : ${o.pickup_detail}` : o.pickup_missing ? ' (adresse non indiquée)' : ''}`;
 export const FAIL_LABEL = { customer_absent: 'Client absent', customer_refusal: 'Client a refusé', address_not_found: 'Adresse introuvable', other: 'Autre' };
 export const CAUSE_LABEL = { customer_refusal: 'Refus du client', defective: 'Défectueux à l\'origine', damaged_transport: 'Abîmé pendant le transport' };
 export const WALLET_KIND = {

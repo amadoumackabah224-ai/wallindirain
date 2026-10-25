@@ -116,3 +116,6 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 - `tour_stops` (tour_id, order_id, position, active) ; index unique : une commande n'a qu'un arrêt actif.
 - Fonctions : `fn_chief_create_tour`, `fn_chief_cancel_tour`, `fn_chief_set_tour_cost`, `fn_chief_tours`, `fn_courier_tours`, interne `_tours_refresh`. Lecture seule pour l'application ; aucune écriture comptable.
 - Retour arrière : `docs/retour-arriere-020.sql`.
+
+## Lieu de récupération (022)
+- `products.pickup_detail`, `orders.pickup_detail` (3-200 caractères, facultatifs). Fonctions `fn_seller_set_pickup`, `fn_supplier_set_pickup`. Retour arrière : `docs/retour-arriere-022.sql`.

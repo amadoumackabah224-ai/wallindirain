@@ -447,7 +447,7 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   const SUP = ['supplier'];
   app.get('/api/supplier/products', guard(SUP, async (ctx) => ({
-    products: await q(`SELECT id, name, description, supplier_price, storage, stock_qty, reserved_qty, status, created_at
+    products: await q(`SELECT id, name, description, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail
         FROM products WHERE supplier_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [ctx.user.id]),
     arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.counted_qty, a.created_at, a.counted_at
         FROM arrivals a JOIN products p ON p.id = a.product_id WHERE p.supplier_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [ctx.user.id])
@@ -458,8 +458,15 @@ export function registerRoutes(app, { db, cfg }) {
     const id = await fn('fn_supplier_add_product', ctx.user.id, v.str(b.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(b.description, 'Description', 1000),
       v.int(b.supplier_price, 'Prix fournisseur', { min: 1, max: 1e9 }), v.oneOf(b.storage, ['wallindirain', 'supplier'], 'Stockage'),
       b.storage === 'supplier' ? v.int(b.stock_qty ?? 0, 'Quantité', { min: 0, max: 1e6 }) : 0);
+    if (b.storage === 'supplier' && b.pickup_detail != null && String(b.pickup_detail).trim() !== '') await fn('fn_supplier_set_pickup', ctx.user.id, id, v.str(b.pickup_detail, 'Adresse de récupération', { min: 3, max: 200 }));
     ctx.status = 201;
     return { id, message: 'Produit proposé. Il sera visible des vendeurs après validation.' };
+  }));
+
+  app.post('/api/supplier/products/:id/pickup', guard(SUP, async (ctx) => {
+    const d = ctx.body.detail;
+    await fn('fn_supplier_set_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), d == null || String(d).trim() === '' ? null : v.str(d, 'Adresse de récupération', { min: 3, max: 200 }));
+    return { ok: true };
   }));
 
   app.post('/api/supplier/products/:id/arrival', guard(SUP, async (ctx) => {
@@ -513,13 +520,20 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
     const own = b.product_id == null || b.product_id === '';
+    const pickup = own ? v.str(b.pickup_detail, 'Où récupérer le colis', { min: 3, max: 200 }) : null;   // produit du vendeur : l'adresse de récupération est obligatoire
     const r = await refusalLogged('vendeur', ctx.user.id, typeof b.commune === 'string' ? b.commune : '', () => fn('fn_seller_create_order_once', ctx.user.id, v.requestKey(b.request_key), own ? null : v.uuid(b.product_id, 'Produit'),
       own ? v.str(b.own_product_name, 'Nom du produit', { min: 2, max: 120 }) : null,
       b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
       v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true));
+    if (own && !r.replayed) await fn('fn_seller_set_pickup', ctx.user.id, r.id, pickup);
     ctx.status = r.replayed ? 200 : 201;
     return r;
+  }));
+
+  app.post('/api/seller/orders/:id/pickup', guard(SEL, async (ctx) => {
+    await fn('fn_seller_set_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.str(ctx.body.detail, 'Où récupérer le colis', { min: 3, max: 200 }));
+    return { ok: true };
   }));
 
   // ----- Import Google Sheet / CSV : une ligne = une commande (les lignes déjà importées sont ignorées) -----
@@ -566,9 +580,13 @@ export function registerRoutes(app, { db, cfg }) {
     return out;
   }));
 
+
+  // Où récupérer le colis : entrepôt, fournisseur (adresse indiquée par lui) ou vendeur (propre produit). L'adresse du fournisseur n'est donnée qu'à l'équipe et au livreur.
+  const PICKUP_PLACE = `CASE WHEN o.product_id IS NULL THEN 'seller' WHEN p.storage = 'supplier' THEN 'supplier' ELSE 'warehouse' END`;
+  const PICKUP_DETAIL = `CASE WHEN o.product_id IS NULL THEN o.pickup_detail WHEN p.storage = 'supplier' THEN p.pickup_detail ELSE NULL END`;
   const SELLER_ORDER_COLS = `o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total,
       o.customer_name, o.customer_phone, o.commune, o.address, o.delivery_fee, o.call_fee, o.call_attempts, o.failure_reason, o.return_cause,
-      o.created_at, o.delivered_at, o.track_token, o.risk_flag,
+      o.created_at, o.delivered_at, o.track_token, o.risk_flag, ${PICKUP_PLACE} AS pickup_place, CASE WHEN o.product_id IS NULL THEN o.pickup_detail END AS pickup_detail, (o.product_id IS NULL AND o.pickup_detail IS NULL) AS pickup_missing,
       (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
       (o.sale_total - o.delivery_fee - o.call_fee - o.qty_from_catalog * o.seller_unit_price) AS expected_gain,
       (o.status = 'new' AND o.call_attempts = 0 AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.order_id = o.id)) AS cancellable`;
@@ -661,7 +679,7 @@ export function registerRoutes(app, { db, cfg }) {
   const CHIEF = ['call_chief', 'admin'];
   app.get('/api/chief/orders', guard(CHIEF, async () => ({
     pickup_alert_hours: await pickupHours(),
-    orders: await q(`SELECT ${CALL_COLS}, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
+    orders: await q(`SELECT ${CALL_COLS}, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
         WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
     couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders,
@@ -700,7 +718,7 @@ export function registerRoutes(app, { db, cfg }) {
   const COU = ['courier'];
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
-          o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at,
+          o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing,
           o.risk_flag, (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
           ${ASSIGNED_SINCE} AS assigned_since, op.method AS payment_method
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN order_payments op ON op.order_id = o.id

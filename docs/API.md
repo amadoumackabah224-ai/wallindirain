@@ -59,3 +59,9 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 ## Commande par lien fermée (021)
 - `GET /api/public/link/:code` renvoie aussi `orders_open` (false par défaut).
 - `POST /api/public/link/:code/order` → 403 `orders_closed` tant que `PUBLIC_ORDERS` n'est pas égal à `1`.
+
+## Lieu de récupération (022)
+- `POST /api/seller/orders` : `pickup_detail` (3-200) **obligatoire** pour une commande avec un produit du vendeur.
+- `POST /api/seller/orders/:id/pickup` `{detail}` : modifie le lieu (produit du vendeur, avant le départ du colis).
+- `POST /api/supplier/products/:id/pickup` `{detail}` (vide = effacer) ; aussi `pickup_detail` à la création d'un produit gardé chez le fournisseur.
+- Commandes (livreur, chef, vendeur) : `pickup_place` (warehouse|supplier|seller), `pickup_detail`, `pickup_missing`. Le vendeur ne reçoit jamais l'adresse du fournisseur.
