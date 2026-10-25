@@ -126,3 +126,7 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 
 ## Reversement en espèces, ordre des tournées (024)
 - `remittances` : `method` accepte `cash`, `proof_id` devient facultatif (obligatoire sauf espèces), `handed_to` (nom de la personne qui a reçu). Fonctions `fn_courier_remit` (nouveau paramètre `p_handed_to`), `fn_chief_reorder_tour`, `fn_chief_tours` (montants prévus). Retour arrière : `docs/retour-arriere-024.sql` (refusé s'il existe des espèces).
+
+## Tournée proposée, bonus (025)
+- `tours.status` : `proposed`, `active`, `closed`, `cancelled`, `refused` ; colonnes `bonus_per_extra` (figé), `accepted_at`, `bonus_paid`. Réglage `tour_bonus_per_extra_order` (0 par défaut). Écritures `tour_bonus` (livreur +, plateforme −) uniques par commande d'ancrage.
+- Fonctions `fn_courier_accept_tour`, `fn_courier_refuse_tour`, internes `_tour_pay_bonus`, `_tour_release_orders` ; `fn_courier_pickup`, `fn_chief_create_tour`, `fn_chief_cancel_tour`, `fn_ledger_check` mises à jour. Retour arrière : `docs/retour-arriere-025.sql`.

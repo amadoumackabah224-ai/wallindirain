@@ -15,8 +15,19 @@ export function courierOrders() {
         profile.availability === 'available' ? 'Me mettre indisponible' : 'Me mettre disponible')),
     h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(cash_to_hand_over)), h('div', { class: 'l' }, 'Argent encaissé à remettre à l\'administration (tout manque vous est débité). Onglet « Caisse » pour reverser par transfert.'),
       cash_pending_validation > 0 && h('div', { class: 'small muted' }, `+ ${fmtGNF(cash_pending_validation)} déjà reversés par transfert, en attente de validation`)),
-    tours.map((t) => h('div', { class: 'card mb' }, h('b', {}, `Tournée de ${t.stops.length} commandes`), t.note && h('div', { class: 'small muted' }, t.note),
-      h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · `, statusBadge(st.status)))), h('div', { class: 'small muted' }, 'Livrez dans cet ordre si possible. Chaque commande se valide séparément ci-dessous.'))),
+    tours.map((t) => {
+      const proposed = t.status === 'proposed';
+      const total = t.stops.filter((st) => st.active || st.status === 'delivered').reduce((a, st) => a + st.pay, 0);
+      const acceptTour = action(() => post(`/courier/tours/${t.id}/accept`), { ok: 'Tournée acceptée : vous pouvez récupérer vos colis', refresh });
+      const refuseTour = action(async () => { if (await confirmBox('Refuser cette tournée ?', 'Aucune pénalité : les commandes retournent au chef d\'équipe.', 'Refuser', true)) { await post(`/courier/tours/${t.id}/refuse`); return true; } }, { ok: (r) => (r ? 'Tournée refusée' : ''), refresh });
+      return h('div', { class: `card mb${proposed ? ' risk' : ''}` }, h('div', { class: 'order-head' }, h('b', {}, `Tournée de ${t.stops.length} commandes`), proposed && badge('À accepter', 'warn')),
+        t.note && h('div', { class: 'small muted' }, t.note),
+        h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · ${fmtGNF(st.pay)} · `, statusBadge(st.status)))),
+        h('div', { class: 'small' }, `Votre paie : ${fmtGNF(total)}${t.bonus_per_extra > 0 ? ` + bonus de tournée jusqu'à ${fmtGNF(t.bonus_max)} (${fmtGNF(t.bonus_per_extra)} par commande livrée à partir de la 2ᵉ)` : ''}.`),
+        proposed ? h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok', onclick: acceptTour }, '✔ J\'accepte la tournée'), h('button', { class: 'btn btn-ghost', onclick: refuseTour }, 'Refuser'),
+          h('div', { class: 'small muted' }, 'Vous pourrez récupérer les colis seulement après avoir accepté.'))
+          : h('div', { class: 'small muted' }, 'Livrez dans cet ordre si possible. Chaque commande se valide séparément ci-dessous.'));
+    }),
     offers.length > 0 && h('div', {}, h('h2', {}, `Propositions de mission (${offers.length})`), offers.map((m) => {
       const accept = action(() => post(`/courier/offers/${m.id}/accept`), { ok: 'Mission acceptée : elle apparaît dans vos livraisons', refresh });
       const refuse = action(async () => {

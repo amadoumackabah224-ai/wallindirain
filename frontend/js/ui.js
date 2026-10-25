@@ -48,7 +48,7 @@ export const pickupText = (o) => `${PICKUP_LABEL[o.pickup_place] ?? '—'}${o.pi
 export const FAIL_LABEL = { customer_absent: 'Client absent', customer_refusal: 'Client a refusé', address_not_found: 'Adresse introuvable', other: 'Autre' };
 export const CAUSE_LABEL = { customer_refusal: 'Refus du client', defective: 'Défectueux à l\'origine', damaged_transport: 'Abîmé pendant le transport' };
 export const WALLET_KIND = {
-  deposit: 'Dépôt', stock_purchase: 'Achat de stock', seller_gain: 'Gain de vente', supplier_payment: 'Paiement produit', team_pay: 'Rémunération',
+  deposit: 'Dépôt', stock_purchase: 'Achat de stock', seller_gain: 'Gain de vente', supplier_payment: 'Paiement produit', team_pay: 'Rémunération', tour_bonus: 'Bonus de tournée',
   return_fees: 'Frais de retour', return_fee_supplier: 'Frais de retour (produit défectueux)', prepaid_refund: 'Remboursement de stock', transport_loss: 'Compensation transport',
   cash_shortage: 'Manque de caisse', withdrawal: 'Retrait', referral_bonus: 'Bonus de parrainage', withdrawal_refund: 'Retrait refusé (remboursé)'
 };
