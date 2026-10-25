@@ -152,6 +152,13 @@ test('création du livreur : compte, véhicule et zones réglés d\'un coup ; zo
   assert.equal(plain.status, 201); assert.deepEqual((await call(db.app, 'fn_courier_profile', plain.json.id)).zones, []);
   const agent = await adm.post('/api/admin/users', { role: 'agent', team: 'Alpha', name: 'Agent Test', phone: '622111003', password: 'Zebre4829x', vehicle: 'moto', communes: ['Kaloum'] });
   assert.equal(agent.status, 201); assert.equal(await count('SELECT count(*)::int AS n FROM courier_zones WHERE courier_id = $1', [agent.json.id]), 0);   // zones ignorées hors livreur
+  const withPay = await adm.post('/api/admin/users', { ...base0, name: 'Livreur Versement', phone: '622111006', payout_method: 'orange_money', payout_phone: '622999888' });
+  assert.equal(withPay.status, 201);
+  const pu = (await db.owner.query('SELECT payout_method, payout_phone FROM users WHERE id = $1', [withPay.json.id])).rows[0]; assert.equal(pu.payout_method, 'orange_money'); assert.equal(pu.payout_phone, '622999888');
+  const nUsers = await users();
+  assert.equal((await adm.post('/api/admin/users', { ...base0, phone: '622111007', payout_method: 'orange_money', payout_phone: '12' })).status, 400);     // numéro invalide : pas de compte
+  assert.equal((await adm.post('/api/admin/users', { ...base0, phone: '622111007', payout_method: 'carte', payout_phone: '622999888' })).status, 400);        // opérateur inconnu : pas de compte
+  assert.equal(await users(), nUsers);
   assert.equal((await adm.post('/api/admin/users', { ...base0, phone: '622111004', password: 'court' })).status, 400);
   assert.equal((await sel.post('/api/admin/users', { ...base0, phone: '622111005' })).status, 403);
   const list = await adm.get('/api/admin/users?role=courier'); assert.equal(list.status, 200);

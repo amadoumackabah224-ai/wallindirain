@@ -226,7 +226,7 @@ test('remise à zéro de l\'activité avec des propositions enregistrées : réu
 test('retour arrière 019 : retire propositions et réglages ajoutés, restaure la remise à zéro, rien en argent ; migration rejouable', async () => {
   const snap = async () => (await db.owner.query(`SELECT (SELECT count(*) FROM wallet_entries)::text AS ecr, (SELECT count(*) FROM orders)::text AS cmd,
      (SELECT md5(string_agg(key || value::text, ',' ORDER BY key)) FROM settings WHERE key NOT IN ('mission_offer_minutes','mission_max_offers','courier_max_open')) AS s,
-     (SELECT md5(string_agg(p.proname || md5(pg_get_functiondef(p.oid)) || COALESCE(p.proacl::text, ''), ',' ORDER BY p.proname)) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f'
+     (SELECT string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || COALESCE(p.proacl::text, '') || ':' || p.prosecdef::text || ':' || COALESCE(p.proconfig::text, ''), E'\\n' ORDER BY p.proname, p.oid::text) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f'
         AND p.proname NOT IN ('fn_chief_offer_order','fn_chief_cancel_offer','fn_chief_offers','fn_courier_offers','fn_courier_accept_offer','fn_courier_refuse_offer','_expire_offers','_courier_load','fn_admin_reset_activity')) AS fonctions`)).rows[0];
   const before = await snap();
   const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-019.sql'), 'utf8');
