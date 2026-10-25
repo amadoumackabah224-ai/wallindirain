@@ -206,10 +206,10 @@ export function adminAudit() {
 export function adminRemittances() {
   const ST = { pending: ['À valider', 'warn'], confirmed: ['Validé', 'ok'], rejected: ['Refusé', 'bad'] };
   return liveView(() => get('/admin/remittances'), ({ remittances }, refresh) => h('div', {}, h('h1', {}, 'Reversements des livreurs'),
-    h('div', { class: 'notice' }, 'Un livreur a envoyé de l\'argent par transfert : regardez la capture d\'écran, vérifiez la somme reçue sur votre téléphone, puis validez. Un manque est débité au livreur.'),
+    h('div', { class: 'notice' }, 'Un livreur déclare avoir reversé de l\'argent : par transfert, regardez la capture d\'écran et vérifiez la somme reçue sur votre téléphone ; en espèces, vérifiez avec la personne indiquée et comptez la somme reçue. Puis validez. Un manque est débité au livreur.'),
     h('div', { class: 'card' }, table(['Date', 'Livreur', 'Annoncé', 'Via', 'Statut', ''], remittances.map((r) => {
       const confirm = action(async () => {
-        const v = await ask({ title: `Valider ${fmtGNF(r.amount)}`, text: `${r.courier_name} annonce ${fmtGNF(r.amount)} par ${r.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'}. Saisissez la somme réellement reçue : tout manque lui sera débité.`, submit: 'Confirmer la réception', fields: [
+        const v = await ask({ title: `Valider ${fmtGNF(r.amount)}`, text: `${r.courier_name} annonce ${fmtGNF(r.amount)} ${r.method === 'cash' ? `en espèces, remis à ${r.handed_to}` : `par ${r.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'}`}. Saisissez la somme réellement reçue : tout manque lui sera débité.`, submit: 'Confirmer la réception', fields: [
           { name: 'received', label: 'Montant réellement reçu (GNF)', type: 'number', inputmode: 'numeric', value: r.amount }] });
         if (!v) return;
         const res = await post(`/admin/remittances/${r.id}/confirm`, { received: Number(v.received) });
@@ -220,9 +220,9 @@ export function adminRemittances() {
         if (v) await post(`/admin/remittances/${r.id}/reject`, { reason: v.reason });
       }, { ok: 'Reversement refusé', refresh });
       return [fmtDate(r.created_at), h('div', {}, h('b', {}, r.courier_name), h('div', { class: 'small muted' }, fmtPhone(r.courier_phone))), amount(r.amount),
-        h('div', {}, r.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', r.reference && h('div', { class: 'small muted' }, r.reference)),
+        h('div', {}, r.method === 'cash' ? 'Espèces' : r.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', r.handed_to && h('div', { class: 'small muted' }, `Remis à : ${r.handed_to}`), r.reference && h('div', { class: 'small muted' }, r.reference)),
         h('div', {}, badge(...ST[r.status]), r.status === 'confirmed' && r.received !== r.amount && h('div', { class: 'small muted' }, `Reçu : ${fmtGNF(r.received)}`), r.decision_note && h('div', { class: 'small muted' }, r.decision_note)),
-        h('div', { class: 'gap' }, proofButton(r.proof_id, 'Capture'), r.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: confirm }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser')])];
+        h('div', { class: 'gap' }, r.proof_id && proofButton(r.proof_id, 'Capture'), r.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: confirm }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser')])];
     }), { empty: empty('📲', 'Aucun reversement par transfert') }))), { poll: 20000 });
 }
 

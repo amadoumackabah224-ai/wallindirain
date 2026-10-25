@@ -72,3 +72,9 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 - `GET /api/product-images/:id` : lecture selon le rôle (administration et propriétaire toujours ; autres rôles si produit validé).
 - `GET /api/public/link/:code/photo` : couverture du produit d'un lien valable. `GET /api/public/link/:code` renvoie `has_photo`.
 - Les listes de produits (fournisseur, catalogue vendeur, administrateur) renvoient `image_ids`.
+
+## Reversement en espèces, ordre des tournées (024)
+- `POST /api/courier/remit` : `method` = `orange_money` | `mtn_momo` (avec `proof_id`) | `cash` (avec `handed_to`, 2-100 caractères, obligatoire ; pas de capture).
+- Listes (`/api/courier/cash`, `/api/admin/remittances`) : champ `handed_to`.
+- `POST /api/chief/tours/:id/reorder` `{order_ids}` : toutes les commandes en cours de la tournée, dans le nouvel ordre.
+- `GET /api/chief/tours` : `planned_fees`, `planned_pay`, et `fee`/`pay` par arrêt. `GET /api/chief/orders` : `delivery_fee`, `courier_pay`.

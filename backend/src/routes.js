@@ -710,7 +710,7 @@ export function registerRoutes(app, { db, cfg }) {
   const CHIEF = ['call_chief', 'admin'];
   app.get('/api/chief/orders', guard(CHIEF, async () => ({
     pickup_alert_hours: await pickupHours(),
-    orders: await q(`SELECT ${CALL_COLS}, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
+    orders: await q(`SELECT ${CALL_COLS}, o.delivery_fee, o.courier_pay, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
         WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
     couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders,
@@ -733,6 +733,12 @@ export function registerRoutes(app, { db, cfg }) {
     const id = await fn('fn_chief_create_tour', ctx.user.id, v.uuid(b.courier_id, 'Livreur'), b.order_ids.map((x) => v.uuid(x, 'Commande')), v.optStr(b.note, 'Note', 200));
     ctx.status = 201;
     return { id };
+  }));
+  app.post('/api/chief/tours/:id/reorder', guard(CHIEF, async (ctx) => {
+    const ids = Array.isArray(ctx.body.order_ids) ? ctx.body.order_ids.slice(0, 200).map((x) => v.uuid(x, 'Commande')) : null;
+    if (!ids || !ids.length) throw new HttpError(400, 'invalid_input', 'Indiquez les commandes dans l\'ordre de passage');
+    await fn('fn_chief_reorder_tour', ctx.user.id, v.uuid(ctx.params.id, 'Tournée'), ids);
+    return { ok: true };
   }));
   app.post('/api/chief/tours/:id/cancel', guard(CHIEF, async (ctx) => { await fn('fn_chief_cancel_tour', ctx.user.id, v.uuid(ctx.params.id, 'Tournée')); }));
   app.post('/api/chief/tours/:id/cost', guard(CHIEF, async (ctx) => {
@@ -799,15 +805,17 @@ export function registerRoutes(app, { db, cfg }) {
     entries: await q(`SELECT c.order_id, o.ref, c.amount, c.created_at, (c.remittance_id IS NOT NULL) AS in_remittance
         FROM courier_cash_entries c JOIN orders o ON o.id = c.order_id
         WHERE c.courier_id = $1 AND c.count_id IS NULL ORDER BY c.created_at`, [ctx.user.id]),
-    remittances: await q(`SELECT id, method, amount, status, received, reference, proof_id, decision_note, created_at, decided_at
+    remittances: await q(`SELECT id, method, amount, status, received, reference, proof_id, handed_to, decision_note, created_at, decided_at
         FROM remittances WHERE courier_id = $1 ORDER BY created_at DESC LIMIT 30`, [ctx.user.id])
   })));
   app.post('/api/courier/remit', guard(COU, async (ctx) => {
     limit(`remit:${ctx.user.id}`, 20, 3600_000);
     const b = ctx.body;
     const orders = Array.isArray(b.orders) && b.orders.length ? b.orders.slice(0, 200).map((x) => v.uuid(x, 'Commande')) : null;
-    const r = await fn('fn_courier_remit', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Mode de paiement'),
-      v.uuid(b.proof_id, 'Capture'), v.optStr(b.reference, 'Référence', 100), orders);
+    const method = v.oneOf(b.method, ['orange_money', 'mtn_momo', 'cash'], 'Mode de paiement');
+    const r = await fn('fn_courier_remit', ctx.user.id, method,
+      method === 'cash' ? null : v.uuid(b.proof_id, 'Capture'), v.optStr(b.reference, 'Référence', 100), orders,
+      method === 'cash' ? v.str(b.handed_to, 'Personne à qui vous avez remis l\'argent', { min: 2, max: 100 }) : null);
     ctx.status = 201;
     return r;
   }));
@@ -1055,7 +1063,7 @@ export function registerRoutes(app, { db, cfg }) {
 
   // Reversements par transfert déclarés par les livreurs (capture d'écran à contrôler)
   app.get('/api/admin/remittances', guard(ADM, async (ctx) => ({
-    remittances: await q(`SELECT r.id, r.method, r.amount, r.status, r.received, r.reference, r.proof_id, r.decision_note, r.created_at, r.decided_at, u.full_name AS courier_name, u.phone AS courier_phone
+    remittances: await q(`SELECT r.id, r.method, r.amount, r.status, r.received, r.reference, r.proof_id, r.handed_to, r.decision_note, r.created_at, r.decided_at, u.full_name AS courier_name, u.phone AS courier_phone
         FROM remittances r JOIN users u ON u.id = r.courier_id WHERE ($1::text IS NULL OR r.status = $1) ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 200`, [ctx.query.status || null])
   })));
   app.post('/api/admin/remittances/:id/confirm', guard(ADM, async (ctx) =>

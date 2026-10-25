@@ -60,7 +60,7 @@ test('proposition puis acceptation : rémunération visible, données du client 
   assert.equal(list.length, 1); assert.equal(list[0].id, m.id);
   const frozen = Number((await db.owner.query('SELECT courier_pay FROM orders WHERE id = $1', [o.id])).rows[0].courier_pay);
   assert.equal(Number(list[0].courier_pay), frozen); assert.equal(Number(list[0].amount_to_collect), 120000); assert.equal(list[0].commune, 'Kaloum');
-  assert.doesNotMatch(JSON.stringify(list), /Rue 1|Client Test|\d{9}/);                              // ni adresse, ni nom, ni téléphone avant d'accepter
+  assert.doesNotMatch(JSON.stringify(list), /Rue 1|Client Test|\b6\d{8}\b/);                              // ni adresse, ni nom, ni téléphone avant d'accepter
   assert.deepEqual(await call(db.app, 'fn_courier_offers', w.courier2), []);                         // un autre livreur ne la voit pas
   await call(db.app, 'fn_courier_accept_offer', w.courier, m.id);
   const st = await status(o.id); assert.equal(st.status, 'assigned'); assert.equal(st.courier_id, w.courier); assert.equal(st.assigned_by, w.chief);

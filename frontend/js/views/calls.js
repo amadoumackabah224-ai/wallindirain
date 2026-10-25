@@ -47,7 +47,7 @@ export function chiefAssign() {
       const v = await ask({ title: 'Créer une tournée', text: 'Cochez au moins 2 commandes, dans l\'ordre où le livreur doit passer. Chaque commande garde son propre suivi et son propre encaissement ; la paie du livreur reste celle de chaque commande.', submit: 'Créer la tournée', fields: [
         { name: 'courier', label: 'Livreur', type: 'select', options: couriers.map((c) => [c.id, `${c.full_name} (${c.open_orders} en cours)${c.availability === 'unavailable' ? ' · indisponible' : ''}${c.zones.length ? ` · ${c.zones.join(', ')}` : ''}`]) },
         { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200 },
-        ...eligible.map((o, i) => ({ name: `o${i}`, label: `${o.ref} · ${o.commune}`, type: 'checkbox', value: false, required: false }))] });
+        ...eligible.map((o, i) => ({ name: `o${i}`, label: `${o.ref} · ${o.commune} · frais ${fmtGNF(o.delivery_fee)} · paie livreur ${fmtGNF(o.courier_pay)}`, type: 'checkbox', value: false, required: false }))] });
       if (v) await post('/chief/tours', { courier_id: v.courier, note: v.note || undefined, order_ids: eligible.filter((o, i) => v[`o${i}`]).map((o) => o.id) });
     }, { ok: 'Tournée créée', refresh });
     const TOUR_LABEL = { active: ['En cours', 'warn'], closed: ['Terminée', 'ok'], cancelled: ['Annulée', 'grey'] };
@@ -59,7 +59,19 @@ export function chiefAssign() {
       const cancelTour = action(async () => { if (await confirmBox('Annuler la tournée ?', 'Les commandes restent affectées au livreur, une par une.', 'Annuler la tournée')) await post(`/chief/tours/${t.id}/cancel`); }, { ok: 'Tournée annulée', refresh });
       const basis = t.actual_cost ?? t.courier_pay_system;
       return h('div', { class: 'card' }, h('div', { class: 'order-head' }, h('b', {}, t.courier_name), badge(...TOUR_LABEL[t.status]), t.note && h('span', { class: 'small muted' }, t.note)),
-        h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · `, statusBadge(st.status)))),
+        h('ol', { class: 'small' }, t.stops.map((st) => {
+          const act = t.status === 'active' ? t.stops.filter((x) => x.active) : [];
+          const idx = act.findIndex((x) => x.order_id === st.order_id);
+          const move = (d) => action(async () => {
+            const ids = act.map((x) => x.order_id); const j = idx + d; if (j < 0 || j >= ids.length) return;
+            [ids[idx], ids[j]] = [ids[j], ids[idx]];
+            await post(`/chief/tours/${t.id}/reorder`, { order_ids: ids });
+          }, { ok: 'Ordre modifié', refresh })();
+          return h('li', {}, `${st.ref} · ${st.commune} · `, statusBadge(st.status), idx >= 0 && h('span', { class: 'gap' }, ' ',
+            h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'aria-label': 'Passer plus tôt', disabled: idx === 0, onclick: () => move(-1) }, '↑'),
+            h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'aria-label': 'Passer plus tard', disabled: idx === act.length - 1, onclick: () => move(1) }, '↓')));
+        })),
+        t.status === 'active' && h('div', { class: 'small' }, `Prévu : frais de livraison ${fmtGNF(t.planned_fees)} · paie du livreur ${fmtGNF(t.planned_pay)} · marge de livraison ${fmtGNF(t.planned_fees - (t.actual_cost ?? t.planned_pay))}`),
         h('div', { class: 'small muted' }, `${t.delivered}/${t.orders} livrées · frais de livraison encaissés ${fmtGNF(t.delivery_fees)} · paie prévue ${fmtGNF(t.courier_pay_system)}${t.actual_cost != null ? ` · coût réel saisi ${fmtGNF(t.actual_cost)}` : ''} · marge de livraison ${fmtGNF(t.delivery_fees - basis)}${t.actual_cost != null ? ' (sur coût réel)' : ' (sur paie prévue)'}`),
         h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: setCost }, 'Coût réel'), t.status === 'active' && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancelTour }, 'Annuler la tournée')));
     };
