@@ -1,5 +1,5 @@
 // Espace livreur : récupérer, livrer avec le code du client, signaler un échec.
-import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, since, pickupLate, proofButton, FAIL_LABEL } from '../ui.js';
+import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
@@ -55,7 +55,7 @@ export function courierOrders() {
       return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad')),
         pickupLate(o, pickup_alert_hours) && h('div', { class: 'notice bad' }, h('b', {}, `⏰ Colis affecté depuis ${since(o.assigned_since)}. `), 'Récupérez-le maintenant, ou prévenez le chef call center si vous ne pouvez pas.'),
         o.risk_flag && h('div', { class: 'notice warn' }, 'Ce client a déjà refusé ou raté une livraison : confirmez avec lui avant de vous déplacer.'),
-        kv([['Client', o.customer_name], ['Téléphone', h('span', { class: 'gap' }, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, je suis votre livreur Wallindirain pour la commande ${o.ref}. Je suis en route, merci de rester joignable.`))], ['Adresse', `${o.commune}, ${o.address}`], o.note && ['Note', o.note], ['Colis', `${o.product_name} × ${o.qty}`], ['À encaisser', amount(o.amount_to_collect)], o.payment_method && ['Paiement déclaré', badge(PAY[o.payment_method], 'ok')]]),
+        kv([['Client', o.customer_name], ['Téléphone', h('span', { class: 'gap' }, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, je suis votre livreur Wallindirain pour la commande ${o.ref}. Je suis en route, merci de rester joignable.`))], ['À récupérer', pickupText(o)], ['Adresse', `${o.commune}, ${o.address}`], o.note && ['Note', o.note], ['Colis', `${o.product_name} × ${o.qty}`], ['À encaisser', amount(o.amount_to_collect)], o.payment_method && ['Paiement déclaré', badge(PAY[o.payment_method], 'ok')]]),
         h('div', { class: 'gap mt' },
           o.status === 'assigned' && h('button', { class: 'btn btn-gold', onclick: step('pickup', 'Colis récupéré') }, 'J\'ai récupéré le colis'),
           o.status === 'picked_up' && h('button', { class: 'btn btn-gold', onclick: step('depart', 'Bonne route !') }, 'Je pars livrer'),

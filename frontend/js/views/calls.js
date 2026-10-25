@@ -1,5 +1,5 @@
 // Call center : agents (file d'appel) et chef (affectation aux livreurs).
-import { h, ask, fmtDate, fmtGNF, fmtPhone, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate } from '../ui.js';
+import { h, ask, fmtDate, fmtGNF, fmtPhone, pickupText, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -83,7 +83,7 @@ export function chiefAssign() {
           const toWh = action(async () => { if (await confirmBox('Retour en entrepôt ?', 'Le magasinier réceptionnera le colis et indiquera la cause.')) await post(`/chief/orders/${o.id}/return`); }, { ok: 'Retour demandé', refresh });
           const cancel = action(async () => { const v = await ask({ title: `Annuler ${o.ref}`, submit: 'Annuler la commande', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/chief/orders/${o.id}/cancel`, { reason: v.reason }); }, { ok: 'Commande annulée', refresh });
           return h('div', { class: 'card order' }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.courier_name && badge(o.courier_name, 'grey'), open && badge(`Proposée à ${open.courier_name}`, 'warn'), pickupLate(o, pickup_alert_hours) && badge(`Non récupéré depuis ${since(o.assigned_since)}`, 'bad'), o.failure_reason && badge(FAIL_LABEL[o.failure_reason], 'bad')),
-            kv([['Client', `${o.customer_name} · ${fmtPhone(o.customer_phone)}`], ['Livraison', `${o.commune}, ${o.address}`], ['Produit', `${o.product_name} × ${o.qty}`], ['Total', amount(o.sale_total)]]),
+            kv([['Client', `${o.customer_name} · ${fmtPhone(o.customer_phone)}`], ['Livraison', `${o.commune}, ${o.address}`], ['À récupérer', pickupText(o)], ['Produit', `${o.product_name} × ${o.qty}`], ['Total', amount(o.sale_total)]]),
             h('div', { class: 'gap mt' }, ['confirmed', 'failed'].includes(o.status) && (open ? h('button', { class: 'btn btn-sm btn-ghost', onclick: cancelOffer }, 'Retirer la proposition') : made < offers.max_offers && h('button', { class: 'btn btn-sm btn-ghost', onclick: offer }, 'Proposer à un livreur')),
               ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-gold', onclick: assign }, o.status === 'confirmed' ? 'Affecter à un livreur' : 'Réaffecter'),
               o.status === 'failed' && h('button', { class: 'btn btn-sm btn-ghost', onclick: toWh }, 'Retour en entrepôt'), ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
