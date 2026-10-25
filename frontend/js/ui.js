@@ -39,6 +39,10 @@ export const ORDER_STATUS = {
 export const statusBadge = (s) => { const [t, c] = ORDER_STATUS[s] || [s, 'grey']; return h('span', { class: `badge ${c}` }, t); };
 export const badge = (text, kind = '') => h('span', { class: `badge ${kind}` }, text);
 export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier' };
+/** Photos d'un produit (identifiants renvoyés par l'API) ; onDelete ajoute une croix de suppression (fournisseur). */
+export const photoStrip = (ids = [], { size = 88, onDelete } = {}) => ids.length ? h('div', { class: 'photo-strip' }, ids.map((id) => h('span', { class: 'photo-wrap' },
+  h('img', { class: 'photo-thumb', src: `/api/product-images/${id}`, alt: 'Photo du produit', loading: 'lazy', width: size, height: size }),
+  onDelete && h('button', { class: 'photo-del', type: 'button', 'aria-label': 'Supprimer cette photo', onclick: () => onDelete(id) }, '×')))) : null;
 export const PICKUP_LABEL = { warehouse: 'Entrepôt Wallindirain', supplier: 'Chez le fournisseur', seller: 'Chez le vendeur' };
 export const pickupText = (o) => `${PICKUP_LABEL[o.pickup_place] ?? '—'}${o.pickup_detail ? ` : ${o.pickup_detail}` : o.pickup_missing ? ' (adresse non indiquée)' : ''}`;
 export const FAIL_LABEL = { customer_absent: 'Client absent', customer_refusal: 'Client a refusé', address_not_found: 'Adresse introuvable', other: 'Autre' };
@@ -187,7 +191,7 @@ export const confirmBox = (title, text, submit = 'Confirmer', danger = false) =>
 export function action(fn, { ok, refresh } = {}) {
   return async (ev) => {
     const btn = ev?.currentTarget; if (btn) btn.disabled = true;
-    try { const r = await fn(); if (ok) toast(typeof ok === 'function' ? ok(r) : ok, 'ok'); if (refresh) await refresh(); return r; }
+    try { const r = await fn(); const msg = ok ? (typeof ok === 'function' ? ok(r) : ok) : ''; if (msg) toast(msg, 'ok'); if (refresh) await refresh(); return r; }
     catch (e) { errToast(e); }
     finally { if (btn?.isConnected) btn.disabled = false; }
   };

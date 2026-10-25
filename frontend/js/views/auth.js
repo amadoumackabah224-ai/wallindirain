@@ -104,7 +104,7 @@ export function clientOrderView(code) {
     const p = data.product;
     if (data.orders_open === false) {      // la commande se fait uniquement auprès du vendeur : la page présente seulement le produit
       root.replaceChildren(h('div', { class: 'hero' }, h('img', { src: '/assets/logo-gold.png', alt: 'Wallindirain' })),
-        h('div', { class: 'card' }, h('h1', {}, p.name), p.description && h('p', {}, p.description), h('p', { class: 'total-line' }, fmtGNF(p.unit_price)),
+        h('div', { class: 'card' }, p.has_photo && h('img', { class: 'public-photo', src: `/api/public/link/${encodeURIComponent(code)}/photo`, alt: p.name }), h('h1', {}, p.name), p.description && h('p', {}, p.description), h('p', { class: 'total-line' }, fmtGNF(p.unit_price)),
           h('div', { class: 'notice' }, 'Pour commander, contactez la personne qui vous a envoyé ce lien : elle enregistre votre commande, puis un conseiller vous appelle pour la confirmer. Vous payez à la livraison.')));
       return;
     }
@@ -142,7 +142,7 @@ export function clientOrderView(code) {
       h('button', { class: 'btn btn-gold btn-block mt', type: 'submit' }, 'Commander, payer à la livraison'));
     root.replaceChildren(
       h('div', { class: 'hero' }, h('img', { src: '/assets/logo-gold.png', alt: 'Wallindirain' })),
-      h('div', { class: 'card' }, h('h1', {}, p.name), p.description && h('p', {}, p.description), h('div', { class: 'price-big' }, fmtGNF(p.unit_price)),
+      h('div', { class: 'card' }, p.has_photo && h('img', { class: 'public-photo', src: `/api/public/link/${encodeURIComponent(code)}/photo`, alt: p.name }), h('h1', {}, p.name), p.description && h('p', {}, p.description), h('div', { class: 'price-big' }, fmtGNF(p.unit_price)),
         p.available > 0 ? h('div', { class: 'badge ok' }, 'Disponible') : h('div', { class: 'badge bad' }, 'Rupture de stock'), h('p', { class: 'small muted' }, 'Paiement uniquement à la réception de votre colis.')),
       p.available > 0 ? h('div', { class: 'card' }, form, done) : h('div', { class: 'notice warn' }, 'Ce produit est momentanément indisponible.'),
       h('p', { class: 'center small muted' }, `Une question ? Appelez le ${fmtPhone(data.contact_phone)}`), legalLinks('client'));

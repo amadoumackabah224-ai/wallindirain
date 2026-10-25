@@ -119,3 +119,7 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 
 ## Lieu de récupération (022)
 - `products.pickup_detail`, `orders.pickup_detail` (3-200 caractères, facultatifs). Fonctions `fn_seller_set_pickup`, `fn_supplier_set_pickup`. Retour arrière : `docs/retour-arriere-022.sql`.
+
+## Photos des produits (023)
+- `product_images` (id, product_id, position 1-4, mime, data bytea 1 000 à 450 000 octets, created_at), `UNIQUE (product_id, position)` ; la colonne `data` n'est pas lisible directement par l'application.
+- Fonctions `fn_supplier_add_product_image`, `fn_supplier_delete_product_image`, `fn_product_image_get`, `fn_public_product_photo`. Retour arrière : `docs/retour-arriere-023.sql`.

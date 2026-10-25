@@ -1,5 +1,5 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
-import { h, ask, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER } from '../ui.js';
+import { h, ask, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER } from '../ui.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
 
@@ -98,7 +98,7 @@ export function adminProducts() {
         } else if (await confirmBox('Refuser ce produit ?', p.name, 'Refuser', true)) await post(`/admin/products/${p.id}/review`, { approve: false });
       }, { ok: approve ? 'Produit validé' : 'Produit refusé', refresh });
       const margin = action(async () => { const v = await ask({ title: `Marge : ${p.name}`, submit: 'Changer', fields: [{ name: 'bps', label: 'Marge (points de base)', type: 'number' }] }); if (v) await post(`/admin/products/${p.id}/margin`, { margin_bps: Number(v.bps) }); }, { ok: 'Marge modifiée', refresh });
-      return [h('b', {}, p.name), p.supplier_name, amount(p.supplier_price), p.margin_unit != null ? amount(p.margin_unit) : '—', p.storage === 'wallindirain' ? 'Wallindirain' : 'Fournisseur', `${p.stock_qty} (${p.reserved_qty} rés.)`,
+      return [h('div', {}, h('b', {}, p.name), photoStrip(p.image_ids, { size: 56 }), !p.image_ids.length && h('div', { class: 'small muted' }, 'Sans photo')), p.supplier_name, amount(p.supplier_price), p.margin_unit != null ? amount(p.margin_unit) : '—', p.storage === 'wallindirain' ? 'Wallindirain' : 'Fournisseur', `${p.stock_qty} (${p.reserved_qty} rés.)`,
         badge({ pending: 'À valider', approved: 'Validé', rejected: 'Refusé', archived: 'Archivé' }[p.status], { pending: 'warn', approved: 'ok', rejected: 'bad', archived: 'grey' }[p.status]),
         h('div', { class: 'gap' }, p.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: review(true) }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: review(false) }, 'Refuser')], p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: margin }, 'Marge'))];
     }), { empty: empty('🛍️', 'Aucun produit') }))));

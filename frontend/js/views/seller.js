@@ -1,5 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -63,7 +63,7 @@ export function sellerCatalog() {
           const v = await ask({ title: `Acheter du stock : ${p.name}`, text: `Prix vendeur : ${fmtGNF(p.vendor_price)} l'unité, payé à l'avance depuis votre portefeuille. Livraison plus rapide, gardé chez Wallindirain.`, submit: 'Acheter', fields: [{ name: 'qty', label: 'Quantité', type: 'number', inputmode: 'numeric' }] });
           if (v) { const r = await post('/seller/stock', { product_id: p.id, qty: Number(v.qty) }); toast(`Stock acheté : ${fmtGNF(r.cost)} débités`, 'ok'); }
         }, { refresh });
-        return h('div', { class: 'card' }, h('h2', {}, p.name), p.description && h('p', { class: 'muted small' }, p.description),
+        return h('div', { class: 'card' }, h('h2', {}, p.name), photoStrip(p.image_ids, { size: 96 }), p.description && h('p', { class: 'muted small' }, p.description),
           kv([['Prix vendeur', amount(p.vendor_price)], ['Prix minimum', amount(p.min_price)], ['Votre prix', p.sale_price ? amount(p.sale_price) : badge('à fixer', 'warn')], ['Disponible', p.available], p.my_stock > 0 && ['Votre stock prépayé', p.my_stock]]),
           h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm', onclick: setPrice }, p.sale_price ? 'Changer mon prix' : 'Fixer mon prix'),
             p.sale_price && h('button', { class: 'btn btn-sm btn-gold', onclick: link }, p.link_code ? 'Copier mon lien' : 'Créer mon lien'),
