@@ -136,6 +136,32 @@ test('HTTP : livreur (profil, disponibilité), administrateur (liste, zones, vé
   const cc = ch.json.couriers.find((c) => c.id === w.courier); assert.deepEqual(cc.zones, ['Matam', 'Ratoma']); assert.equal(cc.availability, 'available');
 });
 
+test('création du livreur : compte, véhicule et zones réglés d\'un coup ; zone ou véhicule invalide = aucun compte créé ; autres rôles inchangés', async () => {
+  const adm = await login(w.admin), sel = await login(w.seller);
+  const users = () => count(`SELECT count(*)::int AS n FROM users`);
+  const base0 = { role: 'courier', name: 'Livreur Nouveau', password: 'Zebre4829x' };
+  const before = await users();
+  const bad = await adm.post('/api/admin/users', { ...base0, phone: '622111001', vehicle: 'moto', communes: ['Kaloum', 'Atlantide'] });
+  assert.equal(bad.status, 400); assert.equal(await users(), before);                                  // refus complet : pas de compte à moitié configuré
+  assert.equal((await adm.post('/api/admin/users', { ...base0, phone: '622111001', vehicle: 'fusée', communes: [] })).status, 400); assert.equal(await users(), before);
+  assert.equal((await adm.post('/api/admin/users', { ...base0, phone: '622111001', communes: 'Kaloum' })).status, 400); assert.equal(await users(), before);
+  const ok = await adm.post('/api/admin/users', { ...base0, phone: '622111001', vehicle: 'moto', communes: ['Ratoma', ' Kaloum ', 'Kaloum'] });
+  assert.equal(ok.status, 201);
+  const p = await call(db.app, 'fn_courier_profile', ok.json.id); assert.equal(p.vehicle, 'moto'); assert.deepEqual(p.zones, ['Kaloum', 'Ratoma']);
+  const plain = await adm.post('/api/admin/users', { ...base0, name: 'Livreur Simple', phone: '622111002' });           // sans option : comme avant
+  assert.equal(plain.status, 201); assert.deepEqual((await call(db.app, 'fn_courier_profile', plain.json.id)).zones, []);
+  const agent = await adm.post('/api/admin/users', { role: 'agent', team: 'Alpha', name: 'Agent Test', phone: '622111003', password: 'Zebre4829x', vehicle: 'moto', communes: ['Kaloum'] });
+  assert.equal(agent.status, 201); assert.equal(await count('SELECT count(*)::int AS n FROM courier_zones WHERE courier_id = $1', [agent.json.id]), 0);   // zones ignorées hors livreur
+  assert.equal((await adm.post('/api/admin/users', { ...base0, phone: '622111004', password: 'court' })).status, 400);
+  assert.equal((await sel.post('/api/admin/users', { ...base0, phone: '622111005' })).status, 403);
+  const list = await adm.get('/api/admin/users?role=courier'); assert.equal(list.status, 200);
+  const me = list.json.users.find((u) => u.id === ok.json.id);
+  assert.equal(me.vehicle, 'moto'); assert.deepEqual(me.zones, ['Kaloum', 'Ratoma']); assert.equal(me.availability, 'available');
+  assert.ok(list.json.users.every((u) => !('password_hash' in u)));
+  const all = await adm.get('/api/admin/users'); assert.equal(all.json.users.find((u) => u.id === agent.json.id).zones, null);   // pas de zones pour un agent
+  assert.equal(await count('SELECT count(*)::int AS n FROM fn_ledger_check()'), 0);
+});
+
 test('droits SQL : tables en lecture seule pour l\'application, fonctions SECURITY DEFINER, fonction interne non exécutable', async () => {
   for (const t of ['courier_profiles', 'courier_zones']) {
     for (const priv of ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) assert.equal((await db.owner.query(`SELECT has_table_privilege('wld_app', $1, $2) AS p`, [t, priv])).rows[0].p, false, `${t} ${priv}`);

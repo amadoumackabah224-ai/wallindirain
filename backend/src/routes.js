@@ -832,7 +832,10 @@ export function registerRoutes(app, { db, cfg }) {
     return { users: await q(`SELECT id, role, status, full_name, phone, email, (email_verified_at IS NOT NULL) AS email_verified, team, identity_doc, identity_verified, payout_method, payout_phone, created_at,
           (SELECT d.status FROM identity_documents d WHERE d.user_id = users.id) AS kyc_status,
           EXISTS (SELECT 1 FROM identity_documents d WHERE d.user_id = users.id AND d.back_mime IS NOT NULL) AS kyc_back,
-          CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance
+          CASE WHEN role IN ('seller','supplier','agent','call_chief','courier') THEN (SELECT COALESCE(sum(amount),0)::bigint FROM wallet_entries w WHERE w.user_id = users.id) END AS balance,
+          CASE WHEN role = 'courier' THEN COALESCE((SELECT availability FROM courier_profiles cp WHERE cp.courier_id = users.id), 'available') END AS availability,
+          CASE WHEN role = 'courier' THEN (SELECT vehicle FROM courier_profiles cp WHERE cp.courier_id = users.id) END AS vehicle,
+          CASE WHEN role = 'courier' THEN COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = users.id), '[]'::jsonb) END AS zones
         FROM users WHERE deleted_at IS NULL AND role <> 'system' AND ($1::text IS NULL OR role::text = $1) AND ($2::text IS NULL OR status::text = $2)
         ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [ctx.query.role || null, ctx.query.status || null, l, offset]) };
   }));
@@ -857,8 +860,23 @@ export function registerRoutes(app, { db, cfg }) {
     const b = ctx.body;
     const pwErr = passwordProblem(b.password);
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
+    const role = v.oneOf(b.role, ['admin', 'agent', 'call_chief', 'courier', 'warehouse'], 'Rôle');
+    // livreur : véhicule et zones réglés dès la création (contrôlés AVANT de créer le compte, pour ne pas laisser un compte à moitié configuré)
+    let vehicle = null, communes = [];
+    if (role === 'courier') {
+      vehicle = b.vehicle == null || b.vehicle === '' ? null : v.oneOf(b.vehicle, ['moto', 'velo', 'voiture', 'pied'], 'Véhicule');
+      communes = b.communes == null ? [] : b.communes;
+      if (!Array.isArray(communes) || communes.length > 50 || !communes.every((c) => typeof c === 'string' && c.length <= 60)) throw new HttpError(400, 'invalid_input', 'Liste de zones invalide');
+      const known = new Set((await q('SELECT commune FROM delivery_rates')).map((r) => r.commune));
+      const bad = communes.find((c) => !known.has(c.trim()));
+      if (bad !== undefined) throw new HttpError(400, 'invalid_input', `Zone inconnue : ${bad.slice(0, 60)}`);
+    }
     const id = await fn('fn_admin_create_staff', ctx.user.id, v.phone(b.phone), v.str(b.name, 'Nom', { min: 2, max: 100 }),
-      v.oneOf(b.role, ['admin', 'agent', 'call_chief', 'courier', 'warehouse'], 'Rôle'), await hashPassword(b.password), v.optStr(b.team, 'Call center', 80));
+      role, await hashPassword(b.password), v.optStr(b.team, 'Call center', 80));
+    if (role === 'courier') {
+      if (vehicle) await fn('fn_admin_set_courier_profile', ctx.user.id, id, vehicle);
+      if (communes.length) await fn('fn_admin_set_courier_zones', ctx.user.id, id, communes);
+    }
     ctx.status = 201;
     return { id };
   }));

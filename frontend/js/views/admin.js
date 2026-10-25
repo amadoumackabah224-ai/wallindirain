@@ -28,23 +28,35 @@ export function adminDashboard({ goTo }) {
 export function adminUsers() {
   let role = '';
   const host = h('div');
-  const load = () => host.replaceChildren(liveView(() => get(`/admin/users${role ? `?role=${role}` : ''}`), ({ users }, refresh) => {
+  const load = () => host.replaceChildren(liveView(() => Promise.all([get(`/admin/users${role ? `?role=${role}` : ''}`), get('/admin/couriers')]).then(([u, c]) => ({ users: u.users, zones: c.zones })), ({ users, zones }, refresh) => {
+    const VEH = [['', 'Non précisé'], ['moto', 'Moto'], ['velo', 'Vélo'], ['voiture', 'Voiture'], ['pied', 'À pied']];
+    const zoneFields = (current = []) => zones.map((z, i) => ({ name: `z${i}`, label: z.commune, type: 'checkbox', value: current.includes(z.commune), required: false }));
+    const picked = (v) => zones.filter((z, i) => v[`z${i}`]).map((z) => z.commune);
+    const createCourier = action(async () => {
+      const v = await ask({ title: 'Créer un livreur', text: 'Tout se règle ici : compte, véhicule et zones couvertes. Le livreur est affectable dans toutes les zones ; les zones aident le chef à choisir.', submit: 'Créer le livreur', fields: [
+        { name: 'name', label: 'Nom complet' }, { name: 'phone', label: 'Téléphone', type: 'tel', inputmode: 'numeric' },
+        { name: 'password', label: 'Mot de passe provisoire', type: 'text', hint: '8 caractères minimum, lettres et chiffres. Communiquez-le à la personne.' },
+        { name: 'vehicle', label: 'Véhicule', type: 'select', options: VEH }, ...zoneFields()] });
+      if (v) await post('/admin/users', { role: 'courier', name: v.name, phone: v.phone, password: v.password, vehicle: v.vehicle || null, communes: picked(v) });
+    }, { ok: 'Livreur créé', refresh });
     const create = action(async () => {
       const v = await ask({ title: 'Créer un compte du personnel', submit: 'Créer', fields: [
-        { name: 'role', label: 'Rôle', type: 'select', options: [['agent', 'Agent call center'], ['call_chief', 'Chef call center'], ['courier', 'Livreur'], ['warehouse', 'Magasinier'], ['admin', 'Administrateur']] },
+        { name: 'role', label: 'Rôle', type: 'select', options: [['agent', 'Agent call center'], ['call_chief', 'Chef call center'], ['warehouse', 'Magasinier'], ['admin', 'Administrateur']] },
         { name: 'name', label: 'Nom complet' }, { name: 'phone', label: 'Téléphone', type: 'tel', inputmode: 'numeric' },
         { name: 'team', label: 'Call center (agents et chefs)', required: false, placeholder: 'Ex. Alpha' }, { name: 'password', label: 'Mot de passe provisoire', type: 'text', hint: '8 caractères minimum, lettres et chiffres. Communiquez-le à la personne.' }] });
       if (v) await post('/admin/users', v);
     }, { ok: 'Compte créé', refresh });
-    return h('div', {}, h('div', { class: 'gap mb' }, h('select', { class: 'grow', 'aria-label': 'Filtrer par rôle', onchange: (e) => { role = e.target.value; load(); } }, h('option', { value: '' }, 'Tous les rôles'), Object.entries(ROLE_LABEL).map(([k, l]) => h('option', { value: k, selected: k === role }, l))), h('button', { class: 'btn btn-gold', onclick: create }, '+ Créer un compte')),
+    return h('div', {}, h('div', { class: 'gap mb' }, h('select', { class: 'grow', 'aria-label': 'Filtrer par rôle', onchange: (e) => { role = e.target.value; load(); } }, h('option', { value: '' }, 'Tous les rôles'), Object.entries(ROLE_LABEL).map(([k, l]) => h('option', { value: k, selected: k === role }, l))), h('button', { class: 'btn btn-gold', onclick: createCourier }, '+ Créer un livreur'), h('button', { class: 'btn btn-gold', onclick: create }, '+ Autre compte')),
       h('div', { class: 'card' }, table(['Nom', 'Rôle', 'Téléphone', 'Versement', 'Statut', 'Identité', 'Solde', ''], users.map((u) => {
         const edit = action(async () => {
           const v = await ask({ title: `Modifier ${u.full_name}`, text: 'Le numéro de versement est celui où part l\'argent de ses retraits : modifiez-le seulement après avoir vérifié la demande de la personne.', submit: 'Enregistrer', fields: [
             { name: 'name', label: 'Nom complet', value: u.full_name },
             ...(['agent', 'call_chief'].includes(u.role) ? [{ name: 'team', label: 'Call center', value: u.team || '' }] : []),
+            ...(u.role === 'courier' ? [{ name: 'vehicle', label: 'Véhicule', type: 'select', value: u.vehicle || '', options: VEH }, ...zoneFields(u.zones || [])] : []),
             { name: 'payout_method', label: 'Opérateur de versement', type: 'select', value: u.payout_method || 'orange_money', options: [['orange_money', 'Orange Money'], ['mtn_momo', 'MTN MoMo']] },
             { name: 'payout_phone', label: 'Numéro de versement', type: 'tel', inputmode: 'numeric', required: false, value: u.payout_phone || '', hint: 'Laissez vide pour ne pas définir de numéro.' }] });
           if (v) await post(`/admin/users/${u.id}/update`, { name: v.name, team: v.team, payout_method: v.payout_method, payout_phone: v.payout_phone });
+          if (v && u.role === 'courier') { await post(`/admin/couriers/${u.id}/profile`, { vehicle: v.vehicle || null }); await post(`/admin/couriers/${u.id}/zones`, { communes: picked(v) }); }
         }, { ok: 'Compte modifié', refresh });
         const resetPw = action(async () => {
           if (!(await confirmBox('Nouveau mot de passe ?', `Un mot de passe temporaire sera créé pour ${u.full_name} et ses connexions en cours seront coupées. Vous le transmettrez vous-même à la personne.`, 'Créer le mot de passe'))) return;
@@ -61,7 +73,7 @@ export function adminUsers() {
           if (u.identity_verified) { if (await confirmBox('Retirer la vérification ?', 'La personne ne pourra plus retirer d\'argent tant que sa pièce n\'est pas revérifiée.', 'Retirer')) await post(`/admin/users/${u.id}/verify`, { verified: false }); return; }
           reviewIdentity(u, refresh);
         }, { refresh });
-        return [h('div', {}, h('b', {}, u.full_name), u.team && h('div', { class: 'small muted' }, u.team)), ROLE_LABEL[u.role], h('div', {}, fmtPhone(u.phone), u.email && h('div', { class: 'small muted' }, u.email, u.email_verified ? ' ✓' : ' (non confirmée)')),
+        return [h('div', {}, h('b', {}, u.full_name), u.team && h('div', { class: 'small muted' }, u.team), u.role === 'courier' && h('div', { class: 'small muted' }, [VEH.find(([k]) => k === (u.vehicle || ''))?.[1], u.zones?.length ? u.zones.join(', ') : 'aucune zone', u.availability === 'unavailable' ? 'indisponible' : 'disponible'].filter(Boolean).join(' · '))), ROLE_LABEL[u.role], h('div', {}, fmtPhone(u.phone), u.email && h('div', { class: 'small muted' }, u.email, u.email_verified ? ' ✓' : ' (non confirmée)')),
           u.payout_phone ? h('div', { class: 'small' }, u.payout_method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', h('div', { class: 'muted' }, fmtPhone(u.payout_phone))) : h('span', { class: 'small muted' }, 'non défini'),
           badge({ active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[u.status], { active: 'ok', pending: 'warn', suspended: 'bad' }[u.status]),
           (u.identity_doc || u.kyc_status) ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge(...({ submitted: ['À examiner', 'warn'], rejected: ['Refusée', 'bad'], draft: ['Incomplète', 'warn'] }[u.kyc_status] || ['Sans photos', 'warn'])), h('div', { class: 'small muted' }, u.identity_doc || '')) : '—',
@@ -335,26 +347,3 @@ function zonesCard(rates, settings, refresh) {
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Quartier ou ville'), h('th', { scope: 'col' }, h('span', { class: 'sr' }, 'Actions')))), h('tbody', {}, rows)))));
 }
 
-const VEHICLE = { moto: 'Moto', velo: 'Vélo', voiture: 'Voiture', pied: 'À pied' };
-
-// Livreurs : véhicule, zones couvertes, disponibilité (information d'aide à l'affectation ; l'affectation reste manuelle)
-export function adminCouriers() {
-  return liveView(() => get('/admin/couriers'), ({ couriers, zones }, refresh) => h('div', {}, h('h1', {}, 'Livreurs'),
-    h('p', { class: 'small muted' }, 'Les zones et la disponibilité aident le chef call center à choisir. Un livreur sans zone peut toujours être affecté à la main. Les comptes se créent dans « Utilisateurs ».'),
-    h('div', { class: 'card' }, table(['Livreur', 'Statut', 'Véhicule', 'Zones couvertes', 'Disponibilité', 'En cours', ''], couriers.map((c) => {
-      const setVehicle = action(async () => {
-        const v = await ask({ title: `Véhicule de ${c.full_name}`, submit: 'Enregistrer', fields: [{ name: 'vehicle', label: 'Véhicule', type: 'select', value: c.vehicle || '', options: [['', 'Non précisé'], ...Object.entries(VEHICLE)] }] });
-        if (v) await post(`/admin/couriers/${c.id}/profile`, { vehicle: v.vehicle || null });
-      }, { ok: 'Véhicule enregistré', refresh });
-      const setZones = action(async () => {
-        const v = await ask({ title: `Zones de ${c.full_name}`, text: 'Cochez les zones que ce livreur couvre.', submit: 'Enregistrer', fields: zones.map((z, i) => ({ name: `z${i}`, label: z.commune, type: 'checkbox', value: c.zones.includes(z.commune), required: false })) });
-        if (v) await post(`/admin/couriers/${c.id}/zones`, { communes: zones.filter((z, i) => v[`z${i}`]).map((z) => z.commune) });
-      }, { ok: 'Zones enregistrées', refresh });
-      return [h('div', {}, h('b', {}, c.full_name), h('div', { class: 'small muted' }, fmtPhone(c.phone))),
-        badge({ active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[c.status] || c.status, { active: 'ok', pending: 'warn', suspended: 'bad' }[c.status]),
-        c.vehicle ? VEHICLE[c.vehicle] : h('span', { class: 'small muted' }, 'non précisé'),
-        c.zones.length ? c.zones.join(', ') : h('span', { class: 'small muted' }, 'aucune (affectation manuelle seulement)'),
-        c.availability === 'available' ? badge('Disponible', 'ok') : badge('Indisponible', 'warn'), String(c.open_orders),
-        h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: setZones }, 'Zones'), h('button', { class: 'btn btn-sm btn-ghost', onclick: setVehicle }, 'Véhicule'))];
-    }), { empty: empty('🏍️', 'Aucun livreur : créez un compte livreur dans « Utilisateurs »') }))));
-}

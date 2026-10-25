@@ -11,7 +11,7 @@ import { supplierProducts, supplierOrders } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
 import { warehouseView } from './views/warehouse.js';
-import { adminDashboard, adminUsers, adminCouriers, adminProducts, adminOrders, adminCash, adminRemittances, adminSupport, adminData, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
+import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminRemittances, adminSupport, adminData, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
 
 const app = document.getElementById('app');
 let user = null;
@@ -25,7 +25,7 @@ const TABS = {
   call_chief: [['queue', '📞', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') })], ['mine', '☎️', 'Mes appels', () => myCalls()], ['assign', '🏍️', 'Affectation', () => chiefAssign()], ['wallet', '💰', 'Gains', () => walletView()]],
   courier: [['orders', '🏍️', 'Livraisons', () => courierOrders()], ['cash', '💵', 'Caisse', () => courierCash()], ['wallet', '💰', 'Gains', () => walletView()]],
   warehouse: [['stock', '🏬', 'Entrepôt', () => warehouseView()]],
-  admin: [['dash', '📊', 'Tableau', (c) => adminDashboard(c)], ['stats', '📈', 'Statistiques', () => adminStats()], ['orders', '📦', 'Commandes', () => adminOrders()], ['users', '👥', 'Utilisateurs', () => adminUsers()], ['couriers', '🏍️', 'Livreurs', () => adminCouriers()], ['products', '🛍️', 'Produits', () => adminProducts()],
+  admin: [['dash', '📊', 'Tableau', (c) => adminDashboard(c)], ['stats', '📈', 'Statistiques', () => adminStats()], ['orders', '📦', 'Commandes', () => adminOrders()], ['users', '👥', 'Utilisateurs', () => adminUsers()], ['products', '🛍️', 'Produits', () => adminProducts()],
     ['cash', '🏦', 'Caisses', () => adminCash()], ['remit', '📲', 'Reversements', () => adminRemittances()], ['withdrawals', '💸', 'Retraits', () => adminWithdrawals()], ['deposit', '➕', 'Dépôts', () => adminDeposit()], ['settings', '⚙️', 'Réglages', () => adminSettings()], ['audit', '📜', 'Journal', () => adminAudit()]]
 };
 
