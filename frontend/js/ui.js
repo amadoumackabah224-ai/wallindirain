@@ -23,6 +23,13 @@ function append(el, children) {
 /** Clé d'envoi unique d'un formulaire de commande : renvoyée avec la demande, elle empêche une double commande si l'envoi est répété. */
 export const newRequestKey = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID()
   : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''));
+// Mode de paie d'une tournée groupée (choisi par le chef, figé à la création)
+export const tourModeText = (mode, bps) => {
+  const pc = `${Math.round(Number(bps) / 100)} %`;
+  if (mode === 'share') return `Mode A : vous recevez ${pc} des frais de chaque commande livrée de la tournée`;
+  if (mode === 'split') return `Mode B : la 1ʳᵉ commande livrée est payée normalement, les suivantes ${pc} pour le livreur`;
+  return 'Paie habituelle de chaque commande';
+};
 export const fmtGNF = (n) => `${Math.round(Number(n) || 0).toLocaleString('fr-FR').replace(/ | /g, ' ')} GNF`;
 /** « 25 min », « 3 h », « 2 j » : temps écoulé depuis une date. */
 export const since = (d) => { if (!d) return ''; const m = Math.max(0, Math.round((Date.now() - new Date(String(d).replace(' ', 'T').replace(/\+00$/, 'Z')).getTime()) / 60000)); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} j`; };
@@ -48,7 +55,7 @@ export const pickupText = (o) => `${PICKUP_LABEL[o.pickup_place] ?? '—'}${o.pi
 export const FAIL_LABEL = { customer_absent: 'Client absent', customer_refusal: 'Client a refusé', address_not_found: 'Adresse introuvable', other: 'Autre' };
 export const CAUSE_LABEL = { customer_refusal: 'Refus du client', defective: 'Défectueux à l\'origine', damaged_transport: 'Abîmé pendant le transport' };
 export const WALLET_KIND = {
-  deposit: 'Dépôt', stock_purchase: 'Achat de stock', seller_gain: 'Gain de vente', supplier_payment: 'Paiement produit', team_pay: 'Rémunération', tour_bonus: 'Bonus de tournée',
+  deposit: 'Dépôt', stock_purchase: 'Achat de stock', seller_gain: 'Gain de vente', supplier_payment: 'Paiement produit', team_pay: 'Rémunération', tour_bonus: 'Bonus de tournée', tour_adjust: 'Ajustement de tournée',
   return_fees: 'Frais de retour', return_fee_supplier: 'Frais de retour (produit défectueux)', prepaid_refund: 'Remboursement de stock', transport_loss: 'Compensation transport',
   cash_shortage: 'Manque de caisse', withdrawal: 'Retrait', referral_bonus: 'Bonus de parrainage', withdrawal_refund: 'Retrait refusé (remboursé)'
 };

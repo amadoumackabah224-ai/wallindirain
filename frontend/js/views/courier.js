@@ -1,5 +1,5 @@
 // Espace livreur : récupérer, livrer avec le code du client, signaler un échec.
-import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL } from '../ui.js';
+import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL, tourModeText } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
@@ -17,12 +17,13 @@ export function courierOrders() {
       cash_pending_validation > 0 && h('div', { class: 'small muted' }, `+ ${fmtGNF(cash_pending_validation)} déjà reversés par transfert, en attente de validation`)),
     tours.map((t) => {
       const proposed = t.status === 'proposed';
-      const total = t.stops.filter((st) => st.active || st.status === 'delivered').reduce((a, st) => a + st.pay, 0);
+      const total = t.stops.filter((st) => st.active || st.status === 'delivered').reduce((a, st) => a + Number(st.plan_pay ?? st.pay), 0);
       const acceptTour = action(() => post(`/courier/tours/${t.id}/accept`), { ok: 'Tournée acceptée : vous pouvez récupérer vos colis', refresh });
       const refuseTour = action(async () => { if (await confirmBox('Refuser cette tournée ?', 'Aucune pénalité : les commandes retournent au chef d\'équipe.', 'Refuser', true)) { await post(`/courier/tours/${t.id}/refuse`); return true; } }, { ok: (r) => (r ? 'Tournée refusée' : ''), refresh });
       return h('div', { class: `card mb${proposed ? ' risk' : ''}` }, h('div', { class: 'order-head' }, h('b', {}, `Tournée de ${t.stops.length} commandes`), proposed && badge('À accepter', 'warn')),
         t.note && h('div', { class: 'small muted' }, t.note),
-        h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · ${fmtGNF(st.pay)} · `, statusBadge(st.status)))),
+        h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · ${fmtGNF(st.plan_pay ?? st.pay)} · `, statusBadge(st.status)))),
+        t.pay_mode && t.pay_mode !== 'normal' && h('div', { class: 'small' }, h('b', {}, tourModeText(t.pay_mode, t.mode_bps))),
         h('div', { class: 'small' }, `Votre paie : ${fmtGNF(total)}${t.bonus_per_extra > 0 ? ` + bonus de tournée jusqu'à ${fmtGNF(t.bonus_max)} (${fmtGNF(t.bonus_per_extra)} par commande livrée à partir de la 2ᵉ)` : ''}.`),
         proposed ? h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok', onclick: acceptTour }, '✔ J\'accepte la tournée'), h('button', { class: 'btn btn-ghost', onclick: refuseTour }, 'Refuser'),
           h('div', { class: 'small muted' }, 'Vous pourrez récupérer les colis seulement après avoir accepté.'))

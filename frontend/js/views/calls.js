@@ -1,5 +1,5 @@
 // Call center : agents (file d'appel) et chef (affectation aux livreurs).
-import { h, ask, fmtDate, fmtGNF, fmtPhone, pickupText, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate } from '../ui.js';
+import { h, ask, fmtDate, fmtGNF, fmtPhone, pickupText, liveView, statusBadge, amount, action, kv, empty, badge, telLink, waLink, confirmBox, FAIL_LABEL, since, pickupLate, tourModeText } from '../ui.js';
 import { get, post } from '../api.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
@@ -44,11 +44,12 @@ export function chiefAssign() {
     const groups = [['À affecter', ['confirmed']], ['Échecs de livraison', ['failed']], ['En livraison', ['assigned', 'picked_up', 'on_the_way']], ['Retours attendus en entrepôt', ['return_pending']]];
     const eligible = orders.filter((o) => ['confirmed', 'failed'].includes(o.status) && !tours.some((t) => ['proposed', 'active'].includes(t.status) && t.stops.some((st) => st.active && st.order_id === o.id)));
     const createTour = action(async () => {
-      const v = await ask({ title: 'Créer une tournée', text: 'Cochez au moins 2 commandes, dans l\'ordre où le livreur doit passer. Chaque commande garde son propre suivi et son propre encaissement ; la paie du livreur reste celle de chaque commande.', submit: 'Créer la tournée', fields: [
+      const v = await ask({ title: 'Créer une tournée', text: 'Cochez au moins 2 commandes, dans l\'ordre où le livreur doit passer. Chaque commande garde son propre suivi et son propre encaissement ; la paie du livreur dépend du mode choisi ci-dessous (il le voit avant d\'accepter).', submit: 'Créer la tournée', fields: [
         { name: 'courier', label: 'Livreur', type: 'select', options: couriers.map((c) => [c.id, `${c.full_name} (${c.open_orders} en cours)${c.availability === 'unavailable' ? ' · indisponible' : ''}${c.zones.length ? ` · ${c.zones.join(', ')}` : ''}`]) },
+        { name: 'mode', label: 'Paie du livreur', type: 'select', options: [['normal', 'Habituelle : chaque commande garde sa paie'], ['share', 'Mode A : pourcentage de tournée sur chaque commande'], ['split', 'Mode B : 1ʳᵉ commande normale, les suivantes partagées']] },
         { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200 },
         ...eligible.map((o, i) => ({ name: `o${i}`, label: `${o.ref} · ${o.commune} · frais ${fmtGNF(o.delivery_fee)} · paie livreur ${fmtGNF(o.courier_pay)}`, type: 'checkbox', value: false, required: false }))] });
-      if (v) await post('/chief/tours', { courier_id: v.courier, note: v.note || undefined, order_ids: eligible.filter((o, i) => v[`o${i}`]).map((o) => o.id) });
+      if (v) await post('/chief/tours', { courier_id: v.courier, mode: v.mode, note: v.note || undefined, order_ids: eligible.filter((o, i) => v[`o${i}`]).map((o) => o.id) });
     }, { ok: 'Tournée créée', refresh });
     const TOUR_LABEL = { proposed: ['Proposée : en attente d\'acceptation du livreur', 'warn'], active: ['Acceptée, en cours', 'ok'], closed: ['Terminée', 'ok'], cancelled: ['Annulée', 'grey'], refused: ['Refusée par le livreur', 'bad'] };
     const tourCard = (t) => {
@@ -71,6 +72,7 @@ export function chiefAssign() {
             h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'aria-label': 'Passer plus tôt', disabled: idx === 0, onclick: () => move(-1) }, '↑'),
             h('button', { class: 'btn btn-sm btn-ghost', type: 'button', 'aria-label': 'Passer plus tard', disabled: idx === act.length - 1, onclick: () => move(1) }, '↓')));
         })),
+        t.pay_mode && t.pay_mode !== 'normal' && h('div', { class: 'small' }, `${tourModeText(t.pay_mode, t.mode_bps)}${t.adjust_paid != null ? ` · écart versé ${fmtGNF(t.adjust_paid)}` : ''}`),
         ['proposed', 'active'].includes(t.status) && h('div', { class: 'small' }, `Prévu : frais de livraison ${fmtGNF(t.planned_fees)} · paie du livreur ${fmtGNF(t.planned_pay)}${t.bonus_per_extra > 0 ? ` + bonus ${fmtGNF(t.planned_bonus)}` : ''} · marge de livraison ${fmtGNF(t.planned_fees - (t.actual_cost ?? (Number(t.planned_pay) + Number(t.planned_bonus))))}`),
         t.status === 'closed' && t.bonus_paid > 0 && h('div', { class: 'small' }, `Bonus de tournée versé : ${fmtGNF(t.bonus_paid)}`),
         h('div', { class: 'small muted' }, `${t.delivered}/${t.orders} livrées · frais de livraison encaissés ${fmtGNF(t.delivery_fees)} · paie prévue ${fmtGNF(t.courier_pay_system)}${t.actual_cost != null ? ` · coût réel saisi ${fmtGNF(t.actual_cost)}` : ''} · marge de livraison ${fmtGNF(t.delivery_fees - basis)}${t.actual_cost != null ? ' (sur coût réel)' : ' (sur paie prévue)'}`),

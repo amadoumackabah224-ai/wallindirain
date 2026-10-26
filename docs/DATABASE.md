@@ -130,3 +130,6 @@ Le compte `wld_app` (utilisé par l'application) ne peut **que** exécuter les f
 ## Tournée proposée, bonus (025)
 - `tours.status` : `proposed`, `active`, `closed`, `cancelled`, `refused` ; colonnes `bonus_per_extra` (figé), `accepted_at`, `bonus_paid`. Réglage `tour_bonus_per_extra_order` (0 par défaut). Écritures `tour_bonus` (livreur +, plateforme −) uniques par commande d'ancrage.
 - Fonctions `fn_courier_accept_tour`, `fn_courier_refuse_tour`, internes `_tour_pay_bonus`, `_tour_release_orders` ; `fn_courier_pickup`, `fn_chief_create_tour`, `fn_chief_cancel_tour`, `fn_ledger_check` mises à jour. Retour arrière : `docs/retour-arriere-025.sql`.
+
+### Migration 026 — modes de paie de tournée
+`tours.pay_mode` (`normal`/`share`/`split`), `tours.mode_bps` (figé à la création), `tours.adjust_paid` (écart signé écrit une fois). Écritures de portefeuille `tour_adjust` (livreur) / contrepartie plateforme. Réglages `tour_share_bps` (0) et `tour_extra_share_bps` (5000). Fonctions internes `_tour_target_pay`, `_tour_plan`. `fn_chief_create_tour` prend un 5ᵉ paramètre `p_mode` (défaut `normal`).
