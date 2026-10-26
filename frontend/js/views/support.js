@@ -2,6 +2,7 @@
 // Réservé aux personnes connectées : la conversation avec l'équipe reste dans l'application.
 import { h, fmtDate, errToast, showLegal } from '../ui.js';
 import { get, post } from '../api.js';
+import { icon } from '../icons.js';
 
 /** Ouvre la fenêtre d'aide (personne connectée). */
 export function openHelp({ user, onRead }) {
@@ -101,7 +102,7 @@ export function openHelp({ user, onRead }) {
 /** Bouton flottant « Aide » (avec pastille si l'équipe a répondu). */
 export function helpButton({ user }) {
   const dot = h('span', { class: 'dot hidden', 'aria-hidden': 'true' });
-  const btn = h('button', { class: 'help-fab', type: 'button', onclick: () => openHelp({ user, onRead: () => dot.classList.add('hidden') }) }, h('span', { 'aria-hidden': 'true' }, '💬'), ' Aide', dot);
+  const btn = h('button', { class: 'help-fab', type: 'button', onclick: () => openHelp({ user, onRead: () => dot.classList.add('hidden') }) }, icon('message', 18), ' Aide', dot);
   {
     const check = async () => { if (!btn.isConnected) return clearInterval(t); try { const r = await get('/support'); dot.classList.toggle('hidden', !r.unread); btn.setAttribute('aria-label', r.unread ? 'Aide : nouveau message de l\'équipe' : 'Aide'); } catch { /* hors ligne */ } };
     const t = setInterval(check, 45000); setTimeout(check, 1500);

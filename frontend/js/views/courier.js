@@ -1,6 +1,7 @@
 // Espace livreur : récupérer, livrer avec le code du client, signaler un échec.
-import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL, tourModeText } from '../ui.js';
+import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, telBtn, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL, tourModeText } from '../ui.js';
 import { get, post } from '../api.js';
+import { icon } from '../icons.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo', cash: 'Espèces' };
@@ -25,7 +26,7 @@ export function courierOrders() {
         h('ol', { class: 'small' }, t.stops.map((st) => h('li', {}, `${st.ref} · ${st.commune} · ${fmtGNF(st.plan_pay ?? st.pay)} · `, statusBadge(st.status)))),
         t.pay_mode && t.pay_mode !== 'normal' && h('div', { class: 'small' }, h('b', {}, tourModeText(t.pay_mode, t.mode_bps))),
         h('div', { class: 'small' }, `Votre paie : ${fmtGNF(total)}${t.bonus_per_extra > 0 ? ` + bonus de tournée jusqu'à ${fmtGNF(t.bonus_max)} (${fmtGNF(t.bonus_per_extra)} par commande livrée à partir de la 2ᵉ)` : ''}.`),
-        proposed ? h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok', onclick: acceptTour }, '✔ J\'accepte la tournée'), h('button', { class: 'btn btn-ghost', onclick: refuseTour }, 'Refuser'),
+        proposed ? h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok', onclick: acceptTour }, 'J\'accepte la tournée'), h('button', { class: 'btn btn-ghost', onclick: refuseTour }, 'Refuser'),
           h('div', { class: 'small muted' }, 'Vous pourrez récupérer les colis seulement après avoir accepté.'))
           : h('div', { class: 'small muted' }, 'Livrez dans cet ordre si possible. Chaque commande se valide séparément ci-dessous.'));
     }),
@@ -66,14 +67,14 @@ export function courierOrders() {
         if (v) await post(`/courier/orders/${o.id}/fail`, { reason: v.reason });
       }, { ok: 'Échec signalé : le chef call center va réaffecter', refresh });
       return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad')),
-        pickupLate(o, pickup_alert_hours) && h('div', { class: 'notice bad' }, h('b', {}, `⏰ Colis affecté depuis ${since(o.assigned_since)}. `), 'Récupérez-le maintenant, ou prévenez le chef call center si vous ne pouvez pas.'),
+        pickupLate(o, pickup_alert_hours) && h('div', { class: 'notice bad' }, h('b', {}, icon('clock', 16), ` Colis affecté depuis ${since(o.assigned_since)}. `), 'Récupérez-le maintenant, ou prévenez le chef call center si vous ne pouvez pas.'),
         o.risk_flag && h('div', { class: 'notice warn' }, 'Ce client a déjà refusé ou raté une livraison : confirmez avec lui avant de vous déplacer.'),
-        kv([['Client', o.customer_name], ['Téléphone', h('span', { class: 'gap' }, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, je suis votre livreur Wallindirain pour la commande ${o.ref}. Je suis en route, merci de rester joignable.`))], ['À récupérer', pickupText(o)], ['Adresse', `${o.commune}, ${o.address}`], o.note && ['Note', o.note], ['Colis', `${o.product_name} × ${o.qty}`], ['À encaisser', amount(o.amount_to_collect)], o.payment_method && ['Paiement déclaré', badge(PAY[o.payment_method], 'ok')]]),
-        h('div', { class: 'gap mt' },
+        kv([['Client', o.customer_name], ['Téléphone', h('span', { class: 'gap' }, telLink(o.customer_phone), telBtn(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, je suis votre livreur Wallindirain pour la commande ${o.ref}. Je suis en route, merci de rester joignable.`))], ['À récupérer', pickupText(o)], ['Adresse', `${o.commune}, ${o.address}`], o.note && ['Note', o.note], ['Colis', `${o.product_name} × ${o.qty}`], ['À encaisser', amount(o.amount_to_collect), 'key'], o.payment_method && ['Paiement déclaré', badge(PAY[o.payment_method], 'ok')]]),
+        h('div', { class: 'gap mt actions' },
           o.status === 'assigned' && h('button', { class: 'btn btn-gold', onclick: step('pickup', 'Colis récupéré') }, 'J\'ai récupéré le colis'),
           o.status === 'picked_up' && h('button', { class: 'btn btn-gold', onclick: step('depart', 'Bonne route !') }, 'Je pars livrer'),
-          o.status === 'on_the_way' && !o.payment_method && h('button', { class: 'btn btn-ghost', onclick: payment }, '💳 Paiement du client'),
-          o.status === 'on_the_way' && h('button', { class: 'btn btn-ok', onclick: deliver }, require_code ? '✔ Livrer avec le code' : '✔ Colis livré'),
+          o.status === 'on_the_way' && !o.payment_method && h('button', { class: 'btn btn-ghost', onclick: payment }, 'Paiement du client'),
+          o.status === 'on_the_way' && h('button', { class: 'btn btn-ok', onclick: deliver }, require_code ? 'Livrer avec le code' : 'Colis livré'),
           h('button', { class: 'btn btn-ghost', onclick: fail }, 'Échec')),
         require_code && o.code_attempts > 0 && h('div', { class: 'notice warn mt' }, `${o.code_attempts} essai(s) de code déjà utilisé(s) sur ${max_attempts}.`));
     }) : empty('🏍️', 'Aucune livraison affectée pour le moment')), { poll: 15000 });
@@ -110,7 +111,7 @@ export function courierCash() {
     const total = due.reduce((a, e) => a + e.amount, 0);
     return h('div', {}, h('h1', {}, 'Caisse'),
       h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(total)), h('div', { class: 'l' }, 'À remettre à l\'administration (en espèces ou par transfert)')),
-      h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Encaissements à remettre'), due.length > 0 && [h('button', { class: 'btn btn-sm btn-gold', onclick: remit }, '📲 Reverser par transfert'), h('button', { class: 'btn btn-sm btn-gold', onclick: remitCash }, '💵 Remettre en espèces')]),
+      h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Encaissements à remettre'), due.length > 0 && [h('button', { class: 'btn btn-sm btn-gold', onclick: remit }, 'Reverser par transfert'), h('button', { class: 'btn btn-sm btn-gold', onclick: remitCash }, 'Remettre en espèces')]),
         table(['Commande', 'Montant', 'Livrée le', 'Situation'], entries.map((e) => [h('b', {}, e.ref), amount(e.amount), fmtDate(e.created_at), e.in_remittance ? badge('Reversement en attente', 'warn') : badge('À remettre', 'gold')]),
           { empty: empty('✅', 'Rien à remettre pour le moment') })),
       h('div', { class: 'card' }, h('h2', {}, 'Mes reversements'), table(['Date', 'Montant', 'Via', 'Statut', ''], remittances.map((r) => [fmtDate(r.created_at), amount(r.amount),

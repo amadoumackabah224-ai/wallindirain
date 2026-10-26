@@ -90,6 +90,15 @@ export const legalLinks = (mode = 'public') => {
   return h('ul', { class: 'legal-links' }, items);
 };
 
+/** Indicateur cliquable : icône, valeur, libellé, précision. tone : bad, warn, gold, info, ok, grey. */
+export function metric({ ico, tone = 'grey', label, value, hint, onclick }) {
+  return h('button', { class: `metric ${tone}`, type: 'button', onclick },
+    h('span', { class: 'metric-ico' }, icon(ico, 20)), h('span', { class: 'metric-v' }, value), h('span', { class: 'metric-l' }, label), hint && h('span', { class: 'metric-h' }, hint));
+}
+/** Bandeau d'alerte avec action facultative. tone : '' (ambre) ou 'bad'. */
+export function alertRow(tone, ico, text, btnLabel, onclick) {
+  return h('div', { class: `alert-row ${tone}`, role: 'note' }, icon(ico, 20), h('span', { class: 'grow' }, text), btnLabel && h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick }, btnLabel));
+}
 export const spinner = () => h('div', { class: 'spinner', role: 'status', 'aria-label': 'Chargement' });
 /** État vide : icône dans une pastille, message, et action facultative. `ico` peut être un nom d'icône ou un ancien emoji. */
 export const empty = (ico, text, actionNode) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon(ico, 26)), h('p', {}, text), actionNode);
@@ -143,11 +152,13 @@ export function showProof(id, title = 'Preuve de paiement') {
 export const proofButton = (id, label = 'Voir la preuve') => id ? h('button', { class: 'btn btn-sm btn-ghost', onclick: () => showProof(id) }, [icon('receipt', 16), ' ', label]) : null;
 
 /** Fenêtre de saisie. fields: [{name,label,type,options,hint,value,required,placeholder,inputmode,maxlength}] -> valeurs ou null */
+// Vrai si la dernière fenêtre de saisie a été annulée : l'action en cours n'affiche alors pas de faux message de réussite.
+let askCancelled = false;
 export function ask({ title, text, fields = [], submit = 'Valider', danger = false }) {
   return new Promise((resolve) => {
     const inputs = {}, images = {};
     const opener = document.activeElement;
-    const close = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey); opener?.isConnected && opener.focus?.(); resolve(v); };
+    const close = (v) => { askCancelled = v === null; overlay.remove(); document.removeEventListener('keydown', onKey); opener?.isConnected && opener.focus?.(); resolve(v); };
     const onKey = (e) => {
       if (e.key === 'Escape') return close(null);
       if (e.key !== 'Tab') return;   // le focus reste dans la fenêtre
@@ -202,7 +213,8 @@ export const confirmBox = (title, text, submit = 'Confirmer', danger = false) =>
 export function action(fn, { ok, refresh } = {}) {
   return async (ev) => {
     const btn = ev?.currentTarget; if (btn) btn.disabled = true;
-    try { const r = await fn(); const msg = ok ? (typeof ok === 'function' ? ok(r) : ok) : ''; if (msg) toast(msg, 'ok'); if (refresh) await refresh(); return r; }
+    askCancelled = false;
+    try { const r = await fn(); const msg = ok && !askCancelled ? (typeof ok === 'function' ? ok(r) : ok) : ''; if (msg) toast(msg, 'ok'); if (refresh) await refresh(); return r; }
     catch (e) { errToast(e); }
     finally { if (btn?.isConnected) btn.disabled = false; }
   };
@@ -213,10 +225,13 @@ export function table(headers, rows, { empty: emptyNode } = {}) {
   // Sur téléphone, chaque ligne devient une carte : le libellé de la colonne s'affiche devant chaque valeur (data-label).
   return h('div', { class: 'table-wrap', tabindex: '0' }, h('table', { class: 'rt' }, h('thead', {}, h('tr', {}, headers.map((x) => h('th', { scope: 'col' }, x === '' ? h('span', { class: 'sr' }, 'Actions') : x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c, i) => h('td', { 'data-label': headers[i] || null }, c)))))));
 }
-export const kv = (pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
+/** Liste libellé / valeur. Un 3ᵉ élément 'key' met la ligne en évidence (montant important). */
+export const kv = (pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v, key]) => [h('dt', { class: key ? 'key' : null }, k), h('dd', { class: key ? 'key' : null }, v)]));
 export const amount = (n, signed = false) => h('span', { class: `amount mono ${signed ? (n < 0 ? 'neg' : 'pos') : ''}` }, (signed && n > 0 ? '+' : '') + fmtGNF(n));
+/** Bouton « Appeler » : grande zone à toucher, pour le livreur et le call center. */
+export const telBtn = (phone, label = 'Appeler') => h('a', { href: `tel:+224${phone}`, class: 'btn btn-sm btn-ghost' }, icon('phone', 16), label);
 export const telLink = (phone, label) => h('a', { href: `tel:+224${phone}`, class: 'nowrap' }, label || fmtPhone(phone));
-export const waLink = (phone, text = '') => h('a', { href: `https://wa.me/224${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`, target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-sm btn-ghost' }, 'WhatsApp');
+export const waLink = (phone, text = '') => h('a', { href: `https://wa.me/224${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`, target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-sm btn-ghost' }, icon('message', 16), 'WhatsApp');
 
 /** Charge des données, affiche le résultat, rafraîchit toutes les `poll` ms tant que la vue est affichée. */
 export function liveView(load, render, { poll = 0, placeholder = null } = {}) {
