@@ -42,7 +42,7 @@ class Client {
   post(p, b = {}) { return this.req('POST', p, b); }
 }
 const login = async (id) => { const c = new Client(); const ph = (await db.owner.query('SELECT phone FROM users WHERE id = $1', [id])).rows[0].phone; assert.equal((await c.post('/api/auth/login', { identifier: ph, password: PW })).status, 200); return c; };
-const runRollback = async () => { const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-025.sql'), 'utf8'); await db.owner.query('BEGIN'); try { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
+const runRollback = async () => { const rb = ['026', '025'].map((x) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${x}.sql`), 'utf8')).join('\n'); await db.owner.query('BEGIN'); try { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
 
 before(async () => {
   db = await freshDb('wld_bonus'); w = await world(db);
@@ -59,9 +59,9 @@ beforeEach(() => srv.resetLimits());
 after(async () => { await srv.close(); await db.owner.end(); await db.app.end(); });
 
 test('retour arrière 025 (aucun bonus versé) : retire acceptation et bonus, restaure les fonctions d\'avant ; migration rejouable', async () => {
-  const names = "'fn_courier_accept_tour','fn_courier_refuse_tour','_tour_pay_bonus','_tour_release_orders','fn_chief_create_tour','fn_chief_cancel_tour','_tours_refresh','fn_courier_tours','fn_chief_tours','fn_courier_pickup','fn_ledger_check','fn_chief_reorder_tour'";
+  const names = "'fn_courier_accept_tour','fn_courier_refuse_tour','_tour_pay_bonus','_tour_plan','_tour_target_pay','_tour_release_orders','fn_chief_create_tour','fn_chief_cancel_tour','_tours_refresh','fn_courier_tours','fn_chief_tours','fn_courier_pickup','fn_ledger_check','fn_chief_reorder_tour'";
   const snap = async () => (await db.owner.query(`SELECT (SELECT count(*) FROM wallet_entries)::text AS ecr, (SELECT count(*) FROM orders)::text AS cmd,
-     (SELECT md5(string_agg(key || value::text, ',' ORDER BY key)) FROM settings WHERE key <> 'tour_bonus_per_extra_order') AS s,
+     (SELECT md5(string_agg(key || value::text, ',' ORDER BY key)) FROM settings WHERE key NOT IN ('tour_bonus_per_extra_order','tour_share_bps','tour_extra_share_bps')) AS s,
      (SELECT string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || COALESCE(p.proacl::text, ''), E'\\n' ORDER BY p.proname, p.oid::text) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' AND p.proname NOT IN (${names})) AS fonctions`)).rows[0];
   assert.equal(Number((await db.owner.query(`SELECT value FROM settings WHERE key = 'tour_bonus_per_extra_order'`)).rows[0].value), 0);     // 0 par défaut : aucun changement de paie
   await create(await mkMany(2));                                                                                                           // une tournée « proposée » existe

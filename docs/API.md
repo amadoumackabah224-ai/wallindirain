@@ -83,3 +83,7 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 - `POST /api/chief/tours` crée une tournée au statut `proposed` ; `GET /api/chief/tours` et `GET /api/courier/tours` renvoient `status` (`proposed`, `active`, `closed`, `cancelled`, `refused`), `bonus_per_extra`, et pour le chef `planned_bonus`, `bonus_paid`, `accepted_at`.
 - `POST /api/courier/tours/:id/accept` et `/refuse` (livreur propriétaire, tournée `proposed`).
 - `POST /api/courier/orders/:id/pickup` → 409 `tour_not_accepted` tant que la tournée n'est pas acceptée. Création → 409 `tour_bonus_exceeds_fee` si paie + bonus dépasse les frais.
+
+### Modes de paie de tournée (026)
+- `POST /api/chief/tours` accepte `mode` : `normal` (défaut), `share` (A) ou `split` (B). Mode inconnu ou réglage non défini (mode A à 0) : 400 `invalid_input`.
+- `GET /api/chief/tours` et `GET /api/courier/tours` renvoient `pay_mode`, `mode_bps`, par arrêt `plan_pay` (gain prévu), et `plan_total` (livreur) / `planned_pay` (chef) selon le mode ; le chef voit aussi `adjust_paid` (écart versé à la clôture).

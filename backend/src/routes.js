@@ -730,7 +730,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/chief/tours', guard(CHIEF, async (ctx) => {
     const b = ctx.body;
     if (!Array.isArray(b.order_ids) || b.order_ids.length > 200) throw new HttpError(400, 'invalid_input', 'Liste de commandes invalide');
-    const id = await fn('fn_chief_create_tour', ctx.user.id, v.uuid(b.courier_id, 'Livreur'), b.order_ids.map((x) => v.uuid(x, 'Commande')), v.optStr(b.note, 'Note', 200));
+    const id = await fn('fn_chief_create_tour', ctx.user.id, v.uuid(b.courier_id, 'Livreur'), b.order_ids.map((x) => v.uuid(x, 'Commande')), v.optStr(b.note, 'Note', 200),
+      v.optStr(b.mode, 'Mode de paie', 20) ?? 'normal');
     ctx.status = 201;
     return { id };
   }));
