@@ -134,11 +134,14 @@ function importCard() {
       show(await post('/seller/import', fromSheet ? {} : { csv: csv.value }));
     } catch (e) { out.replaceChildren(h('div', { class: 'notice bad' }, e?.message || 'L\'import a échoué. Réessayez.')); }
   }, {});
+  const MODEL = 'nom\ttéléphone\tquartier\tadresse\tproduit\tquantité\tprix\tconfirmé\nMamadou Diallo\t620000001\tRatoma\tPrès du marché\tMontre\t1\t150000\toui';
+  const copyModel = async () => { try { await navigator.clipboard.writeText(MODEL); toast('Modèle copié : collez-le dans la case A1 de votre Google Sheet', 'ok'); } catch { csv.value = MODEL.replace(/\t/g, ','); toast('Modèle placé dans la case « tableau collé » ci-dessous', 'ok'); } };
   return h('div', { class: 'card' }, h('h2', {}, 'Importer depuis un Google Sheet'),
     h('p', { class: 'small muted' }, 'Une ligne = une commande. En-têtes attendus : nom, téléphone, quartier ou ville, adresse, produit, quantité, prix, confirmé (oui/non). Un produit qui n\'est pas dans le catalogue est traité comme votre propre produit (le prix est alors obligatoire). Les lignes déjà importées sont ignorées.'),
     h('p', { class: 'small muted' }, 'Votre Google Sheet doit être partagé avec « Toute personne disposant du lien » en lecture seule.'),
     h('label', { class: 'f' }, h('span', {}, 'Lien de votre Google Sheet'), url),
-    h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: save }, 'Enregistrer le lien')),
+    h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: save }, 'Enregistrer le lien'), h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: copyModel }, 'Copier le modèle')),
+    h('p', { class: 'small muted' }, 'Pas sûr des colonnes ? « Copier le modèle », puis collez-le dans la case A1 de votre Google Sheet : les titres sont sur la ligne 1 et vos commandes à partir de la ligne 2.'),
     h('label', { class: 'f mt' }, h('span', {}, 'Ou tableau collé (CSV)'), csv),
     h('button', { class: 'btn btn-gold mt', type: 'button', onclick: run }, 'Importer mes commandes'), out);
 }

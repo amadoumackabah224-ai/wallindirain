@@ -1,12 +1,22 @@
 // Écrans publics : connexion, inscription, mot de passe oublié, page de commande du client.
-import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink, newRequestKey } from '../ui.js';
+import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink, newRequestKey, telLink } from '../ui.js';
 import { get, post } from '../api.js';
+import { icon } from '../icons.js';
 
 const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' });
 const shell = (...c) => h('main', { class: 'auth', id: 'contenu' }, h('div', { class: 'auth-card' }, logo(), ...c, h('div', { class: 'auth-foot' }, legalLinks())));
 const consentBox = (input, text) => h('label', { class: 'f check' }, input, h('span', {}, text));
 // L'option e-mail est masquée tant que l'envoi d'e-mails n'est pas activé sur le serveur (EMAIL_PROVIDER).
 export const flags = { email: false };
+/** Champ mot de passe avec bouton « afficher / masquer » (utile sur téléphone). */
+const pwField = (label, input, hint) => {
+  const btn = h('button', { class: 'pw-toggle', type: 'button', 'aria-label': 'Afficher le mot de passe', 'aria-pressed': 'false' }, icon('eye', 20));
+  btn.addEventListener('click', () => {
+    const show = input.type === 'password'; input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', String(show)); btn.setAttribute('aria-label', show ? 'Masquer le mot de passe' : 'Afficher le mot de passe'); btn.replaceChildren(icon(show ? 'eyeOff' : 'eye', 20));
+  });
+  return h('label', { class: 'f' }, h('span', {}, label), h('div', { class: 'pw-wrap' }, input, btn), hint && h('div', { class: 'hint' }, hint));
+};
 const field = (label, input, hint) => h('label', { class: 'f' }, h('span', {}, label), input, hint && h('div', { class: 'hint' }, hint));
 
 export function loginView({ onLogin, contact }) {
@@ -20,13 +30,14 @@ export function loginView({ onLogin, contact }) {
     catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
     finally { btn.disabled = false; }
   } },
-    h('h1', {}, 'Connexion'), err,
-    field(flags.email ? 'Numéro de téléphone ou adresse e-mail' : 'Numéro de téléphone', phone), field('Mot de passe', pw),
+    h('h1', {}, 'Connexion'), h('p', { class: 'auth-sub' }, 'Accédez à votre espace Wallindirain.'), err,
+    field(flags.email ? 'Numéro de téléphone ou adresse e-mail' : 'Numéro de téléphone', phone), pwField('Mot de passe', pw),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Se connecter'),
     h('p', { class: 'center small mt' }, h('a', { href: '#/forgot' }, 'Mot de passe oublié ?')));
   return shell(h('div', { class: 'card' }, form),
-    h('p', { class: 'auth-foot' }, 'Nouveau vendeur ou fournisseur ? ', h('a', { href: '#/register' }, 'Créer un compte')),
-    h('p', { class: 'auth-foot' }, `Besoin d'aide : ${fmtPhone(contact)}`));
+    h('p', { class: 'auth-foot' }, 'Nouveau vendeur ou fournisseur ?'),
+    h('a', { class: 'btn btn-outline-light btn-block', href: '#/register' }, 'Créer un compte'),
+    h('p', { class: 'auth-foot' }, 'Besoin d\'aide ? ', telLink(contact)));
 }
 
 export function registerView({ ref } = {}) {
@@ -68,7 +79,7 @@ export function registerView({ ref } = {}) {
     docField, refField,
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
-    field('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
+    pwField('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
     h('label', { class: 'f check' }, accept, consentText),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));
   syncDoc(); syncConsent();
