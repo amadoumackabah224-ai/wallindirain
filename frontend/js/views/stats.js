@@ -91,21 +91,64 @@ export function trackView(token) {
   return root;
 }
 
+// Messages d'invitation prêts à envoyer : un par type de vendeur. Aucun montant n'y figure.
+const INVITES = [
+  ['online', 'Vendeur en ligne', (c, l) => `Tu vends sur WhatsApp, Facebook ou Instagram ? Wallindirain livre tes colis et encaisse le paiement à la livraison. Tu es payé pour chaque colis livré. Inscris-toi avec mon code ${c} : ${l}`],
+  ['shop', 'Boutique', (c, l) => `Tu as une boutique ? Ne te déplace plus pour livrer : Wallindirain livre tes commandes et encaisse pour toi. Tu es payé pour chaque colis livré. Inscris-toi avec mon code ${c} : ${l}`],
+  ['short', 'Message court', (c, l) => `Wallindirain livre et encaisse pour toi. Tu es payé pour chaque colis livré. Mon code ${c} : ${l}`]];
+// Niveau de parrain : simple affichage selon le nombre de filleuls ayant atteint l'objectif (aucun effet sur l'argent)
+const PARRAIN_LEVELS = [[1, 'bronze'], [3, 'silver'], [5, 'gold'], [10, 'platinum']];
+const levelOf = (n) => PARRAIN_LEVELS.reduce((cur, [min, tier], i) => (n >= min ? { tier, i } : cur), { tier: 'none', i: -1 });
+
 /** Carte « Parrainage » du profil (vendeurs et fournisseurs). */
 export function referralCard() {
   return liveView(() => get('/me/referral'), (r) => {
     const link = `${location.origin}/#/register/${r.code}`;
-    const msg = `Rejoins Wallindirain pour vendre en ligne avec paiement à la livraison. Inscris-toi avec mon code de parrainage ${r.code} : ${link}`;
-    const copy = async () => { try { await navigator.clipboard.writeText(link); toast('Lien copié', 'ok'); } catch { toast(link, 'ok'); } };
-    return h('div', { class: 'card' }, h('h2', {}, 'Parrainage'),
+    let kind = INVITES[0][0];
+    const text = () => INVITES.find((x) => x[0] === kind)[2](r.code, link);
+    const preview = h('p', { class: 'invite-text' }, text());
+    const chips = h('div', { class: 'chips' }, INVITES.map(([k, label]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(k === kind), onclick: (e) => {
+      kind = k; preview.textContent = text(); wa.href = `https://wa.me/?text=${encodeURIComponent(text())}`; chips.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === e.currentTarget)));
+    } }, label)));
+    const copyText = async (t, ok) => { try { await navigator.clipboard.writeText(t); toast(ok, 'ok'); } catch { toast(t, 'ok'); } };
+    const wa = h('a', { class: 'btn btn-gold', href: `https://wa.me/?text=${encodeURIComponent(text())}`, target: '_blank', rel: 'noopener noreferrer' }, 'Inviter sur WhatsApp');
+    const lvl = levelOf(r.paid);
+    const next = PARRAIN_LEVELS[lvl.i + 1];
+    const need = Number(r.orders_required) || 0;
+    const mine = Math.min(Number(r.my_progress) || 0, need);
+    const bar = (v, max) => { const i = h('span', { class: 'seg-i ok' }); i.style.width = `${(v * 100) / Math.max(1, max)}%`; return h('div', { class: 'seg', role: 'img', 'aria-label': `${v} sur ${max}` }, i); };
+    return h('div', { class: 'card referral' }, h('h2', {}, 'Parrainage'),
       r.bonus > 0
         ? h('p', {}, `Invitez un vendeur : quand il aura ${r.orders_required} commandes livrées, vous recevez `, h('b', {}, fmtGNF(r.bonus)), '.')
         : h('p', { class: 'muted' }, 'Le parrainage n\'est pas activé pour le moment.'),
-      kv([['Mon code', h('b', {}, r.code)], ['Vendeurs invités', r.referred], ['Bonus reçus', `${r.paid} · ${fmtGNF(r.earned)}`], r.my_referrer && ['Parrain', r.my_referrer]]),
-      r.bonus > 0 && h('div', { class: 'gap' },
-        h('a', { class: 'btn btn-sm btn-gold', href: `https://wa.me/?text=${encodeURIComponent(msg)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Inviter sur WhatsApp'),
-        h('button', { class: 'btn btn-sm btn-ghost', onclick: copy }, 'Copier mon lien')));
+      r.my_referrer && h('div', { class: 'notice' }, mine >= need && need > 0 ? `Objectif atteint : merci ! ${r.my_referrer} a reçu son bonus de parrainage.` : `Vous avez été invité par ${r.my_referrer}. Encore ${need - mine} livraison(s) pour que son bonus soit versé.`, need > 0 && bar(mine, need)),
+      h('div', { class: 'code-box' }, h('span', { class: 'muted small' }, 'Mon code'), h('b', { class: 'code' }, r.code), h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => copyText(r.code, 'Code copié') }, 'Copier le code')),
+      h('div', { class: 'mchips' },
+        h('div', { class: 'mchip info' }, h('span', { class: 'mchip-l' }, 'Vendeurs invités'), h('b', { class: 'mchip-v' }, String(r.referred))),
+        h('div', { class: 'mchip ok' }, h('span', { class: 'mchip-l' }, 'Objectif atteint'), h('b', { class: 'mchip-v' }, String(r.paid))),
+        h('div', { class: 'mchip' }, h('span', { class: 'mchip-l' }, 'En cours'), h('b', { class: 'mchip-v' }, String(Math.max(0, r.referred - r.paid)))),
+        h('div', { class: 'mchip gold' }, h('span', { class: 'mchip-l' }, 'Bonus reçus'), h('b', { class: 'mchip-v' }, fmtGNF(r.earned)))),
+      h('div', { class: 'level' }, trophy(lvl.tier, 44), h('div', {}, h('b', {}, `Niveau de parrain : ${lvl.tier === 'none' ? 'à débloquer' : TROPHY[lvl.tier].name}`),
+        h('div', { class: 'small muted' }, next ? `Encore ${next[0] - r.paid} filleul(s) actif(s) pour le niveau ${TROPHY[next[1]].name}.` : 'Niveau maximum atteint, bravo !'))),
+      r.bonus > 0 && h('div', {}, h('h3', { class: 'sub-h' }, 'Message à envoyer'), chips, preview,
+        h('div', { class: 'gap actions' }, wa,
+          h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => copyText(text(), 'Message copié') }, 'Copier le message'),
+          navigator.share && h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => navigator.share({ text: text() }).catch(() => {}) }, 'Partager'),
+          h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => copyText(link, 'Lien copié') }, 'Copier le lien'))));
   });
+}
+
+/** Invitation sur l'accueil du vendeur : visible seulement après une première livraison et si le parrainage est actif. */
+export function referralNudge(goTo, delivered) {
+  const box = h('div', {});
+  if (!(delivered > 0)) return box;
+  get('/me/referral').then((r) => {
+    if (!(r.bonus > 0)) return;
+    box.append(h('div', { class: 'panel nudge' }, h('h2', {}, 'Bravo pour votre première livraison !'),
+      h('p', { class: 'muted' }, 'Invitez un autre vendeur : vous recevez un bonus quand il aura fait ses premières livraisons.'),
+      h('button', { class: 'btn btn-gold', type: 'button', onclick: () => goTo('profile') }, 'Inviter un vendeur')));
+  }).catch(() => {});
+  return box;
 }
 
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
