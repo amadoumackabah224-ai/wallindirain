@@ -25,4 +25,4 @@ Disponible = **vert** (point vert, grand montant) · En attente de déblocage = 
 Boutons `btn / btn-gold / btn-ghost / btn-ok / btn-bad / btn-sm`, champs, `badge` (avec point de couleur), `card` et `panel`, `metric`, `empty()` (icône + message + action), `pageHead()`, `table()` (devient une liste de cartes sur téléphone), fenêtres `ask()` / `confirmBox()` (feuille qui monte sur téléphone), `toast`, silhouettes de chargement (`skeleton`), `columnChart()` et `segmentBar()` (graphiques sans bibliothèque), `icon('nom')` (jeu d'icônes SVG).
 
 ## Revenir en arrière
-La version d'avant la refonte porte l'étiquette Git **`avant-refonte-ui`** (`git checkout avant-refonte-ui`). La refonte ne touche que `frontend/` : base de données, API, droits et règles métier ne sont pas modifiés.
+La version d'avant la refonte est conservée dans la branche **`sauvegarde/avant-refonte-ui`** (et l'étiquette locale `avant-refonte-ui`) ; il suffit de ne pas fusionner `feature/refonte-ui`, ou de rétablir cette branche. La refonte ne touche que `frontend/` : base de données, API, droits et règles métier ne sont pas modifiés.
