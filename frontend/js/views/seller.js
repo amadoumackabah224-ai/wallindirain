@@ -142,7 +142,7 @@ const STEPS = [
 ];
 
 /** Liste « pour bien démarrer » : disparaît quand tout est fait. */
-function startCard(goTo) {
+export function startCard(goTo) {
   const host = h('div');
   get('/seller/start').then(({ steps, complete }) => {
     if (complete) return;
@@ -158,7 +158,7 @@ function startCard(goTo) {
   return host;
 }
 
-function showGuide() {
+export function showGuide() {
   const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
     h('div', { class: 'modal' },
       h('h2', {}, 'Guide du vendeur'),
