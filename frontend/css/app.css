@@ -352,3 +352,8 @@ svg.trophy-none { filter: grayscale(1); }
 @media (max-width: 640px) { .actions .btn { flex: 1 1 100%; justify-content: center; } }
 .help-fab { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .alert-row { margin-bottom: 14px; }
+
+/* Téléphone : identité et « Quitter » déplacés dans la fenêtre « Plus » (barre du haut allégée) */
+.sheet-who { display: flex; align-items: center; gap: 12px; padding: 4px 2px 14px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.sheet-who b { display: block; color: var(--navy); font-size: 1rem; } .sheet-who span { color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+@media (max-width: 699px) { .topbar .who-link, .topbar .topbar-out { display: none; } }

@@ -63,13 +63,14 @@ function appShell(tabKey) {
     const close = () => overlay.remove();
     const row = (ico, label, fn, tone = '') => h('button', { class: `more-row ${tone}`, type: 'button', onclick: () => { close(); fn(); } }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18));
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } }, h('div', { class: 'modal sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Plus' },
-      h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }), h('h2', {}, 'Plus'),
+      h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }),
+      h('div', { class: 'sheet-who' }, avatar(user, 44, 'top'), h('div', { class: 'grow' }, h('b', { class: 'who-name' }, user.name), h('span', {}, ROLE_LABEL[user.role]))),
       h('div', { class: 'more-list' }, rest.map((t) => row(t[1], t[2], () => goTo(t[0]))), row('user', 'Mon profil', () => goTo('profile')), row('logout', 'Quitter', logout, 'bad')),
       h('button', { class: 'btn btn-ghost btn-block mt', type: 'button', onclick: close }, 'Fermer')));
     document.body.append(overlay);
   };
   const bnav = h('nav', { class: 'bnav', 'aria-label': 'Navigation' }, primary.map((t) => navItem(t, `bnav-item${t[0] === 'new' && user.role === 'seller' ? ' accent' : ''}`)),
-    rest.length > 0 && h('button', { class: `bnav-item${rest.includes(current) || current === PROFILE_TAB ? ' on' : ''}`, type: 'button', onclick: openMore }, icon('more', 22), h('span', { class: 'nav-label' }, 'Plus')));
+    h('button', { class: `bnav-item${rest.includes(current) || current === PROFILE_TAB ? ' on' : ''}`, type: 'button', onclick: openMore }, icon('more', 22), h('span', { class: 'nav-label' }, 'Plus')));
 
   return h('div', { class: 'app' }, side,
     h('div', { class: 'main-col' },
