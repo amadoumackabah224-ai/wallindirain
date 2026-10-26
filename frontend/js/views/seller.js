@@ -124,9 +124,15 @@ function importCard() {
     h('div', { class: r.errors.length ? 'notice warn' : 'notice ok' }, `${r.created} commande(s) créée(s), ${r.duplicates} déjà importée(s), ${r.errors.length} ligne(s) en erreur.`),
     ...r.errors.slice(0, 30).map((e) => h('div', { class: 'small' }, `Ligne ${e.line} : ${e.message}`)));
   const save = action(async () => { await post('/seller/sheet', { url: url.value.trim() }); }, { ok: 'Lien enregistré' });
+  // L'état de l'import reste affiché dans la page (et pas seulement en petit message qui disparaît)
   const run = action(async () => {
-    if (!csv.value.trim() && url.value.trim()) await post('/seller/sheet', { url: url.value.trim() });   // le lien collé est enregistré automatiquement
-    show(await post('/seller/import', csv.value.trim() ? { csv: csv.value } : {}));
+    const fromSheet = !csv.value.trim();
+    out.replaceChildren(h('div', { class: 'notice' }, fromSheet ? 'Lecture de votre Google Sheet en cours… cela peut prendre jusqu\'à 30 secondes.' : 'Import en cours…'));
+    try {
+      if (fromSheet && url.value.trim()) await post('/seller/sheet', { url: url.value.trim() });   // le lien collé est enregistré automatiquement
+      if (fromSheet && !url.value.trim()) throw new Error('Collez le lien de votre Google Sheet, ou collez votre tableau en CSV.');
+      show(await post('/seller/import', fromSheet ? {} : { csv: csv.value }));
+    } catch (e) { out.replaceChildren(h('div', { class: 'notice bad' }, e?.message || 'L\'import a échoué. Réessayez.')); }
   }, {});
   return h('div', { class: 'card' }, h('h2', {}, 'Importer depuis un Google Sheet'),
     h('p', { class: 'small muted' }, 'Une ligne = une commande. En-têtes attendus : nom, téléphone, quartier ou ville, adresse, produit, quantité, prix, confirmé (oui/non). Un produit qui n\'est pas dans le catalogue est traité comme votre propre produit (le prix est alors obligatoire). Les lignes déjà importées sont ignorées.'),
