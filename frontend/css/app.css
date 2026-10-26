@@ -366,3 +366,13 @@ svg.trophy-none { filter: grayscale(1); }
 .chip[aria-pressed="true"] { background: var(--navy); color: #fff; border-color: var(--navy); }
 .level { display: flex; align-items: center; gap: 12px; }
 .nudge { margin-top: 14px; border-left: 4px solid var(--gold); }
+
+/* Connexion : sous-titre, champ mot de passe avec bouton afficher/masquer, bouton clair sur fond bleu */
+.auth-sub { margin: -4px 0 14px; color: var(--muted); font-size: .92rem; }
+.pw-wrap { position: relative; display: block; } .pw-wrap input { width: 100%; padding-right: 48px; }
+.pw-toggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; border-radius: 10px; color: var(--muted); cursor: pointer; }
+.pw-toggle:hover, .pw-toggle[aria-pressed="true"] { color: var(--navy); background: var(--paper); }
+.btn-outline-light { background: transparent; color: var(--gold-2); border: 1.5px solid var(--gold); box-shadow: none; text-decoration: none; }
+.btn-outline-light:hover { background: rgba(212,175,55,.14); }
+.auth .auth-foot a { text-decoration: none; }
+.auth-foot .btn-outline-light { margin-top: 0; }
