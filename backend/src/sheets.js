@@ -8,18 +8,21 @@ export const MAX_ROWS = 300;
 const MAX_BYTES = 1_000_000;
 
 export function parseSheetUrl(url) {
-  const m = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]{20,120})(?:[/?#].*)?$/.exec(String(url || '').trim());
+  // tolère les espaces, l'absence de « https:// » et les liens copiés avec plusieurs comptes Google (/u/0/)
+  let raw = String(url || '').trim();
+  if (/^docs\.google\.com\//i.test(raw)) raw = `https://${raw}`;
+  if (/^https:\/\/docs\.google\.com\/spreadsheets\/d\/e\//.test(raw)) throw new HttpError(400, 'invalid_input', 'Ce lien est un lien « Publier sur le Web ». Ouvrez votre Google Sheet, puis copiez le lien du bouton Partager (il contient /d/ suivi d\'un long code puis /edit).');
+  const m = /^https:\/\/docs\.google\.com\/spreadsheets\/(?:u\/[0-9]{1,2}\/)?d\/([A-Za-z0-9_-]{20,120})(?:[/?#].*)?$/.exec(raw);
   if (!m) throw new HttpError(400, 'invalid_input', 'Collez le lien complet de votre Google Sheet (https://docs.google.com/spreadsheets/d/…)');
-  const gid = /[?#&]gid=([0-9]{1,12})/.exec(String(url))?.[1] || '0';
+  const gid = /[?#&]gid=([0-9]{1,12})/.exec(raw)?.[1] || '0';
   return { id: m[1], gid };
 }
 
 // Google redirige l'export vers un domaine à lui : on suit au plus 3 redirections, et seulement vers du https Google
 const googleHost = (h) => h === 'google.com' || h.endsWith('.google.com') || h === 'googleusercontent.com' || h.endsWith('.googleusercontent.com');
 
-export async function fetchSheetCsv({ id, gid }, fetchFn = fetch) {
-  let url = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
-  let res;
+async function getGoogle(start, fetchFn) {
+  let url = start, res;
   try {
     for (let hop = 0; hop <= 3; hop++) {
       res = await fetchFn(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000), headers: { Accept: 'text/csv' } });
@@ -31,10 +34,21 @@ export async function fetchSheetCsv({ id, gid }, fetchFn = fetch) {
   } catch { throw new HttpError(502, 'sheet_unreachable', 'Impossible de joindre Google Sheets. Réessayez, ou collez le contenu en CSV.'); }
   const text = (await res.text()).slice(0, MAX_BYTES + 1);
   if (text.length > MAX_BYTES) throw new HttpError(413, 'too_large', 'Tableau trop volumineux');
-  if (!res.ok || /^\s*<(!doctype|html)/i.test(text)) {
-    throw new HttpError(400, 'sheet_private', 'Ce Google Sheet n\'est pas lisible : partagez-le avec « Toute personne disposant du lien » en lecture seule, puis réessayez.');
-  }
-  return text;
+  return { res, text, host: new URL(url).hostname };
+}
+const unusable = (r) => !r.res.ok || /^\s*<(!doctype|html)/i.test(r.text);
+
+/** Lit le Google Sheet en CSV : d'abord l'export classique, puis (si Google le refuse) le point d'accès « gviz », qui marche aussi pour certains fichiers. */
+export async function fetchSheetCsv({ id, gid }, fetchFn = fetch) {
+  const first = await getGoogle(`https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`, fetchFn);
+  if (!unusable(first)) return first.text;
+  const second = await getGoogle(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`, fetchFn).catch(() => null);
+  if (second && !unusable(second)) return second.text;
+  const st = first.res.status;
+  if (st === 404) throw new HttpError(400, 'sheet_not_found', 'Google ne trouve pas ce Sheet (code 404). Vérifiez que le lien est complet et que le fichier n\'a pas été supprimé.');
+  if (st === 400 && !/accounts\.google\.com/.test(first.host)) throw new HttpError(400, 'sheet_unsupported', 'Google ne peut pas exporter ce fichier (code 400). S\'il s\'agit d\'un fichier Excel, ouvrez-le dans Google Sheets puis faites Fichier → « Enregistrer en tant que Google Sheets », et collez le lien du nouveau fichier.');
+  const login = /accounts\.google\.com/.test(first.host) || /ServiceLogin|accounts\.google\.com/.test(first.text.slice(0, 5000));
+  throw new HttpError(400, 'sheet_private', `Ce Google Sheet n'est pas lisible depuis Wallindirain (${login ? 'Google demande une connexion' : `code Google : ${st}`}). Dans Google Sheets : Partager → Accès général → « Toute personne disposant du lien » → rôle « Lecteur », puis réessayez. Un compte professionnel (Workspace) peut bloquer ce partage : utilisez alors un compte Gmail personnel, ou collez le tableau en CSV.`);
 }
 
 /** CSV simple (guillemets, virgules ou points-virgules, retours à la ligne dans les champs). */

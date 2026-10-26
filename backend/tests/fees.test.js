@@ -183,3 +183,23 @@ test('Google Sheet : redirections limitées aux domaines Google en https', async
   // boucle de redirections : arrêtée
   await assert.rejects(fetchSheetCsv({ id: 'x'.repeat(25), gid: '0' }, async () => new Response('', { status: 302, headers: { location: 'https://docs.google.com/again' } })), (e) => e.code === 'sheet_unreachable');
 });
+
+test('Google Sheet : liens tolérés, repli gviz et messages d\'erreur précis', async () => {
+  const { fetchSheetCsv } = await import('../src/sheets.js');
+  const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+  assert.deepEqual(parseSheetUrl(`https://docs.google.com/spreadsheets/u/0/d/${ID}/edit#gid=7`), { id: ID, gid: '7' });
+  assert.deepEqual(parseSheetUrl(` docs.google.com/spreadsheets/d/${ID}/edit `), { id: ID, gid: '0' });
+  assert.throws(() => parseSheetUrl('https://docs.google.com/spreadsheets/d/e/2PACX-1vQabcdefghijklmnopqrstuvwxyz/pubhtml'), /Publier sur le Web/);
+  assert.throws(() => parseSheetUrl('https://docs.google.com.evil.com/spreadsheets/u/0/d/' + ID), /Collez le lien/);
+  const sheet = { id: 'x'.repeat(25), gid: '0' };
+  const html = (status = 200) => new Response('<!DOCTYPE html><html>login</html>', { status });
+  // l'export échoue, le repli gviz marche
+  const urls = [];
+  assert.equal(await fetchSheetCsv(sheet, async (u) => { urls.push(u); return u.includes('/export?') ? html(200) : new Response('nom,tel\nA,1', { status: 200 }); }), 'nom,tel\nA,1');
+  assert.ok(urls[1].includes('/gviz/tq?tqx=out:csv'));
+  // tout échoue : messages selon le cas
+  await assert.rejects(fetchSheetCsv(sheet, async () => html(404)), (e) => e.code === 'sheet_not_found');
+  await assert.rejects(fetchSheetCsv(sheet, async () => html(400)), (e) => e.code === 'sheet_unsupported' && /Excel/.test(e.message));
+  await assert.rejects(fetchSheetCsv(sheet, async () => html(200)), (e) => e.code === 'sheet_private' && /Lecteur/.test(e.message));
+  await assert.rejects(fetchSheetCsv(sheet, async () => html(403)), (e) => e.code === 'sheet_private' && /403/.test(e.message));
+});

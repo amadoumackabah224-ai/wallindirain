@@ -124,7 +124,10 @@ function importCard() {
     h('div', { class: r.errors.length ? 'notice warn' : 'notice ok' }, `${r.created} commande(s) créée(s), ${r.duplicates} déjà importée(s), ${r.errors.length} ligne(s) en erreur.`),
     ...r.errors.slice(0, 30).map((e) => h('div', { class: 'small' }, `Ligne ${e.line} : ${e.message}`)));
   const save = action(async () => { await post('/seller/sheet', { url: url.value.trim() }); }, { ok: 'Lien enregistré' });
-  const run = action(async () => { show(await post('/seller/import', csv.value.trim() ? { csv: csv.value } : {})); }, {});
+  const run = action(async () => {
+    if (!csv.value.trim() && url.value.trim()) await post('/seller/sheet', { url: url.value.trim() });   // le lien collé est enregistré automatiquement
+    show(await post('/seller/import', csv.value.trim() ? { csv: csv.value } : {}));
+  }, {});
   return h('div', { class: 'card' }, h('h2', {}, 'Importer depuis un Google Sheet'),
     h('p', { class: 'small muted' }, 'Une ligne = une commande. En-têtes attendus : nom, téléphone, quartier ou ville, adresse, produit, quantité, prix, confirmé (oui/non). Un produit qui n\'est pas dans le catalogue est traité comme votre propre produit (le prix est alors obligatoire). Les lignes déjà importées sont ignorées.'),
     h('p', { class: 'small muted' }, 'Votre Google Sheet doit être partagé avec « Toute personne disposant du lien » en lecture seule.'),
