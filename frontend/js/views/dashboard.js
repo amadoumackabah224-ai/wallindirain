@@ -5,6 +5,7 @@ import { get } from '../api.js';
 import { icon } from '../icons.js';
 import { columnChart, segmentBar } from '../charts.js';
 import { startCard } from './seller.js';
+import { referralNudge } from './stats.js';
 
 const PERIODS = [[7, '7 jours'], [30, '30 jours'], [90, '3 mois']];
 const LIMIT = 200;
@@ -117,7 +118,7 @@ export function sellerDashboard({ goTo, user }) {
       alerts(w, goTo),
       moneySection(w, orders, goTo),
       ordersSection(orders, s, goTo),
-      h('div', { class: 'dash-cols' }, h('div', {}, latestOrders(orders, goTo)), h('div', {}, quickActions(goTo), startSlot(goTo)))), { poll: 30000, placeholder: skeleton() }),
+      h('div', { class: 'dash-cols' }, h('div', {}, latestOrders(orders, goTo)), h('div', {}, quickActions(goTo), startSlot(goTo), referralNudge(goTo, s.delivered)))), { poll: 30000, placeholder: skeleton() }),
     performance());
 }
 
