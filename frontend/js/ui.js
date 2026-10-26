@@ -1,3 +1,4 @@
+import { icon } from './icons.js';
 // Outils d'interface. Règle de sécurité : on ne passe JAMAIS par innerHTML ;
 // tout texte est ajouté comme nœud texte, donc aucune injection (XSS) possible.
 export function h(tag, attrs, ...children) {
@@ -90,7 +91,10 @@ export const legalLinks = (mode = 'public') => {
 };
 
 export const spinner = () => h('div', { class: 'spinner', role: 'status', 'aria-label': 'Chargement' });
-export const empty = (icon, text) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon), text);
+/** État vide : icône dans une pastille, message, et action facultative. `ico` peut être un nom d'icône ou un ancien emoji. */
+export const empty = (ico, text, actionNode) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon(ico, 26)), h('p', {}, text), actionNode);
+/** En-tête de page : titre, sous-titre et actions alignées à droite. */
+export const pageHead = (title, sub, ...actions) => h('div', { class: 'page-head' }, h('div', { class: 'grow' }, h('h1', {}, title), sub && h('p', { class: 'page-sub' }, sub)), actions.length > 0 && h('div', { class: 'gap' }, ...actions));
 
 export function toast(message, kind = '') {
   let box = document.querySelector('.toasts');
@@ -136,7 +140,7 @@ export function showProof(id, title = 'Preuve de paiement') {
       h('div', { class: 'gap mt' }, h('a', { class: 'btn btn-ghost grow', href: `/api/proofs/${id}`, target: '_blank', rel: 'noopener' }, 'Ouvrir en grand'), h('button', { class: 'btn btn-gold grow', onclick: () => overlay.remove() }, 'Fermer'))));
   document.body.append(overlay);
 }
-export const proofButton = (id, label = 'Voir la preuve') => id ? h('button', { class: 'btn btn-sm btn-ghost', onclick: () => showProof(id) }, '🧾 ' + label) : null;
+export const proofButton = (id, label = 'Voir la preuve') => id ? h('button', { class: 'btn btn-sm btn-ghost', onclick: () => showProof(id) }, [icon('receipt', 16), ' ', label]) : null;
 
 /** Fenêtre de saisie. fields: [{name,label,type,options,hint,value,required,placeholder,inputmode,maxlength}] -> valeurs ou null */
 export function ask({ title, text, fields = [], submit = 'Valider', danger = false }) {
@@ -206,7 +210,8 @@ export function action(fn, { ok, refresh } = {}) {
 
 export function table(headers, rows, { empty: emptyNode } = {}) {
   if (!rows.length) return emptyNode || empty('∅', 'Rien à afficher');
-  return h('div', { class: 'table-wrap', tabindex: '0' }, h('table', {}, h('thead', {}, h('tr', {}, headers.map((x) => h('th', { scope: 'col' }, x === '' ? h('span', { class: 'sr' }, 'Actions') : x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c) => h('td', {}, c)))))));
+  // Sur téléphone, chaque ligne devient une carte : le libellé de la colonne s'affiche devant chaque valeur (data-label).
+  return h('div', { class: 'table-wrap', tabindex: '0' }, h('table', { class: 'rt' }, h('thead', {}, h('tr', {}, headers.map((x) => h('th', { scope: 'col' }, x === '' ? h('span', { class: 'sr' }, 'Actions') : x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c, i) => h('td', { 'data-label': headers[i] || null }, c)))))));
 }
 export const kv = (pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
 export const amount = (n, signed = false) => h('span', { class: `amount mono ${signed ? (n < 0 ? 'neg' : 'pos') : ''}` }, (signed && n > 0 ? '+' : '') + fmtGNF(n));
@@ -214,12 +219,12 @@ export const telLink = (phone, label) => h('a', { href: `tel:+224${phone}`, clas
 export const waLink = (phone, text = '') => h('a', { href: `https://wa.me/224${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`, target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-sm btn-ghost' }, 'WhatsApp');
 
 /** Charge des données, affiche le résultat, rafraîchit toutes les `poll` ms tant que la vue est affichée. */
-export function liveView(load, render, { poll = 0 } = {}) {
-  const root = h('div', {}, spinner());
+export function liveView(load, render, { poll = 0, placeholder = null } = {}) {
+  const root = h('div', {}, placeholder || spinner());
   let timer = null;
   const refresh = async () => {
     try { const data = await load(); const node = render(data, refresh); root.replaceChildren(node); }
-    catch (e) { if (!root.firstChild || root.querySelector('.spinner')) root.replaceChildren(h('div', { class: 'notice bad' }, e.message)); else errToast(e); }
+    catch (e) { if (!root.firstChild || root.querySelector('.spinner, .skeleton')) root.replaceChildren(h('div', { class: 'notice bad' }, e.message)); else errToast(e); }
   };
   refresh();
   if (poll) timer = setInterval(() => { if (!root.isConnected) clearInterval(timer); else if (!document.querySelector('.overlay')) refresh(); }, poll);
