@@ -1,6 +1,6 @@
 // Tableau de bord du vendeur : l'essentiel d'un coup d'œil. Aucun calcul métier n'est refait ici : les montants viennent
 // tels quels de l'API (portefeuille, commandes, statistiques) ; seules des additions d'affichage sont faites.
-import { h, fmtGNF, fmtDate, liveView, statusBadge, empty, pageHead } from '../ui.js';
+import { h, fmtGNF, fmtDate, liveView, statusBadge, empty, pageHead, metric, alertRow } from '../ui.js';
 import { get } from '../api.js';
 import { icon } from '../icons.js';
 import { columnChart, segmentBar } from '../charts.js';
@@ -18,17 +18,9 @@ const bigMoney = (n) => { const t = fmtGNF(n); const i = t.lastIndexOf(' '); ret
 const dayLabel = (d) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const capped = (n, total) => (total >= LIMIT && n > 0 ? `${n}+` : String(n));
 
-function metric({ ico, tone, label, value, hint, onclick }) {
-  return h('button', { class: `metric ${tone}`, type: 'button', onclick },
-    h('span', { class: 'metric-ico' }, icon(ico, 20)), h('span', { class: 'metric-v' }, value), h('span', { class: 'metric-l' }, label), h('span', { class: 'metric-h' }, hint));
-}
 function mchip(tone, label, value, hint) {
   return h('div', { class: `mchip ${tone}` }, h('span', { class: 'mchip-l' }, h('i', { class: 'dot' }), label), h('b', { class: 'mchip-v' }, fmtGNF(value)), hint && h('span', { class: 'mchip-h' }, hint));
 }
-function alertRow(tone, ico, text, btnLabel, onclick) {
-  return h('div', { class: `alert-row ${tone}`, role: 'note' }, icon(ico, 20), h('span', { class: 'grow' }, text), btnLabel && h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick }, btnLabel));
-}
-
 function alerts(w, goTo) {
   const out = [];
   if (!w.identity_verified) {

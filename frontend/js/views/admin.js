@@ -1,28 +1,34 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
-import { h, ask, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER } from '../ui.js';
+import { h, ask, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER, pageHead, metric, alertRow } from '../ui.js';
+import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
 
-const kpi = (label, value, cls = '') => h('div', { class: `kpi ${cls}` }, h('div', { class: 'v' }, value), h('div', { class: 'l' }, label));
 
 export function adminDashboard({ goTo }) {
-  return liveView(() => get('/admin/dashboard'), (d) => h('div', {}, h('h1', {}, 'Tableau de bord'),
-    d.ledger_problems > 0 && h('div', { class: 'notice bad' }, `⚠ ${d.ledger_problems} incohérence(s) comptable(s) détectée(s). Contactez le développeur.`),
-    h('div', { class: 'grid g3 mb' },
-      kpi('Livraisons aujourd\'hui', d.delivered_today, 'good'), kpi('Ventes livrées aujourd\'hui', fmtGNF(d.sales_today)), kpi('Résultat Wallindirain (cumulé)', fmtGNF(d.platform_result), 'good'),
-      kpi('Stock prépayé détenu pour les vendeurs', fmtGNF(d.prepaid_float)), kpi('Argent à récupérer chez les livreurs', fmtGNF(d.cash_outstanding), d.cash_outstanding > 0 ? 'alert' : '')),
-    d.legal_missing?.length > 0 && h('div', { class: 'notice warn' }, `Informations légales à compléter dans les variables Render avant la mise en service : ${d.legal_missing.join(' ; ')}.`),
-    h('h2', {}, 'À traiter'),
-    h('div', { class: 'grid g3 mb' },
-      h('div', { onclick: () => goTo('users') }, kpi('Fournisseurs à valider', d.suppliers_pending, d.suppliers_pending ? 'alert' : '')),
-      h('div', { onclick: () => goTo('products') }, kpi('Produits à valider', d.products_pending, d.products_pending ? 'alert' : '')),
-      h('div', { onclick: () => goTo('orders') }, kpi('Colis affectés non récupérés', d.pickups_late, d.pickups_late ? 'alert' : '')),
-      h('div', { onclick: () => goTo('withdrawals') }, kpi('Retraits à payer', d.withdrawals_pending, d.withdrawals_pending ? 'alert' : '')),
-      h('div', { onclick: () => goTo('remit') }, kpi('Reversements livreurs à valider', d.remittances_pending, d.remittances_pending ? 'alert' : '')),
-      h('div', { onclick: () => goTo('support') }, kpi('Messages non lus', d.support_unread, d.support_unread ? 'alert' : '')),
-      h('div', { onclick: () => goTo('data') }, kpi('Demandes sur les données', d.data_requests_open, d.data_requests_open ? 'alert' : '')),
-      kpi('Arrivages à compter (magasin)', d.arrivals_pending)),
-    h('div', { class: 'card' }, h('h2', {}, 'Commandes par statut'), h('div', { class: 'gap' }, d.by_status.map((s) => h('span', { class: 'badge ' + (ORDER_STATUS[s.status]?.[1] || '') }, `${ORDER_STATUS[s.status]?.[0] || s.status} : ${s.n}`))))), { poll: 20000 });
+  return liveView(() => get('/admin/dashboard'), (d) => {
+    const todo = [
+      ['users', 'user', 'Fournisseurs à valider', d.suppliers_pending], ['products', 'package', 'Produits à valider', d.products_pending],
+      ['orders', 'clock', 'Colis affectés non récupérés', d.pickups_late], ['withdrawals', 'banknote', 'Retraits à payer', d.withdrawals_pending],
+      ['remit', 'wallet', 'Reversements livreurs à valider', d.remittances_pending], ['support', 'message', 'Messages non lus', d.support_unread],
+      ['data', 'database', 'Demandes sur les données', d.data_requests_open], [null, 'warehouse', 'Arrivages à compter (magasin)', d.arrivals_pending]];
+    todo.sort((x, y) => (y[3] > 0) - (x[3] > 0));
+    const seg = d.by_status.map((s) => ({ label: ORDER_STATUS[s.status]?.[0] || s.status, value: Number(s.n), tone: ORDER_STATUS[s.status]?.[1] || 'grey' }));
+    return h('div', {},
+      pageHead('Tableau de bord', 'Vue d\'ensemble de la plateforme'),
+      d.ledger_problems > 0 && alertRow('bad', 'alert', `${d.ledger_problems} incohérence(s) comptable(s) détectée(s). Contactez le développeur.`),
+      d.legal_missing?.length > 0 && alertRow('', 'shield', `Informations légales à compléter dans les variables Render avant la mise en service : ${d.legal_missing.join(' ; ')}.`),
+      h('h2', {}, 'À traiter'),
+      h('div', { class: 'metrics mb' }, todo.map(([to, ico, label, n]) => metric({ ico, tone: n > 0 ? 'bad' : 'grey', label, value: String(n), onclick: to ? () => goTo(to) : undefined }))),
+      h('h2', {}, 'Activité et argent'),
+      h('div', { class: 'metrics mb' },
+        metric({ ico: 'truck', tone: 'ok', label: 'Livraisons aujourd\'hui', value: String(d.delivered_today) }),
+        metric({ ico: 'chart', tone: 'info', label: 'Ventes livrées aujourd\'hui', value: fmtGNF(d.sales_today) }),
+        metric({ ico: 'trend', tone: 'ok', label: 'Résultat Wallindirain (cumulé)', value: fmtGNF(d.platform_result) }),
+        metric({ ico: 'wallet', tone: 'grey', label: 'Stock prépayé détenu pour les vendeurs', value: fmtGNF(d.prepaid_float) }),
+        metric({ ico: 'banknote', tone: d.cash_outstanding > 0 ? 'warn' : 'grey', label: 'Argent à récupérer chez les livreurs', value: fmtGNF(d.cash_outstanding) })),
+      h('div', { class: 'card' }, h('h2', {}, 'Commandes par statut'), segmentBar(seg)));
+  }, { poll: 20000 });
 }
 
 export function adminUsers() {
@@ -157,7 +163,7 @@ export function adminWithdrawals() {
         await post(`/admin/withdrawals/${w.id}/pay`, { payment_ref: v.ref, proof_id: proof });
       }, { ok: 'Retrait marqué payé', refresh });
       const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
-      return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · ⚠ identité non vérifiée')), amount(w.amount), `${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}`,
+      return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), `${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}`,
         badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
     }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6]), r[7]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });

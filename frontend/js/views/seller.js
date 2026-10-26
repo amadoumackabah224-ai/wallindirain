@@ -1,6 +1,7 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
 import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip } from '../ui.js';
 import { get, post } from '../api.js';
+import { icon } from '../icons.js';
 
 const RESULT = { confirmed: ['Confirmée', 'ok'], unreachable: ['Injoignable', 'warn'], refused: ['Refusée', 'bad'] };
 
@@ -36,11 +37,11 @@ function orderCard(o, refresh) {
   const copyTrack = async () => { try { await navigator.clipboard.writeText(trackUrl); toast('Lien de suivi copié', 'ok'); } catch { toast(trackUrl, 'ok'); } };
   return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` },
     h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad'), o.formula === 'C' && badge('Produit propre', 'grey'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
-    o.risk_flag && o.status !== 'delivered' && h('div', { class: 'notice bad' }, h('b', {}, '⚠ Client à risque. '), `Ce numéro a déjà eu ${o.risk_incidents || 1} commande(s) non aboutie(s) sur Wallindirain. Prévenez-le que le paiement à la livraison est obligatoire.`),
+    o.risk_flag && o.status !== 'delivered' && h('div', { class: 'notice bad' }, h('b', {}, icon('alert', 16), ' Client à risque. '), `Ce numéro a déjà eu ${o.risk_incidents || 1} commande(s) non aboutie(s) sur Wallindirain. Prévenez-le que le paiement à la livraison est obligatoire.`),
     kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', h('span', { class: 'gap' }, `${o.customer_name} · `, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, c'est votre vendeur. Suivez votre commande ${o.ref} ici : ${trackUrl}`))], ['Colis à récupérer', pickupText(o)], ['Livraison', `${o.commune}, ${o.address}`],
-      ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain)],
+      ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain), 'key'],
       o.failure_reason && ['Dernier échec', o.failure_reason]]),
-    h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
+    h('div', { class: 'gap mt actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
 }
 
 export function sellerCatalog() {
@@ -150,10 +151,10 @@ export function startCard(goTo) {
     host.replaceChildren(h('div', { class: 'card' },
       h('h3', {}, `Pour bien démarrer (${done}/${STEPS.length})`),
       STEPS.map(([k, label, to]) => h('div', { class: 'list-item' },
-        h('span', {}, steps[k] ? '✅' : '⬜'), ' ',
+        h('span', { class: steps[k] ? 'step-done' : 'step-todo' }, icon(steps[k] ? 'checkCircle' : 'clock', 20)),
         h('div', { class: 'grow' }, label),
         !steps[k] && goTo && h('button', { class: 'btn btn-ghost', onclick: () => goTo(to) }, 'Y aller'))),
-      h('button', { class: 'btn btn-ghost mt', onclick: showGuide }, '📖 Guide du vendeur')));
+      h('button', { class: 'btn btn-ghost mt', onclick: showGuide }, icon('book', 18), 'Guide du vendeur')));
   }).catch(() => {});
   return host;
 }

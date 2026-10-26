@@ -342,3 +342,13 @@ svg.trophy-none { filter: grayscale(1); }
 .photo-del { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: #fff; color: #b3261e; font-size: 16px; line-height: 1; cursor: pointer; }
 .public-photo { display: block; width: 100%; max-height: 320px; object-fit: contain; border-radius: 12px; background: #fff; margin-bottom: 12px; }
 
+
+/* Lignes clés (montant à encaisser, gain…) et boutons d'action des cartes de commande */
+.kv dt.key, .kv dd.key { background: var(--gold-3, #fbf3d5); padding: 6px 8px; font-weight: 700; color: var(--navy); }
+.kv dt.key { border-radius: 8px 0 0 8px; } .kv dd.key { border-radius: 0 8px 8px 0; }
+.step-done { color: var(--ok); } .step-todo { color: var(--muted); }
+.actions { align-items: stretch; }
+.actions .btn { min-height: 44px; }
+@media (max-width: 640px) { .actions .btn { flex: 1 1 100%; justify-content: center; } }
+.help-fab { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.alert-row { margin-bottom: 14px; }

@@ -10,7 +10,7 @@ export function warehouseView() {
         const v = await ask({ title: `Compter : ${a.product_name}`, text: `Le fournisseur annonce ${a.announced_qty} unité(s). Comptez ce que vous avez réellement reçu : seul ce nombre deviendra vendable.`, submit: 'Valider le comptage', fields: [{ name: 'counted', label: 'Quantité réellement reçue', type: 'number', inputmode: 'numeric' }] });
         if (v) await post(`/warehouse/arrivals/${a.id}/count`, { counted: Number(v.counted) });
       }, { ok: 'Stock mis à jour', refresh });
-      return h('div', { class: 'card' }, h('h2', {}, a.product_name), kv([['Annoncé', a.announced_qty], ['Date', fmtDate(a.created_at)]]), h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: count }, 'Compter cet arrivage')));
+      return h('div', { class: 'card' }, h('h2', {}, a.product_name), kv([['Annoncé', a.announced_qty, 'key'], ['Date', fmtDate(a.created_at)]]), h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: count }, 'Compter cet arrivage')));
     }) : empty('📦', 'Aucun arrivage en attente'),
     h('h1', { class: 'mt' }, 'Retours à réceptionner'),
     returns.length ? returns.map((r) => {

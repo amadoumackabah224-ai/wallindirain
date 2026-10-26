@@ -47,7 +47,7 @@ const P = {
 };
 /** Emojis encore présents dans certains écrans → icône correspondante (pour que l'ensemble reste cohérent). */
 export const EMOJI_ICON = { '📦': 'package', '📊': 'chart', '📈': 'trend', '🛍️': 'bag', '💸': 'banknote', '📒': 'receipt', '🧾': 'receipt', '🏍️': 'bike', '📞': 'phone', '☎️': 'phone', '💬': 'message',
-  '📜': 'scroll', '💰': 'wallet', '💵': 'banknote', '🏬': 'warehouse', '🏦': 'bank', '📲': 'phoneMoney', '👥': 'users', '👤': 'user', '🚚': 'truck', '⚙️': 'sliders', '🗂️': 'database', '➕': 'plus', '∅': 'inbox' };
+  '📜': 'scroll', '💰': 'wallet', '💵': 'banknote', '🏬': 'warehouse', '🏦': 'bank', '📲': 'phoneMoney', '👥': 'users', '👤': 'user', '🚚': 'truck', '⚙️': 'sliders', '🗂️': 'database', '➕': 'plus', '∅': 'inbox', '✅': 'checkCircle', '📭': 'inbox', '↩️': 'inbox', '📋': 'receipt' };
 
 export function icon(name, size = 20, label) {
   const paths = P[name] || P[EMOJI_ICON[name]] || P.inbox;
