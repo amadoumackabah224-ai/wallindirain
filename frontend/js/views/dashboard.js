@@ -5,6 +5,7 @@ import { get } from '../api.js';
 import { icon } from '../icons.js';
 import { columnChart, segmentBar } from '../charts.js';
 import { startCard } from './seller.js';
+import { startIdentityFlow } from './kyc.js';
 import { referralNudge } from './stats.js';
 
 const PERIODS = [[7, '7 jours'], [30, '30 jours'], [90, '3 mois']];
@@ -22,12 +23,13 @@ const capped = (n, total) => (total >= LIMIT && n > 0 ? `${n}+` : String(n));
 function mchip(tone, label, value, hint) {
   return h('div', { class: `mchip ${tone}` }, h('span', { class: 'mchip-l' }, h('i', { class: 'dot' }), label), h('b', { class: 'mchip-v' }, fmtGNF(value)), hint && h('span', { class: 'mchip-h' }, hint));
 }
-function alerts(w, goTo) {
+function alerts(w, goTo, refresh) {
   const out = [];
   if (!w.identity_verified) {
     if (w.kyc_status?.status === 'submitted') out.push(alertRow('warn', 'clock', 'Vos pièces d\'identité sont en cours d\'examen : les retraits seront possibles dès la validation.'));
-    else if (w.kyc_status?.status === 'rejected') out.push(alertRow('bad', 'alert', `Votre pièce a été refusée : ${w.kyc_status.reject_reason || 'motif non précisé'}.`, 'Renvoyer mes photos', () => goTo('profile')));
-    else out.push(alertRow('warn', 'shield', 'Faites vérifier votre identité pour pouvoir retirer votre argent.', 'Vérifier', () => goTo('profile')));
+    else if (w.kyc_status?.status === 'rejected') out.push(alertRow('bad', 'alert', `Votre pièce a été refusée : ${w.kyc_status.reject_reason || 'motif non précisé'}.`, 'Renvoyer mes photos', async () => { if (await startIdentityFlow({})) await refresh?.(); }));
+    // jamais envoyée : on n'en parle que lorsqu'il y a de l'argent à retirer (pas dès l'inscription)
+    else if (w.available - (w.reserved || 0) > 0) out.push(alertRow('warn', 'shield', 'Vous avez de l\'argent disponible. Pour le retirer, faites vérifier votre identité (une seule fois).', 'Vérifier', async () => { if (await startIdentityFlow({ intro: 'Pour votre premier retrait, nous devons vérifier votre identité.' })) await refresh?.(); }));
   }
   if (!(w.payout && w.payout.phone)) out.push(alertRow('warn', 'phoneMoney', 'Aucun numéro de versement (Orange Money ou MTN MoMo) n\'est enregistré.', 'Enregistrer', () => goTo('wallet')));
   if (w.subscription && w.subscription.monthly > 0 && w.subscription.required && !w.subscription.active) out.push(alertRow('bad', 'alert', 'Abonnement expiré : vous ne pouvez plus créer de commandes. Contactez Wallindirain pour le renouveler.'));
@@ -114,8 +116,8 @@ export function sellerDashboard({ goTo, user }) {
   const first = (user?.name || '').trim().split(/\s+/)[0] || '';
   return h('div', { class: 'dash' },
     pageHead(first ? `Bonjour ${first}` : 'Bonjour', dayLabel(new Date()), h('button', { class: 'btn btn-gold hide-sm', type: 'button', onclick: () => goTo('new') }, icon('plus', 18), 'Nouvelle commande')),
-    liveView(() => Promise.all([get('/wallet'), get(`/seller/orders?limit=${LIMIT}`), get('/seller/stats?days=30')]), ([w, { orders }, s]) => h('div', {},
-      alerts(w, goTo),
+    liveView(() => Promise.all([get('/wallet'), get(`/seller/orders?limit=${LIMIT}`), get('/seller/stats?days=30')]), ([w, { orders }, s], refresh) => h('div', {},
+      alerts(w, goTo, refresh),
       moneySection(w, orders, goTo),
       ordersSection(orders, s, goTo),
       h('div', { class: 'dash-cols' }, h('div', {}, latestOrders(orders, goTo)), h('div', {}, quickActions(goTo), startSlot(goTo), referralNudge(goTo, s.delivered)))), { poll: 30000, placeholder: skeleton() }),

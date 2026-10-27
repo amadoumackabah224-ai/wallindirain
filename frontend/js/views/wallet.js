@@ -1,6 +1,7 @@
 // Portefeuille et retraits : commun au vendeur, fournisseur, agent, chef et livreur.
 import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, table, badge, amount, action, WALLET_KIND, empty, toast, proofButton } from '../ui.js';
 import { get, post } from '../api.js';
+import { startIdentityFlow } from './kyc.js';
 
 const WD_STATUS = { pending_code: ['Expiré', 'grey'], requested: ['En attente de validation', 'warn'], paid: ['Payé', 'ok'], rejected: ['Refusé', 'bad'], expired: ['Expiré', 'grey'] };
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
@@ -18,7 +19,13 @@ export function walletView() {
       if (v) await post('/me/payout', v);
     }, { ok: 'Numéro de versement enregistré', refresh });
     const withdraw = action(async () => {
-      if (!w.identity_verified) { toast('Votre pièce d\'identité doit d\'abord être vérifiée par Wallindirain.', 'bad'); return; }
+      if (!w.identity_verified) {
+        // la vérification d'identité n'est demandée qu'ici, au moment où elle devient utile
+        if (w.kyc_status?.status === 'submitted') { toast('Votre pièce d\'identité est en cours d\'examen : le retrait sera possible dès la validation.', 'ok'); return; }
+        const sent = await startIdentityFlow({ intro: 'Pour votre premier retrait, nous devons vérifier votre identité. Vous ne le ferez qu\'une seule fois.' });
+        if (sent) await refresh();
+        return;
+      }
       if (!hasPayout) { toast('Enregistrez d\'abord votre numéro de versement.', 'bad'); return; }
       const v = await ask({ title: 'Demander un retrait', text: `Disponible : ${fmtGNF(free)}. Minimum ${fmtGNF(w.min_withdrawal)}. Après validation par l\'administration, l\'argent sera envoyé sur ${OPERATOR[w.payout.method]} ${fmtPhone(w.payout.phone)} avec une capture du transfert, et le montant sera débité à ce moment-là.`, submit: 'Envoyer la demande', fields: [
         { name: 'amount', label: 'Montant (GNF)', type: 'number', inputmode: 'numeric' }] });
@@ -37,8 +44,8 @@ export function walletView() {
       !w.identity_verified && (w.kyc_status?.status === 'submitted'
         ? h('div', { class: 'notice warn' }, 'Vos photos de pièce d\'identité sont en cours d\'examen : les retraits sont possibles dès qu\'elles sont validées.')
         : w.kyc_status?.status === 'rejected'
-          ? h('div', { class: 'notice bad' }, `Votre pièce a été refusée : ${w.kyc_status.reject_reason || 'motif non précisé'}. `, h('a', { class: 'btn btn-sm btn-gold', href: '#/app/profile' }, 'Renvoyer mes photos'))
-          : h('div', { class: 'notice warn' }, 'Pour retirer de l\'argent, vous devez faire vérifier votre identité : envoyez les photos de votre pièce et un selfie. ', h('a', { class: 'btn btn-sm btn-gold', href: '#/app/profile' }, 'Vérifier mon identité'))),
+          ? h('div', { class: 'notice bad' }, `Votre pièce a été refusée : ${w.kyc_status.reject_reason || 'motif non précisé'}. `, h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: action(async () => { if (await startIdentityFlow({})) await refresh(); }) }, 'Renvoyer mes photos'))
+          : null),
       hasPayout
         ? h('div', { class: 'notice' }, `Numéro de versement : ${OPERATOR[w.payout.method]} · ${fmtPhone(w.payout.phone)}. `, h('a', { href: '#/app/profile' }, 'Le modifier dans Profil'))
         : h('div', { class: 'notice warn' }, 'Aucun numéro de versement enregistré. ', h('button', { class: 'btn btn-sm btn-gold', onclick: setPayout }, 'Enregistrer mon numéro')),

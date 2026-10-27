@@ -50,7 +50,8 @@ export function registerView({ ref } = {}) {
     const sup = role.value === 'supplier';
     doc.required = sup;
     refField.replaceChildren(sup ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
-    docField.replaceChildren(field(sup ? 'Pièce d\'identité' : 'Pièce d\'identité (facultative pour l\'instant)', doc, sup ? 'Obligatoire pour un fournisseur : elle est vérifiée avant l\'activation du compte. Saisissez seulement le numéro, aucune photo n\'est demandée.' : 'Vous pourrez l\'ajouter plus tard, avant votre premier retrait d\'argent. Seul le numéro est demandé, aucune photo.'));
+    // vendeur : aucune pièce à l'inscription (demandée seulement au premier retrait) ; fournisseur : obligatoire
+    docField.replaceChildren(...(sup ? [field('Pièce d\'identité', doc, 'Obligatoire pour un fournisseur : elle est vérifiée avant l\'activation du compte. Saisissez seulement le numéro, aucune photo n\'est demandée.')] : []));
   };
   const accept = h('input', { type: 'checkbox', required: true });
   // les textes proposés sont ceux du rôle choisi (vendeur ou fournisseur)
