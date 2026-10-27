@@ -275,3 +275,16 @@ export function trophy(tier = 'none', size = 56) {
   if (t.spark) svg.append(el('path', { d: 'M8 4v6M5 7h6M56 2v5M53.5 4.5h5', stroke: t.c1, 'stroke-width': '1.6', 'stroke-linecap': 'round' }));
   return svg;
 }
+
+/* ---------- Apparence : clair, sombre, ou celui du téléphone (choix gardé sur cet appareil) ---------- */
+const THEME_KEY = 'wl_theme';
+let themeMem = null;
+export const getTheme = () => { if (themeMem) return themeMem; try { const t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' ? t : 'auto'; } catch { return 'auto'; } };
+export function applyTheme() {
+  const t = getTheme();
+  const dark = t === 'dark' || (t === 'auto' && globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+}
+export function setTheme(t) { themeMem = t === 'auto' ? null : t; try { if (t === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, t); } catch { /* stockage indisponible : le choix vaut pour cette visite */ } applyTheme(); }
+applyTheme();
+try { globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch { /* ancien navigateur */ }

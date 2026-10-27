@@ -17,7 +17,7 @@
 .legal-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: .92rem; }
 .legal-table caption { text-align: left; font-weight: 700; padding: 6px 0; color: var(--navy); }
 .legal-table th, .legal-table td { border: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
-.legal-table thead th { background: var(--navy); color: var(--white); }
+.legal-table thead th { background: var(--navy); color: #fff; }
 .legal-table tbody th { background: var(--paper); font-weight: 600; }
 mark.todo { background: #FFE9A6; color: #1F1F1F; padding: 0 4px; border-radius: 4px; }
 .legal-foot { max-width: 1000px; margin: 0 auto; padding: 8px 14px 32px; color: var(--ink); font-size: .9rem; }
