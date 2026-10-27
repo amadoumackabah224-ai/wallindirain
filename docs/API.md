@@ -87,3 +87,12 @@ Chaque route de rôle est protégée côté serveur (`guard`) **et** à nouveau 
 ### Modes de paie de tournée (026)
 - `POST /api/chief/tours` accepte `mode` : `normal` (défaut), `share` (A) ou `split` (B). Mode inconnu ou réglage non défini (mode A à 0) : 400 `invalid_input`.
 - `GET /api/chief/tours` et `GET /api/courier/tours` renvoient `pay_mode`, `mode_bps`, par arrêt `plan_pay` (gain prévu), et `plan_total` (livreur) / `planned_pay` (chef) selon le mode ; le chef voit aussi `adjust_paid` (écart versé à la clôture).
+
+## Notifications et annonces (migration 027)
+| Méthode | Route | Rôles | Rôle |
+|---|---|---|---|
+| GET | `/api/notifications?limit=` | tous | Ses notifications (50 par défaut, 100 max) et le nombre de non lues |
+| GET | `/api/notifications/unread` | tous | Nombre de non lues (pour la cloche) |
+| POST | `/api/notifications/read` | tous | `{ ids: [..] }` marque ces notifications comme lues ; sans `ids`, toutes les siennes |
+| GET | `/api/admin/announcements` | admin | Les 30 dernières annonces |
+| POST | `/api/admin/announcements` | admin | `{ audience, title, body }` : envoie une annonce (10 par heure au maximum) |

@@ -8,6 +8,7 @@ import { walletView } from './views/wallet.js';
 import { sellerStats, adminStats, trackView } from './views/stats.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
+import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { icon } from './icons.js';
 import { supplierProducts, supplierOrders } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
@@ -30,7 +31,7 @@ const TABS = {
   warehouse: [['stock', 'warehouse', 'Entrepôt', () => warehouseView(), '']],
   admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
     ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
-    ['support', 'message', 'Messages', () => adminSupport(), 'Système'], ['data', 'database', 'Données', () => adminData(), 'Système'], ['settings', 'sliders', 'Réglages', () => adminSettings(), 'Système'], ['audit', 'scroll', 'Journal', () => adminAudit(), 'Système']]
+    ['support', 'message', 'Messages', () => adminSupport(), 'Système'], ['announce', 'megaphone', 'Annonces', () => adminAnnounce(), 'Système'], ['data', 'database', 'Données', () => adminData(), 'Système'], ['settings', 'sliders', 'Réglages', () => adminSettings(), 'Système'], ['audit', 'scroll', 'Journal', () => adminAudit(), 'Système']]
 };
 // Barre du bas sur téléphone : les onglets principaux ; le reste se trouve sous « Plus » (rien n'est retiré).
 const MOBILE_PRIMARY = { seller: ['dash', 'orders', 'new', 'wallet'], admin: ['dash', 'orders', 'users', 'withdrawals'] };
@@ -38,11 +39,15 @@ const MOBILE_PRIMARY = { seller: ['dash', 'orders', 'new', 'wallet'], admin: ['d
 // Le profil n'est plus un onglet : on y accède en touchant la photo ou le nom, en haut de l'écran.
 const PROFILE_TAB = ['profile', 'user', 'Profil', (c) => profileView({ onChanged: () => { c.refreshUser(); } })];
 
+// Notifications : page ouverte par la cloche (pas un onglet du menu)
+const NOTIF_TAB = ['notifications', 'bell', 'Notifications', (c) => notificationsView(c)];
+let bellTimer = null;
+
 function render(node) { app.replaceChildren(node); window.scrollTo(0, 0); }
 
 function appShell(tabKey) {
   const tabs = TABS[user.role];
-  const current = tabKey === 'profile' ? PROFILE_TAB : (tabs.find((t) => t[0] === tabKey) || tabs[0]);
+  const current = tabKey === 'profile' ? PROFILE_TAB : tabKey === 'notifications' ? NOTIF_TAB : (tabs.find((t) => t[0] === tabKey) || tabs[0]);
   const goTo = (k) => { location.hash = `#/app/${k}`; };
   const refreshUser = async () => { try { user = (await get('/auth/me')).user; } catch { /* inchangé */ } document.querySelectorAll('.who-name').forEach((w) => { w.textContent = user.name; }); document.querySelectorAll('.topbar .avatar').forEach((old) => old.replaceWith(avatar(user, 34, Date.now()))); };
   document.title = `${current[2]} · Wallindirain`;
@@ -72,9 +77,13 @@ function appShell(tabKey) {
   const bnav = h('nav', { class: 'bnav', 'aria-label': 'Navigation' }, primary.map((t) => navItem(t, `bnav-item${t[0] === 'new' && user.role === 'seller' ? ' accent' : ''}`)),
     h('button', { class: `bnav-item${rest.includes(current) || current === PROFILE_TAB ? ' on' : ''}`, type: 'button', onclick: openMore }, icon('more', 22), h('span', { class: 'nav-label' }, 'Plus')));
 
+  // cloche : nombre de notifications non lues (mis à jour toutes les 60 s et dès qu'on en lit)
+  const bell = bellCount({ onOpen: () => goTo('notifications'), active: current === NOTIF_TAB });
+  clearInterval(bellTimer); bellTimer = setInterval(() => { if (document.visibilityState === 'visible') bell.refresh(); }, 60000);
+
   return h('div', { class: 'app' }, side,
     h('div', { class: 'main-col' },
-      h('header', { class: 'topbar' }, h('div', { class: 'topbar-in' }, h('img', { class: 'topbar-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' }), h('span', { class: 'topbar-title' }, current[2]), h('span', { class: 'grow' }),
+      h('header', { class: 'topbar' }, h('div', { class: 'topbar-in' }, h('img', { class: 'topbar-logo', src: '/assets/logo-gold.png', alt: 'Wallindirain' }), h('span', { class: 'topbar-title' }, current[2]), h('span', { class: 'grow' }), bell,
         h('button', { class: 'who-link', type: 'button', 'aria-label': `Mon profil : ${user.name}`, 'aria-current': current === PROFILE_TAB ? 'page' : null, onclick: () => goTo('profile') },
           avatar(user, 34, 'top'), h('div', { class: 'who' }, h('b', { class: 'who-name' }, user.name), h('span', {}, ROLE_LABEL[user.role]))),
         h('button', { class: 'icon-btn topbar-out', type: 'button', 'aria-label': 'Quitter', onclick: logout }, icon('logout', 20)))),
