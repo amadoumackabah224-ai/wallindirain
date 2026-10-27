@@ -3,6 +3,7 @@ import { h, ask, fmtPhone, fmtDate, liveView, action, avatar, compressImage, err
 import { get, post } from '../api.js';
 import { kycCard } from './kyc.js';
 import { referralCard } from './stats.js';
+import { installCard } from '../pwa.js';
 
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const PAYOUT_ROLES = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
@@ -83,6 +84,7 @@ export function profileView({ onChanged }) {
       ['seller', 'supplier'].includes(p.role) && referralCard(),
       h('div', { class: 'card' }, h('h2', {}, 'Sécurité'), h('p', { class: 'muted small' }, 'Changer votre mot de passe déconnecte vos autres appareils.'),
         h('button', { class: 'btn btn-sm btn-ghost', onclick: changePw }, 'Changer mon mot de passe')),
+      installCard(),
       documentsCard(),
       h('div', { class: 'card' }, h('h2', {}, 'Mes données'), h('p', { class: 'small' }, 'Vous pouvez demander l\'accès à vos données, leur correction ou la suppression de votre compte.'),
         h('a', { class: 'btn btn-sm btn-ghost', href: '#/demande-donnees' }, 'Exercer mes droits')));

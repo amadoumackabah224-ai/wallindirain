@@ -393,3 +393,8 @@ div.notif { cursor: default; }
 .notif-body { color: var(--ink-2); font-size: .9rem; overflow-wrap: anywhere; } .notif-time { color: var(--muted); font-size: .76rem; }
 .notif-new { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); margin-top: 6px; }
 .page-head > .grow { flex: 1 1 220px; min-width: 0; }
+
+/* Application installable : bandeau hors connexion */
+.offline-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--bnav-h, 0px) + env(safe-area-inset-bottom)); z-index: 70; padding: 8px 14px; background: var(--warn-bg); color: #6b4200; border-top: 2px solid var(--warn); font-size: .86rem; text-align: center; }
+.offline-bar.hidden { display: none; }
+.install .install-act { margin-top: 10px; }
