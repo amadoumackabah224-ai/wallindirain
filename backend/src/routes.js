@@ -667,6 +667,21 @@ export function registerRoutes(app, { db, cfg }) {
     return { steps: { identity: r.identity, payout: r.payout, price: r.price, link: r.link, order: r.order_done }, complete: Object.values(r).every(Boolean) };
   }));
 
+  // ----- Notifications (cloche) et annonces de l'administration -----
+  app.get('/api/notifications', guard(ANY_ROLE, async (ctx) => await fn('fn_my_notifications', ctx.user.id, Math.min(100, Math.max(1, Number(ctx.query.limit) || 50)))));
+  app.get('/api/notifications/unread', guard(ANY_ROLE, async (ctx) => ({ unread: await fn('fn_notifications_unread', ctx.user.id) })));
+  app.post('/api/notifications/read', guard(ANY_ROLE, async (ctx) => {
+    const ids = ctx.body.ids === undefined ? null : (Array.isArray(ctx.body.ids) && ctx.body.ids.length <= 100 ? ctx.body.ids.map((x) => v.int(x, 'Notification', { min: 1 })) : (() => { throw new HttpError(400, 'invalid_input', 'Notifications invalides'); })());
+    return { marked: await fn('fn_notifications_read', ctx.user.id, ids) };
+  }));
+  app.get('/api/admin/announcements', guard(['admin'], async (ctx) => ({ announcements: await fn('fn_admin_announcements', ctx.user.id) })));
+  app.post('/api/admin/announcements', guard(['admin'], async (ctx) => {
+    limit(`announce:${ctx.user.id}`, 10, 3600_000);
+    const b = ctx.body;
+    ctx.status = 201;
+    return await fn('fn_admin_announce', ctx.user.id, v.str(b.audience, 'Destinataires', { max: 20 }), v.str(b.title, 'Titre', { min: 3, max: 120 }), v.str(b.body, 'Message', { min: 3, max: 600 }));
+  }));
+
   app.get('/api/me/referral', guard(['seller', 'supplier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
 
   app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {
