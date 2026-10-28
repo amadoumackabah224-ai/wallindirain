@@ -432,7 +432,7 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
   assert.equal((await owner.query(`SELECT count(*)::int AS n FROM fn_ledger_check()`)).rows[0].n, 0);
 
   // 2) retour arrière (dans l'ordre inverse des migrations : 019, 018 — appliquées par migrate() — puis 017)
-  for (const f of ['retour-arriere-029.sql', 'retour-arriere-028.sql', 'retour-arriere-027.sql', 'retour-arriere-026.sql', 'retour-arriere-025.sql', 'retour-arriere-024.sql', 'retour-arriere-023.sql', 'retour-arriere-022.sql', 'retour-arriere-021.sql', 'retour-arriere-020.sql', 'retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
+  for (const f of ['retour-arriere-030.sql', 'retour-arriere-029.sql', 'retour-arriere-028.sql', 'retour-arriere-027.sql', 'retour-arriere-026.sql', 'retour-arriere-025.sql', 'retour-arriere-024.sql', 'retour-arriere-023.sql', 'retour-arriere-022.sql', 'retour-arriere-021.sql', 'retour-arriere-020.sql', 'retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
     const rb = fs.readFileSync(path.join(root, 'docs', f), 'utf8');
     await owner.tx(async (tx) => { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await tx.query(s); } });
   }

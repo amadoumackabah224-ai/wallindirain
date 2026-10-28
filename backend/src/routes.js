@@ -110,7 +110,7 @@ export function registerRoutes(app, { db, cfg }) {
     const payPhone = b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : phone;
     const id = await fn('fn_register', phone, v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
       await hashPassword(b.password),
-      role === 'supplier' ? v.str(b.identity_doc, 'Pièce d\'identité', { min: 4, max: 60 }) : v.optStr(b.identity_doc, 'Pièce d\'identité', 60),
+      v.optStr(b.identity_doc, 'Pièce d\'identité', 60),   // aucune pièce à l'inscription : demandée au premier retrait
       payMethod, payPhone, cfg.legal.version);
     if (b.email) await fn('fn_register_email', id, v.email(b.email));   // code de vérification envoyé par e-mail
     let referral = null;

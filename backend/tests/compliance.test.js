@@ -66,7 +66,7 @@ test('consentement : exigé à l\'inscription et à la commande, et enregistré'
   assert.equal((await c.post('/api/auth/register', { ...body, accept_terms: true })).status, 201);          // vendeur : pièce d'identité facultative
   const { rows } = await db.owner.query(`SELECT kind, version FROM consents WHERE user_id = (SELECT id FROM users WHERE phone = '641000001')`);
   assert.deepEqual(rows, [{ kind: 'register', version: '2026-10-19' }]);
-  assert.equal((await c.post('/api/auth/register', { ...body, phone: '641000002', role: 'supplier', accept_terms: true })).status, 400);   // fournisseur : pièce obligatoire
+  assert.equal((await c.post('/api/auth/register', { ...body, phone: '641000002', role: 'supplier', accept_terms: true })).status, 201);   // fournisseur : pièce non demandée à l'inscription (demandée au premier retrait)
   const o = await c.post('/api/public/link/inconnu/order', { qty: 1, name: 'Client', phone: '642000001', commune: 'Ratoma', address: 'Rue 1' });
   assert.equal(o.json.error, 'consent_required');
   const none = await db.owner.query(`SELECT count(*)::int AS n FROM consents WHERE kind = 'order'`);
