@@ -7,6 +7,7 @@ import { parseImage, MAX_PROOF_BODY } from './proofs.js';
 import { legalMissing, createLegal, docsFor, canRead, audienceOf, SUMMARY, AUDIENCE_LABEL, OPEN_AUDIENCES } from './legal.js';
 import { answer, suggestions, topic, topics } from './assistant.js';
 import { parseSheetUrl, fetchSheetCsv, parseCsv, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
+import { simulate as simulatePay } from './pay-sim.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
 const COOKIE = 'wld_session';
@@ -723,12 +724,16 @@ export function registerRoutes(app, { db, cfg }) {
 
   // Chef : affectation aux livreurs
   const CHIEF = ['call_chief', 'admin'];
+  // paie affichée d'une commande : versée si livrée, sinon celle du barème retenu à l'affectation, sinon la paie figée à la commande (même règle que le calcul en base)
+  const PAY_SHOWN = `COALESCE(o.courier_pay_paid, CASE WHEN o.courier_scale_id IS NOT NULL THEN LEAST((SELECT s.per_delivery FROM courier_pay_scales s WHERE s.id = o.courier_scale_id), o.delivery_fee) ELSE o.courier_pay END)`;
+  const KIND_OF = (col) => `COALESCE((SELECT k.kind FROM courier_kind_log k WHERE k.courier_id = ${col} AND k.effective_from <= now() ORDER BY k.id DESC LIMIT 1), 'independent')`;
   app.get('/api/chief/orders', guard(CHIEF, async () => ({
     pickup_alert_hours: await pickupHours(),
-    orders: await q(`SELECT ${CALL_COLS}, o.delivery_fee, o.courier_pay, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
+    orders: await q(`SELECT ${CALL_COLS}, o.delivery_fee, ${PAY_SHOWN} AS courier_pay, o.courier_kind, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
         WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
     couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders,
+        COALESCE((SELECT k.kind FROM courier_kind_log k WHERE k.courier_id = u.id AND k.effective_from <= now() ORDER BY k.id DESC LIMIT 1), 'independent') AS kind,
         COALESCE(p.availability, 'available') AS availability, p.vehicle,
         COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = u.id), '[]'::jsonb) AS zones
         FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id
@@ -932,12 +937,82 @@ export function registerRoutes(app, { db, cfg }) {
   }));
   // Livreurs : profil, véhicule, disponibilité et zones couvertes
   app.get('/api/admin/couriers', guard(ADM, async () => ({
-    couriers: await q(`SELECT u.id, u.full_name, u.phone, u.status, COALESCE(p.availability, 'available') AS availability, p.vehicle,
+    couriers: await q(`SELECT u.id, u.full_name, u.phone, u.status, ${KIND_OF('u.id')} AS kind, u.identity_verified, (SELECT d.status FROM identity_documents d WHERE d.user_id = u.id) AS kyc_status,
+        (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status = 'delivered' AND o.delivered_at >= now() - interval '30 days')::int AS delivered_30,
+        (SELECT COALESCE(sum(w.amount), 0) FROM wallet_entries w WHERE w.user_id = u.id AND w.kind IN ('team_pay', 'tour_bonus', 'tour_adjust', 'courier_prime', 'failed_trip') AND w.created_at >= now() - interval '30 days')::bigint AS pay_30,
+        (SELECT COALESCE(sum(c.amount), 0) FROM courier_cash_entries c WHERE c.courier_id = u.id AND c.count_id IS NULL)::bigint AS cash_pending,
+        (SELECT COALESCE(sum(e.amount), 0) FROM courier_expenses e WHERE e.courier_id = u.id AND e.voided_at IS NULL AND e.spent_on >= current_date - 30)::bigint AS expenses_30,
+        COALESCE(p.availability, 'available') AS availability, p.vehicle,
         COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = u.id), '[]'::jsonb) AS zones,
         (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders
         FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id
         WHERE u.role = 'courier' AND u.deleted_at IS NULL ORDER BY u.full_name`),
     zones: await q('SELECT commune FROM delivery_rates ORDER BY commune') })));
+  // Fiche d'un livreur : catégorie et historique, missions, paies, reversements, charges de la moto
+  app.get('/api/admin/couriers/:id/file', guard(ADM, async (ctx) => {
+    const id = v.uuid(ctx.params.id, 'Livreur');
+    const [c] = await q(`SELECT u.id, u.full_name, u.phone, u.status, u.identity_verified, u.payout_method, u.payout_phone, u.created_at, ${KIND_OF('u.id')} AS kind,
+        (SELECT d.status FROM identity_documents d WHERE d.user_id = u.id) AS kyc_status, (SELECT p.vehicle FROM courier_profiles p WHERE p.courier_id = u.id) AS vehicle
+        FROM users u WHERE u.id = $1 AND u.role = 'courier' AND u.deleted_at IS NULL`, [id]);
+    if (!c) throw new HttpError(404, 'not_found', 'Livreur introuvable');
+    return {
+      courier: c,
+      kind_history: await q(`SELECT k.kind, k.effective_from, k.note, a.full_name AS set_by_name FROM courier_kind_log k LEFT JOIN users a ON a.id = k.set_by WHERE k.courier_id = $1 ORDER BY k.id DESC LIMIT 20`, [id]),
+      orders: await q(`SELECT o.id, o.ref, o.status, o.commune, o.delivery_fee, o.courier_kind, o.courier_scale_id IS NOT NULL AS scale_applied, ${PAY_SHOWN} AS pay, o.delivered_at, o.created_at
+          FROM orders o WHERE o.courier_id = $1 ORDER BY o.created_at DESC LIMIT 25`, [id]),
+      pay: await q(`SELECT w.kind, w.amount, w.description, w.created_at FROM wallet_entries w WHERE w.user_id = $1 AND w.kind IN ('team_pay', 'tour_bonus', 'tour_adjust', 'courier_prime', 'failed_trip', 'cash_shortage', 'withdrawal') ORDER BY w.id DESC LIMIT 30`, [id]),
+      balance: Number((await q('SELECT COALESCE(sum(amount), 0)::bigint AS s FROM wallet_entries WHERE user_id = $1', [id]))[0].s),
+      cash_pending: Number((await q('SELECT COALESCE(sum(amount), 0)::bigint AS s FROM courier_cash_entries WHERE courier_id = $1 AND count_id IS NULL', [id]))[0].s),
+      remittances: await q(`SELECT r.id, r.method, r.amount, r.received, r.status, r.created_at, r.decided_at FROM remittances r WHERE r.courier_id = $1 ORDER BY r.created_at DESC LIMIT 15`, [id]),
+      expenses: await q(`SELECT e.id, e.kind, e.amount, e.spent_on, e.note, e.voided_at, e.void_reason FROM courier_expenses e WHERE e.courier_id = $1 ORDER BY e.spent_on DESC, e.created_at DESC LIMIT 30`, [id]),
+      expenses_total: Number((await q('SELECT COALESCE(sum(amount), 0)::bigint AS s FROM courier_expenses WHERE courier_id = $1 AND voided_at IS NULL', [id]))[0].s)
+    };
+  }));
+  app.post('/api/admin/couriers/:id/kind', guard(ADM, async (ctx) => {
+    await fn('fn_admin_set_courier_kind', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.oneOf(ctx.body.kind, ['independent', 'company'], 'Catégorie'), v.optStr(ctx.body.note, 'Note', 200));
+  }));
+  const EXPENSE_KINDS = ['fuel', 'maintenance', 'repair', 'insurance', 'other'];
+  app.post('/api/admin/couriers/:id/expenses', guard(ADM, async (ctx) => {
+    const b = ctx.body;
+    const day = b.spent_on == null || b.spent_on === '' ? null : (/^\d{4}-\d{2}-\d{2}$/.test(String(b.spent_on)) ? String(b.spent_on) : (() => { throw new HttpError(400, 'invalid_input', 'Date invalide'); })());
+    ctx.status = 201;
+    return { id: await fn('fn_admin_add_courier_expense', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.oneOf(b.kind, EXPENSE_KINDS, 'Type de charge'), v.int(b.amount, 'Montant', { min: 1, max: 1e9 }), day, v.optStr(b.note, 'Note', 200)) };
+  }));
+  app.post('/api/admin/expenses/:id/void', guard(ADM, async (ctx) => {
+    await fn('fn_admin_void_courier_expense', ctx.user.id, v.uuid(ctx.params.id, 'Charge'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 200 }));
+  }));
+  // Barèmes : règles communes des indépendants (lecture : ce sont les réglages existants) + barème des livreurs de Wallindirain (versions datées, historique conservé)
+  app.get('/api/admin/courier-scales', guard(ADM, async () => {
+    const keys = ['courier_share_bps', 'courier_pay', 'tour_share_bps', 'tour_extra_share_bps', 'tour_bonus_per_extra_order'];
+    const settings = Object.fromEntries((await q('SELECT key, value::bigint AS value FROM settings WHERE key = ANY($1)', [keys])).map((r) => [r.key, Number(r.value)]));
+    return {
+      independent: settings,
+      scales: await q(`SELECT s.id, s.per_delivery, s.tour_extra, s.failed_trip, s.prime_threshold, s.prime_amount, s.effective_from, s.note, s.created_at, a.full_name AS created_by_name,
+          (s.effective_from <= now() AND s.id = (SELECT x.id FROM courier_pay_scales x WHERE x.effective_from <= now() ORDER BY x.effective_from DESC, x.created_at DESC LIMIT 1)) AS in_force
+          FROM courier_pay_scales s LEFT JOIN users a ON a.id = s.created_by ORDER BY s.effective_from DESC, s.created_at DESC LIMIT 50`),
+      min_zone_fee: Number((await q('SELECT COALESCE(min(fee), 0)::bigint AS f FROM delivery_rates WHERE active'))[0].f),
+      avg_zone_fee: Number((await q('SELECT COALESCE(round(avg(fee)), 0)::bigint AS f FROM delivery_rates WHERE active AND fee > 0'))[0].f)
+    };
+  }));
+  const scaleBody = (b) => ({
+    per: v.int(b.per_delivery, 'Paie par livraison', { min: 0, max: 1e7 }), extra: v.int(b.tour_extra ?? 0, 'Supplément de tournée', { min: 0, max: 1e7 }), failed: v.int(b.failed_trip ?? 0, 'Déplacement à vide', { min: 0, max: 1e7 }),
+    thr: v.int(b.prime_threshold ?? 0, 'Seuil de prime', { min: 0, max: 50 }), prime: v.int(b.prime_amount ?? 0, 'Prime', { min: 0, max: 1e7 })
+  });
+  app.post('/api/admin/courier-scales', guard(ADM, async (ctx) => {
+    const b = ctx.body; const x = scaleBody(b);
+    const eff = b.effective_from == null || b.effective_from === '' ? null : (Number.isNaN(Date.parse(b.effective_from)) ? (() => { throw new HttpError(400, 'invalid_input', 'Date d\'entrée en vigueur invalide'); })() : new Date(b.effective_from).toISOString());
+    ctx.status = 201;
+    return { id: await fn('fn_admin_set_company_scale', ctx.user.id, x.per, x.extra, x.failed, x.thr, x.prime, eff, v.optStr(b.note, 'Note', 200)) };
+  }));
+  // Simulation avant activation : aucun effet, seulement un calcul (un seul endroit de calcul, côté serveur)
+  app.post('/api/admin/courier-scales/simulate', guard(ADM, async (ctx) => {
+    const b = ctx.body; const x = scaleBody(b.scale || {});
+    const set = Object.fromEntries((await q(`SELECT key, value::bigint AS value FROM settings WHERE key IN ('courier_share_bps', 'courier_pay', 'tour_share_bps', 'tour_extra_share_bps')`)).map((r) => [r.key, Number(r.value)]));
+    try {
+      return simulatePay({ fee: b.fee, independent: { share_bps: set.courier_share_bps, fixed_pay: set.courier_pay, tour_share_bps: set.tour_share_bps, tour_extra_share_bps: set.tour_extra_share_bps },
+        scale: { per_delivery: x.per, tour_extra: x.extra, failed_trip: x.failed, prime_threshold: x.thr, prime_amount: x.prime }, moto: b.moto, scenarios: b.scenarios });
+    } catch (e) { if (e.code === 'invalid_input') throw new HttpError(400, 'invalid_input', e.message); throw e; }
+  }));
   app.post('/api/admin/couriers/:id/profile', guard(ADM, async (ctx) => {
     const veh = ctx.body.vehicle;
     await fn('fn_admin_set_courier_profile', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), veh == null || veh === '' ? null : v.oneOf(veh, ['moto', 'velo', 'voiture', 'pied'], 'Véhicule'));
@@ -962,6 +1037,7 @@ export function registerRoutes(app, { db, cfg }) {
       const bad = communes.find((c) => !known.has(c.trim()));
       if (bad !== undefined) throw new HttpError(400, 'invalid_input', `Zone inconnue : ${bad.slice(0, 60)}`);
     }
+    const courierKind = role === 'courier' ? (b.courier_kind == null || b.courier_kind === '' ? 'independent' : v.oneOf(b.courier_kind, ['independent', 'company'], 'Catégorie du livreur')) : null;
     // numéro de versement (facultatif, les deux champs ensemble) : contrôlé avant de créer le compte
     const hasPayout = role === 'courier' && b.payout_phone != null && b.payout_phone !== '';
     const payoutMethod = hasPayout ? v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement') : null;
@@ -971,6 +1047,7 @@ export function registerRoutes(app, { db, cfg }) {
       role, await hashPassword(b.password), v.optStr(b.team, 'Call center', 80));
     if (hasPayout) await fn('fn_admin_update_user', ctx.user.id, id, name, null, payoutMethod, payoutPhone);
     if (role === 'courier') {
+      if (courierKind === 'company') await fn('fn_admin_set_courier_kind', ctx.user.id, id, 'company', 'Catégorie choisie à la création');
       if (vehicle) await fn('fn_admin_set_courier_profile', ctx.user.id, id, vehicle);
       if (communes.length) await fn('fn_admin_set_courier_zones', ctx.user.id, id, communes);
     }

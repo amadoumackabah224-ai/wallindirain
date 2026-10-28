@@ -54,7 +54,7 @@ test('retour arrière 024 (sans reversement en espèces) : rétablit transfert s
      (SELECT string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || COALESCE(p.proacl::text, ''), E'\\n' ORDER BY p.proname, p.oid::text) FROM pg_proc p
         WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' AND p.proname NOT IN ('fn_courier_remit','fn_chief_reorder_tour','fn_chief_tours','fn_courier_pickup','fn_ledger_check','fn_chief_create_tour','fn_chief_cancel_tour','_tours_refresh','fn_courier_tours','fn_courier_accept_tour','fn_courier_refuse_tour','_tour_pay_bonus','_tour_plan','_tour_target_pay','_tour_release_orders')) AS fonctions`)).rows[0];
   const before = await snap();
-  await runRollback(['026', '025', '024']);                                                                                                   // ordre inverse des migrations
+  await runRollback(['029', '026', '025', '024']);                                                                                                   // ordre inverse des migrations
   assert.deepEqual(await snap(), before);
   assert.equal(await count(`SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'remittances' AND column_name = 'handed_to') + (SELECT count(*) FROM pg_proc WHERE proname = 'fn_chief_reorder_tour')
      + (SELECT count(*) FROM schema_migrations WHERE name = '024_versement_especes_ordre.sql') AS n`), 0);

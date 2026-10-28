@@ -42,7 +42,7 @@ class Client {
   post(p, b = {}) { return this.req('POST', p, b); }
 }
 const login = async (id) => { const c = new Client(); const ph = (await db.owner.query('SELECT phone FROM users WHERE id = $1', [id])).rows[0].phone; assert.equal((await c.post('/api/auth/login', { identifier: ph, password: PW })).status, 200); return c; };
-const runRollback = async () => { const rb = ['026', '025'].map((x) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${x}.sql`), 'utf8')).join('\n'); await db.owner.query('BEGIN'); try { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
+const runRollback = async () => { const rb = ['029', '026', '025'].map((x) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${x}.sql`), 'utf8')).join('\n'); await db.owner.query('BEGIN'); try { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
 
 before(async () => {
   db = await freshDb('wld_bonus'); w = await world(db);
