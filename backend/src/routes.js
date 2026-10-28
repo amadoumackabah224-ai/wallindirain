@@ -869,12 +869,14 @@ export function registerRoutes(app, { db, cfg }) {
         FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.status = 'return_pending' ORDER BY o.created_at`)
   })));
   // Stock détenu par l'entrepôt : quantité vendable, réservée, libre
-  app.get('/api/warehouse/stock', guard(WH, async () => {
+  app.get('/api/warehouse/stock', guard(WH, async (ctx) => {
     const [{ low }] = await q(`SELECT value::int AS low FROM settings WHERE key = 'alert_low_stock_qty'`);
-    return { low_threshold: low, products: await q(`SELECT p.id, p.name, u.full_name AS supplier_name, p.stock_qty, p.reserved_qty, (p.stock_qty - p.reserved_qty) AS free_qty,
+    const exp = new Map((await q('SELECT * FROM fn_warehouse_expected($1)', [ctx.user.id])).map((e) => [e.product_id, e]));
+    const products = await q(`SELECT p.id, p.name, u.full_name AS supplier_name, p.stock_qty, p.reserved_qty, (p.stock_qty - p.reserved_qty) AS free_qty,
           (SELECT max(a.counted_at) FROM arrivals a WHERE a.product_id = p.id) AS last_arrival, ${IMG_IDS('p.id')} AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id
-        WHERE p.storage = 'wallindirain' AND p.status = 'approved' AND p.deleted_at IS NULL ORDER BY (p.stock_qty - p.reserved_qty), p.name`) };
+        WHERE p.storage = 'wallindirain' AND p.status = 'approved' AND p.deleted_at IS NULL ORDER BY (p.stock_qty - p.reserved_qty), p.name`);
+    return { low_threshold: low, products: products.map((p) => ({ ...p, expected_shelf: exp.get(p.id)?.expected ?? null, count_pending: !!exp.get(p.id)?.pending })) };
   }));
   // Historique : arrivages comptés, retours réceptionnés, remises, casses (60 derniers de chaque)
   app.get('/api/warehouse/history', guard(WH, async () => ({
@@ -888,11 +890,17 @@ export function registerRoutes(app, { db, cfg }) {
     handovers: await q(`SELECT o.ref, p.name AS product_name, o.qty, c.full_name AS courier_name, hv.handed_at, w.full_name AS by_name
         FROM order_handovers hv JOIN orders o ON o.id = hv.order_id JOIN products p ON p.id = o.product_id JOIN users c ON c.id = hv.courier_id LEFT JOIN users w ON w.id = hv.handed_by
         ORDER BY hv.handed_at DESC LIMIT 60`),
+    counts: await q(`SELECT c.id, p.name AS product_name, c.expected_qty, c.counted_qty, c.delta, c.note, c.status, c.review_note, c.counted_at, c.reviewed_at, w.full_name AS by_name
+        FROM stock_counts c JOIN products p ON p.id = c.product_id LEFT JOIN users w ON w.id = c.counted_by ORDER BY c.counted_at DESC LIMIT 60`),
     losses: await q(`SELECT l.id, p.name AS product_name, l.qty, l.reason, l.note, l.created_at, w.full_name AS by_name
         FROM stock_losses l JOIN products p ON p.id = l.product_id LEFT JOIN users w ON w.id = l.declared_by ORDER BY l.created_at DESC LIMIT 60`)
   })));
   app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => {
     await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
+  }));
+  app.post('/api/warehouse/stock/:id/count', guard(WH, async (ctx) => {
+    ctx.status = 201;
+    return { id: await fn('fn_warehouse_count_stock', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300)) };
   }));
   app.post('/api/warehouse/handovers/:id', guard(WH, async (ctx) => { await fn('fn_warehouse_handover', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
   app.post('/api/warehouse/losses', guard(WH, async (ctx) => {
@@ -1174,6 +1182,15 @@ export function registerRoutes(app, { db, cfg }) {
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id WHERE p.deleted_at IS NULL AND ($1::text IS NULL OR p.status::text = $1) ORDER BY p.created_at DESC LIMIT 300`, [ctx.query.status || null])
   })));
+  // Inventaires du magasinier : décision de l'administrateur avant toute correction du stock
+  app.get('/api/admin/stock-counts', guard(ADM, async () => ({
+    counts: await q(`SELECT c.id, p.name AS product_name, u.full_name AS supplier_name, p.stock_qty, p.reserved_qty, c.expected_qty, c.counted_qty, c.delta, c.note, c.status, c.review_note, c.counted_at, c.reviewed_at, w.full_name AS by_name
+        FROM stock_counts c JOIN products p ON p.id = c.product_id JOIN users u ON u.id = p.supplier_id LEFT JOIN users w ON w.id = c.counted_by
+        WHERE c.status <> 'matched' ORDER BY (c.status = 'pending') DESC, c.counted_at DESC LIMIT 40`)
+  })));
+  app.post('/api/admin/stock-counts/:id/review', guard(ADM, async (ctx) => {
+    await fn('fn_admin_review_stock_count', ctx.user.id, v.uuid(ctx.params.id, 'Inventaire'), ctx.body.approve === true, v.optStr(ctx.body.note, 'Note', 300));
+  }));
   app.post('/api/admin/products/:id/review', guard(ADM, async (ctx) => {
     await fn('fn_admin_review_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.bool(ctx.body.approve, 'Décision'),
       ctx.body.margin_bps == null ? null : v.int(ctx.body.margin_bps, 'Marge', { min: 0, max: 10000 }));

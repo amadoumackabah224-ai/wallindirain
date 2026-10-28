@@ -96,7 +96,19 @@ export function adminUsers() {
 }
 
 export function adminProducts() {
-  return liveView(() => get('/admin/products'), ({ products }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')) }), ({ products, counts }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+    counts.some((c) => c.status === 'pending') && h('div', { class: 'card' }, h('h2', {}, 'Inventaires à valider'),
+      h('p', { class: 'muted small' }, 'Le magasinier a compté un autre nombre que celui attendu. Rien ne change dans le stock tant que vous n\'avez pas décidé.'),
+      table(['Produit', 'Attendu', 'Compté', 'Écart', 'Explication', 'Par', ''], counts.filter((c) => c.status === 'pending').map((c) => {
+        const decide = (approve) => action(async () => {
+          const v = await ask({ title: approve ? `Corriger le stock de « ${c.product_name} » ?` : `Refuser l'inventaire de « ${c.product_name} » ?`, text: approve ? `Le stock sera corrigé de ${c.delta > 0 ? '+' : ''}${c.delta} unité(s). Aucun montant n'est modifié.` : 'Expliquez pourquoi : le magasinier devra recompter.',
+            submit: approve ? 'Corriger le stock' : 'Refuser', danger: !approve, fields: [{ name: 'note', label: approve ? 'Note (facultatif)' : 'Raison du refus', type: 'textarea', maxlength: 300 }] });
+          if (!v) return;
+          await post(`/admin/stock-counts/${c.id}/review`, { approve, ...((v.note || '').trim() ? { note: v.note.trim() } : {}) });
+        }, { ok: approve ? 'Stock corrigé' : 'Inventaire refusé', refresh });
+        return [h('b', {}, c.product_name), c.expected_qty, c.counted_qty, h('b', {}, `${c.delta > 0 ? '+' : ''}${c.delta}`), c.note || '', c.by_name || '',
+          h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: decide(true) }, 'Corriger'), h('button', { class: 'btn btn-sm btn-ghost', onclick: decide(false) }, 'Refuser'))];
+      }))),
     h('div', { class: 'card' }, table(['Produit', 'Fournisseur', 'Prix fournisseur', 'Marge', 'Stockage', 'Stock', 'Statut', ''], products.map((p) => {
       const review = (approve) => action(async () => {
         if (approve) {

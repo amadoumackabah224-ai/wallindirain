@@ -425,3 +425,14 @@ div.notif { cursor: default; }
 
 /* ---------- Livreurs : formulaire de simulation ---------- */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0 14px; }
+
+/* Bon / liste de remise : invisible à l'écran, seule visible à l'impression */
+.print-sheet { display: none; }
+@media print {
+  body.printing > *:not(.print-sheet) { display: none !important; }
+  body.printing .print-sheet { display: block; color: #000; background: #fff; padding: 12mm; font-size: 12pt; }
+  .print-sheet h1 { font-size: 18pt; margin: 0 0 4mm; }
+  .print-sheet table { width: 100%; border-collapse: collapse; margin: 6mm 0; }
+  .print-sheet th, .print-sheet td { border: 1px solid #000; padding: 3mm; text-align: left; }
+  .print-sheet .print-sign { display: flex; justify-content: space-between; margin-top: 16mm; }
+}

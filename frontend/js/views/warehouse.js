@@ -10,9 +10,34 @@ const section = (title, count, ...children) => h('section', { class: 'mb' }, h('
 const parcel = (img, ...rest) => h('div', { class: 'card' }, img?.length ? photoStrip(img.slice(0, 1), { size: 64 }) : null, ...rest);
 
 // ---------- À faire ----------
+// Impression (bon de remise) : une feuille cachée à l'écran, seule visible à l'impression ; aucun style en ligne (politique de sécurité)
+function printSheet(title, headers, rows, who) {
+  const sheet = h('div', { class: 'print-sheet' },
+    h('h1', {}, 'Wallindirain · ' + title), h('p', {}, `Édité le ${new Date().toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}${who ? ` · Magasinier : ${who}` : ''}`),
+    h('table', {}, h('thead', {}, h('tr', {}, headers.map((x) => h('th', {}, x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c) => h('td', {}, c)))))),
+    h('div', { class: 'print-sign' }, h('span', {}, 'Signature du magasinier : ………………………'), h('span', {}, 'Signature du livreur : ………………………')));
+  const done = () => { document.body.classList.remove('printing'); sheet.remove(); window.removeEventListener('afterprint', done); };
+  document.body.append(sheet); document.body.classList.add('printing');
+  window.addEventListener('afterprint', done);
+  setTimeout(() => window.print(), 50);
+}
+
 function todoView() {
-  return liveView(() => get('/warehouse/arrivals'), ({ arrivals, handovers, returns }, refresh) => {
+  let q = '', cache = null, again = null;
+  const box = h('div', {});
+  const draw = () => { if (cache) box.replaceChildren(buildTodo(cache, again, q)); };
+  const search = h('input', { type: 'search', placeholder: 'Chercher une référence, un produit, un livreur…', 'aria-label': 'Chercher', oninput: (e) => { q = e.target.value; draw(); } });
+  return h('div', {}, h('label', { class: 'f' }, search), liveView(() => get('/warehouse/arrivals'), (data, refresh) => { cache = data; again = refresh; draw(); return box; }, { poll: 20000 }));
+}
+
+function buildTodo({ arrivals: allA, handovers: allH, returns: allR }, refresh, q) {
+    const needle = q.trim().toLowerCase();
+    const hit = (...vals) => !needle || vals.some((x) => String(x ?? '').toLowerCase().includes(needle));
+    const arrivals = allA.filter((a) => hit(a.product_name, a.supplier_name));
+    const handovers = allH.filter((o) => hit(o.ref, o.product_name, o.courier_name, o.commune));
+    const returns = allR.filter((r) => hit(r.ref, r.product_name));
     const pending = handovers.filter((x) => !x.handed_at);
+    const who = '';
     const handOver = (o) => action(async () => { await post(`/warehouse/handovers/${o.id}`); }, { ok: 'Remise enregistrée', refresh });
     const countArrival = (a) => action(async () => {
       const v = await ask({ title: `Compter : ${a.product_name}`, text: `Le fournisseur annonce ${a.announced_qty} unité(s). Comptez ce que vous avez réellement reçu : seul ce nombre deviendra vendable.`, submit: 'Continuer',
@@ -43,12 +68,14 @@ function todoView() {
     }, { ok: 'Retour enregistré', refresh });
 
     return h('div', {},
-      pageHead('À faire', pending.length + arrivals.length + returns.length ? `${pending.length} colis à remettre · ${arrivals.length} arrivage(s) à compter · ${returns.length} retour(s) à réceptionner` : 'Tout est à jour'),
+      pageHead('À faire', allH.filter((x) => !x.handed_at).length + allA.length + allR.length ? `${allH.filter((x) => !x.handed_at).length} colis à remettre · ${allA.length} arrivage(s) à compter · ${allR.length} retour(s) à réceptionner` : 'Tout est à jour',
+        pending.length > 0 && h('button', { class: 'btn btn-ghost', onclick: () => printSheet('Liste de remise des colis', ['Réf.', 'Produit', 'Qté', 'Livreur', 'Zone', 'Reçu (livreur)'], [...pending].sort((a, b) => a.courier_name.localeCompare(b.courier_name)).map((o) => [o.ref, o.product_name, o.qty, o.courier_name, o.commune, '']), who) }, 'Imprimer la liste')),
       section('Colis à remettre aux livreurs', pending.length,
         handovers.length ? handovers.map((o) => parcel(o.image_ids,
           h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), o.handed_at ? badge('Remis', 'ok') : badge('À préparer', 'warn')),
           kv([['Produit', `${o.product_name} × ${o.qty}`, 'key'], ['Livreur', h('span', {}, o.courier_name, ' · ', telLink(o.courier_phone))], ['Zone', o.commune], ['Affecté', fmtDate(o.assigned_at)], o.handed_at && ['Remis', fmtDate(o.handed_at)]]),
-          !o.handed_at && h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: handOver(o) }, 'Colis remis au livreur')))) : empty('truck', 'Aucun colis à remettre')),
+          h('div', { class: 'mt gap' }, !o.handed_at && h('button', { class: 'btn btn-gold', onclick: handOver(o) }, 'Colis remis au livreur'),
+            h('button', { class: 'btn btn-ghost', onclick: () => printSheet('Bon de remise', ['Réf.', 'Produit', 'Qté', 'Livreur', 'Zone'], [[o.ref, o.product_name, o.qty, o.courier_name, o.commune]], who) }, 'Imprimer le bon')))) : empty('truck', needle ? 'Aucun colis ne correspond' : 'Aucun colis à remettre')),
       section('Arrivages à compter', arrivals.length,
         arrivals.length ? arrivals.map((a) => parcel(a.image_ids, h('h3', {}, a.product_name),
           kv([['Fournisseur', a.supplier_name], ['Annoncé', `${a.announced_qty} unité(s)`, 'key'], ['Date', fmtDate(a.created_at)]]),
@@ -58,7 +85,6 @@ function todoView() {
           h('div', { class: 'order-head' }, h('span', { class: 'ref' }, r.ref), r.failure_reason && badge(FAIL_LABEL[r.failure_reason], 'warn')),
           kv([['Produit', `${r.product_name} × ${r.qty}`, 'key'], r.note && ['Note', r.note]]), photosOf(r.photo_ids),
           h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: receiveReturn(r) }, 'Réceptionner')))) : empty('inbox', 'Aucun retour attendu')));
-  }, { poll: 20000 });
 }
 
 // ---------- Stock ----------
@@ -79,6 +105,23 @@ function stockView() {
       if (note.length < 3) { toast('Écrivez une explication de quelques mots', 'bad'); return; }
       await post('/warehouse/losses', { product_id: v.product_id, qty, reason: v.reason, note });
     }, { ok: 'Stock mis à jour', refresh });
+    const countShelf = (p) => action(async () => {
+      const v = await ask({ title: `Inventaire : ${p.name}`, text: `Comptez ce qui est réellement en rayon (colis déjà remis aux livreurs exclus). Attendu : ${p.expected_shelf} unité(s).`, submit: 'Continuer',
+        fields: [{ name: 'counted', label: 'Quantité réellement en rayon', type: 'number', inputmode: 'numeric', value: p.expected_shelf }] });
+      if (!v) return;
+      const counted = Number(v.counted);
+      if (!Number.isInteger(counted) || counted < 0) { toast('Quantité invalide', 'bad'); return; }
+      let note = null;
+      if (counted !== p.expected_shelf) {
+        const w = await ask({ title: 'Écart avec le stock attendu', text: `Attendu : ${p.expected_shelf} · Compté : ${counted}. Expliquez l'écart : l'administrateur doit le valider avant que le stock soit corrigé.`, submit: 'Envoyer pour validation',
+          fields: [{ name: 'note', label: 'Explication', type: 'textarea', maxlength: 300, placeholder: 'Ex. 2 unités introuvables après recomptage' }] });
+        if (!w) return;
+        note = (w.note || '').trim();
+        if (note.length < 3) { toast('Écrivez une explication de quelques mots', 'bad'); return; }
+      }
+      await post(`/warehouse/stock/${p.id}/count`, { counted, ...(note ? { note } : {}) });
+      toast(note ? 'Envoyé à l\'administrateur pour validation' : 'Inventaire conforme : stock confirmé', 'ok');
+    }, { refresh });
     const out = products.filter((p) => p.free_qty <= 0).length, lowN = products.filter((p) => p.free_qty > 0 && low_threshold > 0 && p.free_qty <= low_threshold).length;
     const search = h('input', { type: 'search', placeholder: 'Chercher un produit ou un fournisseur', value: filter, 'aria-label': 'Chercher un produit' });
     const build = () => {
@@ -86,7 +129,8 @@ function stockView() {
       const items = products.filter((p) => !qq || p.name.toLowerCase().includes(qq) || p.supplier_name.toLowerCase().includes(qq));
       return items.length ? items.map((p) => h('div', { class: 'card' }, p.image_ids?.length ? photoStrip(p.image_ids.slice(0, 1), { size: 56 }) : null,
         h('div', { class: 'order-head' }, h('h3', {}, p.name), p.free_qty <= 0 ? badge('Rupture', 'bad') : low_threshold > 0 && p.free_qty <= low_threshold ? badge('Stock bas', 'warn') : badge('En stock', 'ok')),
-        kv([['Fournisseur', p.supplier_name], ['Libre (vendable)', `${p.free_qty} unité(s)`, 'key'], ['Réservé (commandes)', p.reserved_qty], ['Total à l\'entrepôt', p.stock_qty], ['Dernier arrivage compté', p.last_arrival ? fmtDate(p.last_arrival) : '—']]))) : [empty('search', 'Aucun produit trouvé')];
+        kv([['Fournisseur', p.supplier_name], ['Libre (vendable)', `${p.free_qty} unité(s)`, 'key'], ['Réservé (commandes)', p.reserved_qty], ['Total à l\'entrepôt', p.stock_qty], ['Attendu en rayon', p.expected_shelf ?? '—'], ['Dernier arrivage compté', p.last_arrival ? fmtDate(p.last_arrival) : '—']]),
+        h('div', { class: 'mt' }, p.count_pending ? badge('Inventaire en attente de décision', 'warn') : h('button', { class: 'btn btn-ghost', onclick: countShelf(p) }, 'Compter le rayon')))) : [empty('search', 'Aucun produit trouvé')];
     };
     const list = h('div', {}, ...build());
     search.oninput = (e) => { filter = e.target.value; list.replaceChildren(...build()); };
@@ -107,8 +151,10 @@ function historyView() {
         a.counted_qty === a.announced_qty ? a.counted_qty : h('b', {}, `${a.counted_qty} (écart ${a.counted_qty - a.announced_qty > 0 ? '+' : ''}${a.counted_qty - a.announced_qty})`), a.count_note || '', a.by_name || '']), { empty: empty('clock', 'Aucun arrivage compté') })
       : part === 'returns' ? table(['Date', 'Commande', 'Produit', 'Cause', 'Note', 'Photos'], data.returns.map((r) => [fmtDate(r.closed_at), h('b', {}, r.ref), `${r.product_name} × ${r.qty}`, CAUSE_LABEL[r.return_cause] || '', r.note || '', photosOf(r.photo_ids) || '']), { empty: empty('inbox', 'Aucun retour réceptionné') })
       : part === 'handovers' ? table(['Date', 'Commande', 'Produit', 'Livreur', 'Par'], data.handovers.map((x) => [fmtDate(x.handed_at), h('b', {}, x.ref), `${x.product_name} × ${x.qty}`, x.courier_name, x.by_name || '']), { empty: empty('truck', 'Aucune remise enregistrée') })
+      : part === 'counts' ? table(['Date', 'Produit', 'Attendu', 'Compté', 'Écart', 'Décision'], data.counts.map((c) => [fmtDate(c.counted_at), c.product_name, c.expected_qty, c.counted_qty, c.delta === 0 ? '0' : h('b', {}, `${c.delta > 0 ? '+' : ''}${c.delta}`),
+          { matched: 'Conforme', pending: 'En attente', approved: 'Corrigé', rejected: `Refusé : ${c.review_note || ''}` }[c.status]]), { empty: empty('check', 'Aucun inventaire') })
       : table(['Date', 'Produit', 'Quantité', 'Motif', 'Explication', 'Par'], data.losses.map((l) => [fmtDate(l.created_at), l.product_name, l.qty, LOSS_LABEL[l.reason] || l.reason, l.note, l.by_name || '']), { empty: empty('check', 'Aucune casse ni perte déclarée') });
-    host.replaceChildren(h('div', { class: 'chips mb' }, chip('arrivals', 'Arrivages'), chip('returns', 'Retours'), chip('handovers', 'Remises'), chip('losses', 'Casses et pertes')), h('div', { class: 'card' }, body));
+    host.replaceChildren(h('div', { class: 'chips mb' }, chip('arrivals', 'Arrivages'), chip('returns', 'Retours'), chip('handovers', 'Remises'), chip('counts', 'Inventaires'), chip('losses', 'Casses et pertes')), h('div', { class: 'card' }, body));
   };
   return h('div', {}, pageHead('Historique', '60 derniers de chaque'),
     liveView(() => get('/warehouse/history'), (d) => { data = d; draw(); return host; }, { poll: 60000 }));
