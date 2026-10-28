@@ -42,10 +42,11 @@ export function adminUsers() {
       const v = await ask({ title: 'Créer un livreur', text: 'Tout se règle ici : compte, véhicule et zones couvertes. Le livreur est affectable dans toutes les zones ; les zones aident le chef à choisir.', submit: 'Créer le livreur', fields: [
         { name: 'name', label: 'Nom complet' }, { name: 'phone', label: 'Téléphone', type: 'tel', inputmode: 'numeric' },
         { name: 'password', label: 'Mot de passe provisoire', type: 'text', hint: '8 caractères minimum, lettres et chiffres. Communiquez-le à la personne.' },
+        { name: 'courier_kind', label: 'Catégorie du livreur', type: 'select', options: [['independent', 'Indépendant : il utilise sa propre moto'], ['company', 'Livreur de Wallindirain : moto de l\'entreprise']] },
         { name: 'vehicle', label: 'Véhicule', type: 'select', options: VEH },
         { name: 'payout_method', label: 'Opérateur de versement', type: 'select', options: [['orange_money', 'Orange Money'], ['mtn_momo', 'MTN MoMo']] },
         { name: 'payout_phone', label: 'Numéro de versement', type: 'tel', inputmode: 'numeric', required: false, hint: 'Facultatif : numéro où part l\'argent de ses retraits. Vous pourrez le renseigner plus tard dans « Modifier ».' }, ...zoneFields()] });
-      if (v) await post('/admin/users', { role: 'courier', name: v.name, phone: v.phone, password: v.password, vehicle: v.vehicle || null, communes: picked(v), payout_method: v.payout_phone ? v.payout_method : undefined, payout_phone: v.payout_phone || undefined });
+      if (v) await post('/admin/users', { role: 'courier', name: v.name, phone: v.phone, password: v.password, courier_kind: v.courier_kind, vehicle: v.vehicle || null, communes: picked(v), payout_method: v.payout_phone ? v.payout_method : undefined, payout_phone: v.payout_phone || undefined });
     }, { ok: 'Livreur créé', refresh });
     const create = action(async () => {
       const v = await ask({ title: 'Créer un compte du personnel', submit: 'Créer', fields: [

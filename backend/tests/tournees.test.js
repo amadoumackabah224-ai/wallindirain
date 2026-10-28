@@ -203,7 +203,7 @@ test('retour arrière 020 : retire les tournées, restaure la remise à zéro de
      (SELECT string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || COALESCE(p.proacl::text, '') || ':' || p.prosecdef::text, E'\\n' ORDER BY p.proname, p.oid::text) FROM pg_proc p
         WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' AND p.proname NOT IN (${fnames})) AS fonctions`)).rows[0];
   const before = await snapAll();
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-026.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-025.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-024.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-020.sql'), 'utf8');   // 024 d'abord (ordre inverse)
+  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-029.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-026.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-025.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-024.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-020.sql'), 'utf8');   // 024 d'abord (ordre inverse)
   await db.owner.query('BEGIN');
   for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); }
   await db.owner.query('COMMIT');

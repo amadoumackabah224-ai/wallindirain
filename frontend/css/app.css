@@ -422,3 +422,6 @@ div.notif { cursor: default; }
 .tp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
 .tp-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 64px; padding: 8px 6px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--white); color: var(--head); cursor: pointer; font-size: .82rem; font-weight: 600; text-align: center; }
 .tp-btn[aria-pressed="true"] { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold) inset; }
+
+/* ---------- Livreurs : formulaire de simulation ---------- */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0 14px; }
