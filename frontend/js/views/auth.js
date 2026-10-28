@@ -44,14 +44,9 @@ export function registerView({ ref } = {}) {
   const role = h('select', {}, h('option', { value: 'seller' }, 'Vendeur : je vends des produits en ligne'), h('option', { value: 'supplier' }, 'Fournisseur : je propose des produits'));
   const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
   const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
-  const doc = h('input', { type: 'text', maxlength: 60, placeholder: 'Ex. CNI ou passeport : numéro' });
-  const docField = h('div');
   const syncDoc = () => {
     const sup = role.value === 'supplier';
-    doc.required = sup;
     refField.replaceChildren(sup ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
-    // vendeur : aucune pièce à l'inscription (demandée seulement au premier retrait) ; fournisseur : obligatoire
-    docField.replaceChildren(...(sup ? [field('Pièce d\'identité', doc, 'Obligatoire pour un fournisseur : elle est vérifiée avant l\'activation du compte. Saisissez seulement le numéro, aucune photo n\'est demandée.')] : []));
   };
   const accept = h('input', { type: 'checkbox', required: true });
   // les textes proposés sont ceux du rôle choisi (vendeur ou fournisseur)
@@ -69,7 +64,7 @@ export function registerView({ ref } = {}) {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(role.value === 'seller' && referral.value.trim() ? { referral_code: referral.value.trim() } : {}), ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}), ...(doc.value.trim() ? { identity_doc: doc.value } : {}),
+      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(role.value === 'seller' && referral.value.trim() ? { referral_code: referral.value.trim() } : {}), ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}),
         payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) });
       out.replaceChildren(h('div', { class: 'notice ok' }, r.message), r.referral_applied === false && h('div', { class: 'notice warn' }, 'Le code de parrainage n\'a pas été reconnu : votre compte est créé sans parrain.'), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');
@@ -77,7 +72,7 @@ export function registerView({ ref } = {}) {
   } },
     h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
     flags.email && field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
-    docField, refField,
+    refField,
     field('Mon argent sera versé sur', payMethod),
     field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
     pwField('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
