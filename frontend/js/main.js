@@ -14,7 +14,7 @@ import { icon } from './icons.js';
 import { supplierProducts, supplierOrders } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
-import { warehouseView } from './views/warehouse.js';
+import { warehouseTab } from './views/warehouse.js';
 import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminRemittances, adminSupport, adminData, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
 
 const app = document.getElementById('app');
@@ -29,7 +29,7 @@ const TABS = {
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
-  warehouse: [['stock', 'warehouse', 'Entrepôt', () => warehouseView(), '']],
+  warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
   admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
     ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
     ['support', 'message', 'Messages', () => adminSupport(), 'Système'], ['announce', 'megaphone', 'Annonces', () => adminAnnounce(), 'Système'], ['data', 'database', 'Données', () => adminData(), 'Système'], ['settings', 'sliders', 'Réglages', () => adminSettings(), 'Système'], ['audit', 'scroll', 'Journal', () => adminAudit(), 'Système']]

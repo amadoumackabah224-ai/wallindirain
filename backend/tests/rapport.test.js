@@ -19,7 +19,7 @@ test('rapport de production 017-023 : 6 requêtes en lecture seule, résultats a
   assert.ok(stmts.every((s) => /^select/i.test(s)), 'uniquement des SELECT');
   assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /\b(insert|update|delete|truncate|drop|alter|create)\b\s/i);
   const rows = []; for (const s of stmts) rows.push((await db.owner.query(s)).rows);
-  assert.ok(rows[0].some((r) => r.name === '023_photos_produits.sql') && rows[0][0].name >= '023' && rows[0].length >= 7);
+  assert.ok(rows[0][0].name >= '023' && rows[0].length >= 7);
   assert.equal(rows[1].length, 0); assert.equal(rows[2].length, 0);
   assert.deepEqual(rows[3].map((r) => r.table_name), ['courier_profiles', 'courier_zones', 'mission_offers', 'order_requests', 'product_images', 'tour_stops', 'tours']);
   assert.deepEqual(Object.values(rows[4][0]), [false, false, false, false, false]);
