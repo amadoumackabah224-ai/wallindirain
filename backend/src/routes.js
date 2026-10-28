@@ -851,15 +851,76 @@ export function registerRoutes(app, { db, cfg }) {
   // MAGASINIER : aucune donnée financière
   // =========================================================================
   const WH = ['warehouse', 'admin'];
+  const IMG_IDS = (pid) => `(SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = ${pid})`;
+  // « À faire » : arrivages à compter, colis à remettre aux livreurs, retours à réceptionner (aucune donnée client ni financière)
   app.get('/api/warehouse/arrivals', guard(WH, async () => ({
-    arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.created_at FROM arrivals a JOIN products p ON p.id = a.product_id
+    arrivals: await q(`SELECT a.id, p.name AS product_name, u.full_name AS supplier_name, a.announced_qty, a.created_at, ${IMG_IDS('p.id')} AS image_ids
+        FROM arrivals a JOIN products p ON p.id = a.product_id JOIN users u ON u.id = p.supplier_id
         WHERE a.counted_qty IS NULL ORDER BY a.created_at`),
-    returns: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.failure_reason
+    handovers: await q(`SELECT o.id, o.ref, p.name AS product_name, o.qty, o.commune, c.full_name AS courier_name, c.phone AS courier_phone,
+          (SELECT max(h.at) FROM order_history h WHERE h.order_id = o.id AND h.to_status = 'assigned') AS assigned_at,
+          hv.handed_at, ${IMG_IDS('p.id')} AS image_ids
+        FROM orders o JOIN products p ON p.id = o.product_id AND p.storage = 'wallindirain' JOIN users c ON c.id = o.courier_id
+        LEFT JOIN order_handovers hv ON hv.order_id = o.id AND hv.courier_id = o.courier_id
+        WHERE o.status = 'assigned' ORDER BY (hv.handed_at IS NOT NULL), assigned_at`),
+    returns: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.failure_reason, o.created_at,
+          (SELECT n.note FROM return_notes n WHERE n.order_id = o.id) AS note,
+          (SELECT COALESCE(jsonb_agg(rp.id ORDER BY rp.created_at), '[]'::jsonb) FROM return_photos rp WHERE rp.order_id = o.id) AS photo_ids
         FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.status = 'return_pending' ORDER BY o.created_at`)
   })));
-  app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => { await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 })); }));
+  // Stock détenu par l'entrepôt : quantité vendable, réservée, libre
+  app.get('/api/warehouse/stock', guard(WH, async () => {
+    const [{ low }] = await q(`SELECT value::int AS low FROM settings WHERE key = 'alert_low_stock_qty'`);
+    return { low_threshold: low, products: await q(`SELECT p.id, p.name, u.full_name AS supplier_name, p.stock_qty, p.reserved_qty, (p.stock_qty - p.reserved_qty) AS free_qty,
+          (SELECT max(a.counted_at) FROM arrivals a WHERE a.product_id = p.id) AS last_arrival, ${IMG_IDS('p.id')} AS image_ids
+        FROM products p JOIN users u ON u.id = p.supplier_id
+        WHERE p.storage = 'wallindirain' AND p.status = 'approved' AND p.deleted_at IS NULL ORDER BY (p.stock_qty - p.reserved_qty), p.name`) };
+  }));
+  // Historique : arrivages comptés, retours réceptionnés, remises, casses (60 derniers de chaque)
+  app.get('/api/warehouse/history', guard(WH, async () => ({
+    arrivals: await q(`SELECT a.id, p.name AS product_name, u.full_name AS supplier_name, a.announced_qty, a.counted_qty, a.count_note, a.counted_at, w.full_name AS by_name
+        FROM arrivals a JOIN products p ON p.id = a.product_id JOIN users u ON u.id = p.supplier_id LEFT JOIN users w ON w.id = a.counted_by
+        WHERE a.counted_qty IS NOT NULL ORDER BY a.counted_at DESC LIMIT 60`),
+    returns: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.return_cause, o.closed_at,
+          (SELECT n.note FROM return_notes n WHERE n.order_id = o.id) AS note,
+          (SELECT COALESCE(jsonb_agg(rp.id ORDER BY rp.created_at), '[]'::jsonb) FROM return_photos rp WHERE rp.order_id = o.id) AS photo_ids
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.status = 'returned' ORDER BY o.closed_at DESC NULLS LAST LIMIT 60`),
+    handovers: await q(`SELECT o.ref, p.name AS product_name, o.qty, c.full_name AS courier_name, hv.handed_at, w.full_name AS by_name
+        FROM order_handovers hv JOIN orders o ON o.id = hv.order_id JOIN products p ON p.id = o.product_id JOIN users c ON c.id = hv.courier_id LEFT JOIN users w ON w.id = hv.handed_by
+        ORDER BY hv.handed_at DESC LIMIT 60`),
+    losses: await q(`SELECT l.id, p.name AS product_name, l.qty, l.reason, l.note, l.created_at, w.full_name AS by_name
+        FROM stock_losses l JOIN products p ON p.id = l.product_id LEFT JOIN users w ON w.id = l.declared_by ORDER BY l.created_at DESC LIMIT 60`)
+  })));
+  app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => {
+    await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
+  }));
+  app.post('/api/warehouse/handovers/:id', guard(WH, async (ctx) => { await fn('fn_warehouse_handover', ctx.user.id, v.uuid(ctx.params.id, 'Commande')); }));
+  app.post('/api/warehouse/losses', guard(WH, async (ctx) => {
+    ctx.status = 201;
+    return { id: await fn('fn_warehouse_declare_loss', ctx.user.id, v.uuid(ctx.body.product_id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }),
+      v.oneOf(ctx.body.reason, ['damaged', 'lost', 'expired', 'other'], 'Motif'), v.str(ctx.body.note, 'Explication', { min: 3, max: 300 })) };
+  }));
+  app.post('/api/warehouse/returns/:id/photos', guard(WH, async (ctx) => {
+    limit(`retimg:${ctx.user.id}`, 60, 3600_000);
+    const { mime, buf } = parseImage(ctx.body.image);
+    if (buf.length > 450_000) throw new HttpError(413, 'too_large', 'Photo trop lourde : choisissez une photo plus petite');
+    ctx.status = 201;
+    return { id: await fn('fn_warehouse_add_return_photo', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), mime, buf) };
+  }), { maxBody: MAX_PROOF_BODY });
+  app.get('/api/return-photos/:id', guard(['admin', 'warehouse', 'supplier'], async (ctx) => {
+    const rows = await q('SELECT * FROM fn_return_photo_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Photo')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Photo introuvable');
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'private, max-age=3600';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
+  }));
   app.post('/api/warehouse/returns/:id', guard(WH, async (ctx) => {
-    await fn('fn_warehouse_receive_return', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.cause, ['customer_refusal', 'defective', 'damaged_transport'], 'Cause'));
+    const id = v.uuid(ctx.params.id, 'Commande');
+    const cause = v.oneOf(ctx.body.cause, ['customer_refusal', 'defective', 'damaged_transport'], 'Cause');
+    const note = v.optStr(ctx.body.note, 'Note', 300);
+    if (note) await fn('fn_warehouse_return_note', ctx.user.id, id, note);   // avant la réception : un retour déjà clos n'accepte plus de note
+    await fn('fn_warehouse_receive_return', ctx.user.id, id, cause);
   }));
 
   // =========================================================================
