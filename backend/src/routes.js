@@ -90,7 +90,7 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/public/info', async () => ({
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
-    communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune')
+    communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune')
   }));
 
   // =========================================================================
@@ -204,7 +204,7 @@ export function registerRoutes(app, { db, cfg }) {
         JOIN seller_prices sp ON sp.seller_id = l.seller_id AND sp.product_id = l.product_id
         WHERE l.code = $1`, [ctx.params.code]);
     if (!rows.length) throw new HttpError(404, 'not_found', 'Ce lien n\'est plus valable');
-    return { product: rows[0], communes: await q('SELECT commune, fee FROM delivery_rates WHERE active ORDER BY commune'), contact_phone: cfg.contactPhone, orders_open: !cfg.closePublicOrders };
+    return { product: rows[0], communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'), contact_phone: cfg.contactPhone, orders_open: !cfg.closePublicOrders };
   });
 
   app.get('/api/public/link/:code/photo', async (ctx) => {
@@ -459,7 +459,8 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   const SUP = ['supplier'];
   app.get('/api/supplier/products', guard(SUP, async (ctx) => ({
-    products: await q(`SELECT id, name, description, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
+    categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
+    products: await q(`SELECT id, name, description, category_id, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = products.id) AS image_ids
         FROM products WHERE supplier_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [ctx.user.id]),
     arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.counted_qty, a.created_at, a.counted_at
@@ -470,11 +471,13 @@ export function registerRoutes(app, { db, cfg }) {
     const b = ctx.body;
     const id = await fn('fn_supplier_add_product', ctx.user.id, v.str(b.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(b.description, 'Description', 1000),
       v.int(b.supplier_price, 'Prix fournisseur', { min: 1, max: 1e9 }), v.oneOf(b.storage, ['wallindirain', 'supplier'], 'Stockage'),
-      b.storage === 'supplier' ? v.int(b.stock_qty ?? 0, 'Quantité', { min: 0, max: 1e6 }) : 0);
+      b.storage === 'supplier' ? v.int(b.stock_qty ?? 0, 'Quantité', { min: 0, max: 1e6 }) : 0, b.category_id == null || b.category_id === '' ? null : v.uuid(b.category_id, 'Rayon'));
     if (b.storage === 'supplier' && b.pickup_detail != null && String(b.pickup_detail).trim() !== '') await fn('fn_supplier_set_pickup', ctx.user.id, id, v.str(b.pickup_detail, 'Adresse de récupération', { min: 3, max: 200 }));
     ctx.status = 201;
     return { id, message: 'Produit proposé. Il sera visible des vendeurs après validation.' };
   }));
+
+  app.post('/api/supplier/products/:id/category', guard(SUP, async (ctx) => { await fn('fn_set_product_category', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.category_id, 'Rayon')); }));
 
   // Photos du produit (jusqu'à 4) : ajout, suppression ; lecture contrôlée par rôle
   app.post('/api/supplier/products/:id/images', guard(SUP, async (ctx) => {
@@ -526,7 +529,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/seller/catalog', guard(SEL, async (ctx) => {
     const [{ call_fee, max_fee }] = await q(`SELECT (SELECT value FROM settings WHERE key='call_fee') AS call_fee, (SELECT max(fee) FROM delivery_rates WHERE active) AS max_fee`);
     return {
-      products: await q(`SELECT p.id, p.name, p.description,
+      categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
+      products: await q(`SELECT p.id, p.name, p.description, p.category_id,
             (p.supplier_price + p.margin_unit) AS vendor_price,
             (p.supplier_price + p.margin_unit + $2 + $3 + (SELECT value FROM settings WHERE key = 'fee_unit')) AS min_price,
             (p.storage = 'wallindirain') AS can_prepay,
@@ -1212,7 +1216,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/admin/users/:id/verify', guard(ADM, async (ctx) => { await fn('fn_admin_verify_identity', ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur'), v.bool(ctx.body.verified, 'Vérification')); }));
 
   app.get('/api/admin/products', guard(ADM, async (ctx) => ({
-    products: await q(`SELECT p.id, p.name, p.description, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name AS supplier_name,
+    categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
+    products: await q(`SELECT p.id, p.name, p.description, p.category_id, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name AS supplier_name,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id WHERE p.deleted_at IS NULL AND ($1::text IS NULL OR p.status::text = $1) ORDER BY p.created_at DESC LIMIT 300`, [ctx.query.status || null])
   })));
@@ -1320,7 +1325,12 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   app.get('/api/admin/settings', guard(ADM, async () => ({
-    settings: await q('SELECT key, value, label FROM settings ORDER BY key'), rates: await q('SELECT commune, fee, active FROM delivery_rates ORDER BY active DESC, commune') })));
+    settings: await q('SELECT key, value, label FROM settings ORDER BY key'), rates: await q('SELECT commune, fee, active, kind, parent, pickup_point FROM delivery_rates ORDER BY active DESC, commune'),
+    categories: await q('SELECT c.id, c.name, c.position, c.active, (SELECT count(*)::int FROM products p WHERE p.category_id = c.id AND p.deleted_at IS NULL) AS products FROM product_categories c ORDER BY c.position, c.name') })));
+  app.post('/api/admin/categories', guard(ADM, async (ctx) => ({ id: await fn('fn_admin_set_category', ctx.user.id, ctx.body.id ? v.uuid(ctx.body.id, 'Rayon') : null, v.str(ctx.body.name, 'Nom du rayon', { min: 2, max: 40 }), v.int(ctx.body.position ?? 50, 'Ordre', { min: 0, max: 999 }), ctx.body.active !== false) })));
+  app.post('/api/admin/products/:id/category', guard(ADM, async (ctx) => { await fn('fn_set_product_category', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.category_id, 'Rayon')); }));
+  app.post('/api/admin/zones/classify', guard(ADM, async (ctx) => { const b = ctx.body; await fn('fn_admin_classify_zone', ctx.user.id, v.str(b.zone, 'Zone', { max: 60 }), v.oneOf(b.kind, ['commune', 'quartier', 'ville', 'autre'], 'Nature'), b.parent ? v.str(b.parent, 'Commune', { max: 60 }) : null, v.optStr(b.pickup_point, 'Gare voiture', 120)); }));
+  app.post('/api/admin/zones/use-commune-fee', guard(ADM, async (ctx) => ({ activated: await fn('fn_admin_zones_use_commune_fee', ctx.user.id, v.str(ctx.body.commune, 'Commune', { max: 60 })) })));
   app.post('/api/admin/settings', guard(ADM, async (ctx) => { await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
   // Trophées : les six montants d'un coup, positifs et strictement croissants
   app.post('/api/admin/trophies', guard(ADM, async (ctx) => {

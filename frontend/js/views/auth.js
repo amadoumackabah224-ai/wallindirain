@@ -1,5 +1,5 @@
 // Écrans publics : connexion, inscription, mot de passe oublié, page de commande du client.
-import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink, newRequestKey, telLink } from '../ui.js';
+import { h, toast, errToast, fmtGNF, fmtPhone, spinner, kv, amount, legalLinks, legalLink, newRequestKey, telLink, zoneOptions, zoneHint } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 
@@ -118,7 +118,8 @@ export function clientOrderView(code) {
     const qty = h('input', { type: 'number', min: 1, max: Math.min(p.available, 20) || 1, value: 1, required: true });
     const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
     const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX', autocomplete: 'tel' });
-    const commune = h('select', { required: true }, h('option', { value: '' }, 'Choisir mon quartier ou ma ville'), data.communes.map((c) => h('option', { value: c.commune }, `${c.commune} (livraison ${fmtGNF(c.fee)})`)));
+    const commune = h('select', { required: true }, h('option', { value: '' }, 'Choisir mon quartier ou ma ville'), zoneOptions(data.communes));
+    const communeHint = zoneHint(commune);
     const address = h('textarea', { required: true, maxlength: 300, placeholder: 'Quartier, rue, repère connu (pharmacie, mosquée, marché…)' });
     const total = h('span', {}, fmtGNF(p.unit_price));
     qty.addEventListener('input', () => { total.textContent = fmtGNF(p.unit_price * (parseInt(qty.value, 10) || 1)); });
@@ -142,7 +143,7 @@ export function clientOrderView(code) {
       } catch (ex) { errToast(ex); btn.disabled = false; }
     } },
       h('h2', {}, 'Vos informations'),
-      field('Quantité', qty), field('Votre nom', name), field('Votre téléphone', phone, 'Le conseiller vous appellera à ce numéro.'), field('Quartier ou ville', commune), field('Adresse de livraison', address),
+      field('Quantité', qty), field('Votre nom', name), field('Votre téléphone', phone, 'Le conseiller vous appellera à ce numéro.'), field('Quartier ou ville', commune), communeHint, field('Adresse de livraison', address),
       h('p', { class: 'small muted' }, 'Nous gardons votre nom, votre téléphone et votre adresse uniquement pour confirmer par appel et livrer votre commande.'),
       consentBox(accepted, ['J\'accepte que mes informations soient utilisées pour cette commande, comme expliqué dans la ', legalLink('confidentialite-client', 'politique de confidentialité', 'client'), ', les ', legalLink('conditions-client', 'conditions d\'achat', 'client'), ' et les ', legalLink('retours-remboursements', 'règles de retour', 'client'), '.']),
       h('div', { class: 'total-line' }, h('span', {}, 'Total à payer à la livraison'), total),

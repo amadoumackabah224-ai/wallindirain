@@ -463,3 +463,7 @@ div.notif { cursor: default; }
 @media (max-width: 600px) { .inv { padding: 14px; } .inv-head { flex-direction: column; align-items: flex-start; } .inv-issuer { text-align: left; } }
 @page { size: A4; margin: 12mm; }
 @media print { body.printing { background: #fff !important; } body.printing .print-sheet.print-inv { padding: 0; } .inv { padding: 0; max-width: none; } }
+
+.section-title { margin: 18px 0 8px; font-size: 1.05rem; }
+.zone-group { border: 1px solid var(--line-2); border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+.zone-group > summary { cursor: pointer; font-weight: 700; display: flex; gap: 8px; align-items: center; }

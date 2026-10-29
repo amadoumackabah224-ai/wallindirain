@@ -5,17 +5,17 @@ import { get, post } from '../api.js';
 const PSTATUS = { pending: ['En attente de validation', 'warn'], approved: ['Validé', 'ok'], rejected: ['Refusé', 'bad'], archived: ['Archivé', 'grey'] };
 
 export function supplierProducts() {
-  return liveView(() => get('/supplier/products'), ({ products, arrivals }, refresh) => {
+  return liveView(() => get('/supplier/products'), ({ products, arrivals, categories = [] }, refresh) => {
     const add = action(async () => {
       const v = await ask({ title: 'Proposer un produit', submit: 'Envoyer pour validation', fields: [
-        { name: 'name', label: 'Nom du produit' }, { name: 'description', label: 'Description', type: 'textarea', required: false },
+        { name: 'name', label: 'Nom du produit' }, { name: 'category_id', label: 'Rayon du catalogue', type: 'select', options: categories.map((c) => [c.id, c.name]), hint: 'Le rayon où les vendeurs trouveront votre produit.' }, { name: 'description', label: 'Description', type: 'textarea', required: false },
         { name: 'supplier_price', label: 'Votre prix par unité (GNF)', type: 'number', inputmode: 'numeric', hint: 'Le prix que vous recevez pour chaque produit livré.' },
         { name: 'storage', label: 'Stockage', type: 'select', options: [['wallindirain', 'Chez Wallindirain (recommandé : livraison plus rapide)'], ['supplier', 'Chez moi (je prépare les colis)']] },
         { name: 'stock_qty', label: 'Quantité en stock chez moi', type: 'number', required: false, hint: 'Seulement si le stock est chez vous.' },
         { name: 'pickup_detail', label: 'Où le livreur récupère le colis', required: false, hint: 'Seulement si le stock est chez vous : quartier, repère, téléphone sur place. Jamais montré aux vendeurs ni aux clients.' },
         { name: 'photo', type: 'image', label: 'Photo du produit', required: false, hint: 'Une bonne photo aide les vendeurs à vendre. Vous pourrez en ajouter jusqu\'à 4 ensuite. Évitez tout texte ou visage qui n\'a rien à voir avec le produit.' }] });
       if (!v) return;
-      const created = await post('/supplier/products', { name: v.name, description: v.description, supplier_price: Number(v.supplier_price), storage: v.storage, stock_qty: Number(v.stock_qty || 0), pickup_detail: v.pickup_detail || undefined });
+      const created = await post('/supplier/products', { name: v.name, category_id: v.category_id || undefined, description: v.description, supplier_price: Number(v.supplier_price), storage: v.storage, stock_qty: Number(v.stock_qty || 0), pickup_detail: v.pickup_detail || undefined });
       let photoNote = '';
       if (v.photo) { try { await post(`/supplier/products/${created.id}/images`, { image: v.photo }); } catch (ex) { photoNote = ` La photo n'a pas pu être ajoutée (${ex.message}) : ajoutez-la depuis la fiche du produit.`; } }
       toast(created.message + photoNote, photoNote ? 'warn' : 'ok');
@@ -30,9 +30,10 @@ export function supplierProducts() {
         }, { ok: 'Photo ajoutée', refresh });
         const delPhoto = (id) => action(async () => { if (await confirmBox('Supprimer cette photo ?', p.name, 'Supprimer', true)) { await post(`/supplier/images/${id}/delete`); return true; } }, { ok: (r) => (r ? 'Photo supprimée' : ''), refresh })();
         const setPickup = action(async () => { const v = await ask({ title: `Adresse de récupération : ${p.name}`, text: 'Où le livreur vient prendre le colis. Jamais montré aux vendeurs ni aux clients.', submit: 'Enregistrer', fields: [{ name: 'detail', label: 'Adresse', value: p.pickup_detail || '', required: false }] }); if (v) await post(`/supplier/products/${p.id}/pickup`, { detail: v.detail }); }, { ok: () => 'Adresse enregistrée', refresh });
+        const setCat = action(async () => { const v = await ask({ title: `Rayon : ${p.name}`, submit: 'Enregistrer', fields: [{ name: 'category_id', label: 'Rayon du catalogue', type: 'select', value: p.category_id, options: categories.map((c) => [c.id, c.name]) }] }); if (v) await post(`/supplier/products/${p.id}/category`, { category_id: v.category_id }); }, { ok: 'Rayon modifié', refresh });
         return h('div', { class: 'card' }, h('div', { class: 'order-head' }, h('h2', { class: 'grow' }, p.name), badge(...PSTATUS[p.status])), photoStrip(p.image_ids, { onDelete: delPhoto }), p.image_ids.length < 4 && h('button', { class: 'btn btn-sm btn-ghost', onclick: addPhoto }, p.image_ids.length ? 'Ajouter une photo' : 'Ajouter une photo (recommandé)'),
-          kv([['Votre prix', amount(p.supplier_price), 'key'], ['Stockage', p.storage === 'wallindirain' ? 'Chez Wallindirain' : 'Chez vous'], p.storage === 'supplier' && ['Récupération du colis', p.pickup_detail || 'Adresse non indiquée'], ['En stock', p.stock_qty], ['Réservé', p.reserved_qty]]),
-          p.status === 'approved' && h('div', { class: 'gap mt' }, p.storage === 'wallindirain' ? h('button', { class: 'btn btn-sm', onclick: arrive }, 'Annoncer un arrivage') : h('button', { class: 'btn btn-sm', onclick: setStock }, 'Mettre à jour mon stock'), p.storage === 'supplier' && h('button', { class: 'btn btn-sm btn-ghost', onclick: setPickup }, 'Adresse de récupération')));
+          kv([['Rayon', categories.find((c) => c.id === p.category_id)?.name || 'Autres'], ['Votre prix', amount(p.supplier_price), 'key'], ['Stockage', p.storage === 'wallindirain' ? 'Chez Wallindirain' : 'Chez vous'], p.storage === 'supplier' && ['Récupération du colis', p.pickup_detail || 'Adresse non indiquée'], ['En stock', p.stock_qty], ['Réservé', p.reserved_qty]]),
+          p.status === 'approved' && h('div', { class: 'gap mt' }, p.storage === 'wallindirain' ? h('button', { class: 'btn btn-sm', onclick: arrive }, 'Annoncer un arrivage') : h('button', { class: 'btn btn-sm', onclick: setStock }, 'Mettre à jour mon stock'), p.storage === 'supplier' && h('button', { class: 'btn btn-sm btn-ghost', onclick: setPickup }, 'Adresse de récupération'), h('button', { class: 'btn btn-sm btn-ghost', onclick: setCat }, 'Changer de rayon')));
       })) : empty('📦', 'Proposez votre premier produit'),
       arrivals.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Arrivages'), table(['Date', 'Produit', 'Annoncé', 'Compté'], arrivals.map((a) => [fmtDate(a.created_at), a.product_name, a.announced_qty, a.counted_qty ?? badge('en attente de comptage', 'warn')]))));
   });

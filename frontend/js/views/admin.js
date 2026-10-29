@@ -97,7 +97,7 @@ export function adminUsers() {
 }
 
 export function adminProducts() {
-  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')) }), ({ products, counts }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')) }), ({ products, counts, categories = [] }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
     counts.some((c) => c.status === 'pending') && h('div', { class: 'card' }, h('h2', {}, 'Inventaires à valider'),
       h('p', { class: 'muted small' }, 'Le magasinier a compté un autre nombre que celui attendu. Rien ne change dans le stock tant que vous n\'avez pas décidé.'),
       table(['Produit', 'Attendu', 'Compté', 'Écart', 'Explication', 'Par', ''], counts.filter((c) => c.status === 'pending').map((c) => {
@@ -110,7 +110,7 @@ export function adminProducts() {
         return [h('b', {}, c.product_name), c.expected_qty, c.counted_qty, h('b', {}, `${c.delta > 0 ? '+' : ''}${c.delta}`), c.note || '', c.by_name || '',
           h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: decide(true) }, 'Corriger'), h('button', { class: 'btn btn-sm btn-ghost', onclick: decide(false) }, 'Refuser'))];
       }))),
-    h('div', { class: 'card' }, table(['Produit', 'Fournisseur', 'Prix fournisseur', 'Marge', 'Stockage', 'Stock', 'Statut', ''], products.map((p) => {
+    h('div', { class: 'card' }, table(['Produit', 'Rayon', 'Fournisseur', 'Prix fournisseur', 'Marge', 'Stockage', 'Stock', 'Statut', ''], products.map((p) => {
       const review = (approve) => action(async () => {
         if (approve) {
           const v = await ask({ title: `Valider « ${p.name} »`, text: 'Marge Wallindirain en points de base (1500 = 15 %). Laissez vide pour la marge par défaut.', submit: 'Valider le produit', fields: [{ name: 'bps', label: 'Marge (points de base)', type: 'number', required: false, placeholder: '1500' }] });
@@ -118,7 +118,8 @@ export function adminProducts() {
         } else if (await confirmBox('Refuser ce produit ?', p.name, 'Refuser', true)) await post(`/admin/products/${p.id}/review`, { approve: false });
       }, { ok: approve ? 'Produit validé' : 'Produit refusé', refresh });
       const margin = action(async () => { const v = await ask({ title: `Marge : ${p.name}`, submit: 'Changer', fields: [{ name: 'bps', label: 'Marge (points de base)', type: 'number' }] }); if (v) await post(`/admin/products/${p.id}/margin`, { margin_bps: Number(v.bps) }); }, { ok: 'Marge modifiée', refresh });
-      return [h('div', {}, h('b', {}, p.name), photoStrip(p.image_ids, { size: 56 }), !p.image_ids.length && h('div', { class: 'small muted' }, 'Sans photo')), p.supplier_name, amount(p.supplier_price), p.margin_unit != null ? amount(p.margin_unit) : '—', p.storage === 'wallindirain' ? 'Wallindirain' : 'Fournisseur', `${p.stock_qty} (${p.reserved_qty} rés.)`,
+      const setCat = action(async () => { const v = await ask({ title: `Rayon : ${p.name}`, submit: 'Enregistrer', fields: [{ name: 'category_id', label: 'Rayon du catalogue', type: 'select', value: p.category_id, options: categories.map((c) => [c.id, c.name]) }] }); if (v) await post(`/admin/products/${p.id}/category`, { category_id: v.category_id }); }, { ok: 'Rayon modifié', refresh });
+      return [h('div', {}, h('b', {}, p.name), photoStrip(p.image_ids, { size: 56 }), !p.image_ids.length && h('div', { class: 'small muted' }, 'Sans photo')), h('button', { class: 'btn btn-sm btn-ghost', onclick: setCat }, categories.find((c) => c.id === p.category_id)?.name || 'Autres'), p.supplier_name, amount(p.supplier_price), p.margin_unit != null ? amount(p.margin_unit) : '—', p.storage === 'wallindirain' ? 'Wallindirain' : 'Fournisseur', `${p.stock_qty} (${p.reserved_qty} rés.)`,
         badge({ pending: 'À valider', approved: 'Validé', rejected: 'Refusé', archived: 'Archivé' }[p.status], { pending: 'warn', approved: 'ok', rejected: 'bad', archived: 'grey' }[p.status]),
         h('div', { class: 'gap' }, p.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: review(true) }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: review(false) }, 'Refuser')], p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: margin }, 'Marge'))];
     }), { empty: empty('🛍️', 'Aucun produit') }))));
@@ -202,10 +203,11 @@ export function adminSettings() {
 }
 
 function adminSettingsMain() {
-  return liveView(() => get('/admin/settings'), ({ settings, rates }, refresh) => h('div', {}, h('h1', {}, 'Réglages'),
+  return liveView(() => get('/admin/settings'), ({ settings, rates, categories = [] }, refresh) => h('div', {}, h('h1', {}, 'Réglages'),
     h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'),
     trophyCard(settings, refresh),
     h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.filter((s) => !s.key.startsWith('trophy_')).map((s) => [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
+    categoriesCard(categories, refresh),
     zonesCard(rates, settings, refresh)));
 }
 
@@ -331,42 +333,75 @@ function adminSubscriptions() {
 function trophyCard(settings, refresh) {
   const val = (t) => Number(settings.find((s) => s.key === `trophy_${t}`)?.value || 0);
   const edit = action(async () => {
-    const v = await ask({ title: 'Montants des médaillons (GNF)', text: 'Ventes livrées cumulées à atteindre, produits des fournisseurs seulement. Chaque niveau doit être plus haut que le précédent.', submit: 'Enregistrer',
+    const v = await ask({ title: 'Montants des trophées (GNF)', text: 'Ventes livrées cumulées à atteindre, produits des fournisseurs seulement. Chaque niveau doit être plus haut que le précédent.', submit: 'Enregistrer',
       fields: TROPHY_ORDER.map((t) => ({ name: t, label: TROPHY[t].name, type: 'number', inputmode: 'numeric', value: val(t) })) });
     if (!v) return;
     await post('/admin/trophies', Object.fromEntries(TROPHY_ORDER.map((t) => [t, Number(v[t])])));
-  }, { ok: 'Montants des médaillons enregistrés', refresh });
-  return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Médaillons des vendeurs'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit }, 'Modifier les montants')),
-    h('p', { class: 'small muted' }, 'Un vendeur obtient un médaillon quand ses commandes livrées et encaissées (produits des fournisseurs, pas ses produits personnels) atteignent le montant. Le changement s\'applique tout de suite à tous les vendeurs.'),
+  }, { ok: 'Montants des trophées enregistrés', refresh });
+  return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Trophées des vendeurs'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit }, 'Modifier les montants')),
+    h('p', { class: 'small muted' }, 'Un vendeur obtient un trophée quand ses commandes livrées et encaissées (produits des fournisseurs, pas ses produits personnels) atteignent le montant. Le changement s\'applique tout de suite à tous les vendeurs.'),
     h('div', { class: 'trophy-grid' }, TROPHY_ORDER.map((t) => h('div', { class: 'trophy-cell' }, trophy(t, 56), h('b', {}, TROPHY[t].name), h('span', { class: 'small' }, fmtGNF(val(t)))))));
 }
 
-/** Zones de livraison : les zones actives (avec tarif), puis les zones à configurer (sans tarif, non proposées). */
+/** Rayons du catalogue : créer, renommer, ordonner, désactiver (un rayon n'est jamais supprimé). */
+function categoriesCard(categories, refresh) {
+  const edit = (c) => action(async () => {
+    const v = await ask({ title: c ? `Rayon : ${c.name}` : 'Nouveau rayon', submit: 'Enregistrer', fields: [{ name: 'name', label: 'Nom du rayon', value: c?.name || '' }, { name: 'position', label: 'Ordre d\'affichage (petit = en premier)', type: 'number', inputmode: 'numeric', value: c?.position ?? 50 }, { name: 'active', label: 'Rayon actif (proposé aux fournisseurs)', type: 'checkbox', value: c ? c.active : true }] });
+    if (v) await post('/admin/categories', { id: c?.id, name: v.name, position: Number(v.position), active: v.active });
+  }, { ok: 'Rayon enregistré', refresh });
+  return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Rayons du catalogue'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit(null) }, '+ Rayon')),
+    h('p', { class: 'small muted' }, 'Chaque produit est rangé dans un rayon que les vendeurs retrouvent dans le catalogue.'),
+    table(['Rayon', 'Produits', 'État', ''], categories.map((c) => [c.name, c.products, badge(c.active ? 'Actif' : 'Désactivé', c.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: edit(c) }, 'Modifier')])));
+}
+
+const KIND_LABEL = { commune: 'Commune', quartier: 'Quartier', ville: 'Ville de l\'intérieur', autre: 'Autre' };
+/** Zones de livraison : communes avec leurs quartiers, villes de l'intérieur (gare voiture), zones à classer. Un quartier garde « sans tarif » tant que vous ne lui en donnez pas un. */
 function zonesCard(rates, settings, refresh) {
-  const active = rates.filter((r) => r.active);
   const setting = (k) => Number(settings.find((s) => s.key === k)?.value || 0);
+  const active = rates.filter((r) => r.active);
   // avertissement : une zone active dont les frais sont inférieurs à la rémunération fixe du livreur bloquerait les commandes de cette zone
   const lowZones = setting('courier_share_bps') === 0 ? active.filter((r) => Number(r.fee) < setting('courier_pay')) : [];
-  const todo = rates.filter((r) => !r.active && Number(r.fee) === 0);
-  const off = rates.filter((r) => !r.active && Number(r.fee) > 0);
   const save = (r, title) => action(async () => {
     const v = await ask({ title, submit: 'Enregistrer', fields: [{ name: 'fee', label: 'Tarif (GNF)', type: 'number', inputmode: 'numeric', value: Number(r.fee) || '' }, { name: 'active', label: 'Zone active (proposée aux clients et aux vendeurs)', type: 'checkbox', value: r.active || Number(r.fee) === 0 }] });
     if (v) await post('/admin/rates', { commune: r.commune, fee: Number(v.fee), active: v.active });
   }, { ok: 'Zone enregistrée', refresh });
+  const classify = (r) => action(async () => {
+    const v = await ask({ title: `Classer : ${r.commune}`, submit: 'Enregistrer', fields: [
+      { name: 'kind', label: 'Nature', type: 'select', value: r.kind, options: Object.entries(KIND_LABEL) },
+      { name: 'parent', label: 'Commune de rattachement (pour un quartier)', type: 'select', value: r.parent || '', required: false, options: [['', '—'], ...rates.filter((z) => z.kind === 'commune').map((z) => [z.commune, z.commune])] },
+      { name: 'pickup', label: 'Gare voiture (pour une ville de l\'intérieur)', value: r.pickup_point || '', required: false, hint: 'Nom et repère de la gare où le colis est déposé. Facultatif.' }] });
+    if (v) await post('/admin/zones/classify', { zone: r.commune, kind: v.kind, parent: v.parent || undefined, pickup_point: v.pickup || undefined });
+  }, { ok: 'Zone classée', refresh });
+  const useFee = (c) => action(async () => {
+    if (!(await confirmBox(`Appliquer le tarif de ${c.commune} ?`, `Les quartiers de ${c.commune} qui n'ont pas encore de tarif prendront ${fmtGNF(c.fee)} et seront proposés aux clients et aux vendeurs. Les quartiers déjà tarifés ne changent pas.`, 'Appliquer'))) return null;
+    return (await post('/admin/zones/use-commune-fee', { commune: c.commune })).activated;
+  }, { ok: (n) => (n === null ? '' : `${n} quartier${n > 1 ? 's' : ''} activé${n > 1 ? 's' : ''}`), refresh });
   const add = action(async () => {
     const v = await ask({ title: 'Nouvelle zone', submit: 'Ajouter', fields: [{ name: 'commune', label: 'Quartier ou ville' }, { name: 'fee', label: 'Tarif (GNF)', type: 'number', inputmode: 'numeric' }] });
     if (v) await post('/admin/rates', { commune: v.commune, fee: Number(v.fee) });
-  }, { ok: 'Zone ajoutée', refresh });
-  const search = h('input', { type: 'search', placeholder: 'Chercher un quartier ou une ville', 'aria-label': 'Chercher une zone' });
-  const rows = todo.map((r) => h('tr', { 'data-name': r.commune.toLowerCase() }, h('td', {}, r.commune), h('td', {}, h('button', { class: 'btn btn-sm btn-gold', onclick: save(r, `Tarif de livraison : ${r.commune}`) }, 'Fixer le tarif'))));
-  search.addEventListener('input', () => { const q = search.value.trim().toLowerCase(); rows.forEach((tr) => { tr.hidden = q !== '' && !tr.dataset.name.includes(q); }); });
+  }, { ok: 'Zone ajoutée : classez-la ensuite (commune ou ville)', refresh });
+  const row = (r, withKind = false) => [h('div', {}, h('b', {}, r.commune), r.pickup_point && h('div', { class: 'small muted' }, `Gare : ${r.pickup_point}`)), ...(withKind ? [KIND_LABEL[r.kind]] : []),
+    Number(r.fee) > 0 ? amount(r.fee) : badge('sans tarif', 'warn'), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'),
+    h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm ' + (Number(r.fee) > 0 ? 'btn-ghost' : 'btn-gold'), onclick: save(r, `Tarif de livraison : ${r.commune}`) }, Number(r.fee) > 0 ? 'Modifier' : 'Fixer le tarif'), h('button', { class: 'btn btn-sm btn-ghost', onclick: classify(r) }, 'Classer'))];
+  const heads = ['Zone', 'Tarif', 'État', ''];
+  const communes = rates.filter((r) => r.kind === 'commune');
+  const villes = rates.filter((r) => r.kind === 'ville');
+  const loose = rates.filter((r) => r.kind === 'quartier' && !communes.some((c) => c.commune === r.parent));
+  const others = rates.filter((r) => r.kind === 'autre');
+  const search = h('input', { type: 'search', placeholder: 'Chercher une zone', 'aria-label': 'Chercher une zone' });
+  const groups = [];
+  const group = (title, list, extra) => { const el = h('details', { class: 'zone-group' }, h('summary', {}, title, h('span', { class: 'small muted' }, ` (${list.length})`)), extra, table(heads, list.map((r) => row(r)))); groups.push([el, list]); return el; };
+  const content = [
+    ...communes.map((c) => group(`${c.commune} · ${Number(c.fee) > 0 ? fmtGNF(c.fee) : 'sans tarif'}`, [c, ...rates.filter((r) => r.parent === c.commune)],
+      h('div', { class: 'gap mb' }, Number(c.fee) > 0 && rates.some((r) => r.parent === c.commune && Number(r.fee) === 0) && h('button', { class: 'btn btn-sm btn-gold', onclick: useFee(c) }, 'Appliquer le tarif de la commune aux quartiers sans tarif')))),
+    group('Villes de l\'intérieur (livrées à la gare voiture)', villes, h('p', { class: 'small muted' }, 'Ces villes restent désactivées tant que vous n\'avez pas fixé leur tarif. Indiquez la gare voiture dans « Classer ».')),
+    loose.length > 0 && group('Quartiers à rattacher à une commune', loose),
+    others.length > 0 && group('Autre', others)].filter(Boolean);
+  search.addEventListener('input', () => { const q = search.value.trim().toLowerCase(); groups.forEach(([el, list]) => { const hit = q !== '' && list.some((r) => r.commune.toLowerCase().includes(q)); el.hidden = q !== '' && !hit; if (hit) el.open = true; }); });
   return h('div', { class: 'card' },
     h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Zones et tarifs de livraison'), h('button', { class: 'btn btn-sm btn-gold', onclick: add }, '+ Zone')),
-    h('p', { class: 'small muted' }, 'Seules les zones actives avec un tarif sont proposées aux clients et aux vendeurs.'),
-    lowZones.length > 0 && h('div', { class: 'notice warn', role: 'alert' }, `Attention : ${lowZones.map((r) => r.commune).join(', ')} ${lowZones.length > 1 ? 'ont' : 'a'} un tarif inférieur à la rémunération fixe du livreur (${fmtGNF(setting('courier_pay'))}). Les commandes de ${lowZones.length > 1 ? 'ces zones sont bloquées' : 'cette zone est bloquée'} tant que le tarif ou la rémunération n'est pas corrigé.`),
-    table(['Quartier ou ville', 'Tarif', 'État', ''], [...active, ...off].map((r) => [r.commune, amount(r.fee), badge(r.active ? 'Active' : 'Désactivée', r.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: save(r, `Livraison ${r.commune}`) }, 'Modifier')])),
-    todo.length > 0 && h('details', { class: 'mt' }, h('summary', {}, `Zones à configurer (${todo.length}) : sans tarif, non proposées`),
-      h('div', { class: 'mt' }, search),
-      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Quartier ou ville'), h('th', { scope: 'col' }, h('span', { class: 'sr' }, 'Actions')))), h('tbody', {}, rows)))));
+    h('p', { class: 'small muted' }, 'Seules les zones actives avec un tarif sont proposées aux clients et aux vendeurs. Attention : le prix minimum de vente des produits suit la livraison active la plus chère.'),
+    lowZones.length > 0 && h('div', { class: 'notice warn', role: 'alert' }, `Attention : ${lowZones.map((r) => r.commune).join(', ')} ${lowZones.length > 1 ? 'ont' : 'a'} un tarif inférieur à la rémunération fixe du livreur (${fmtGNF(setting('courier_pay'))}). Les commandes de ${lowZones.length > 1 ? 'ces zones sont bloquées' : 'cette zone sont bloquées'} : augmentez le tarif ou baissez la rémunération.`),
+    h('div', { class: 'mt' }, search), content);
 }
 
