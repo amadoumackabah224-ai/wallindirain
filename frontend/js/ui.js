@@ -246,33 +246,44 @@ export function liveView(load, render, { poll = 0, placeholder = null } = {}) {
   return root;
 }
 
-// ---------- Trophées : coupe dessinée en SVG (aucun style en ligne : la politique de sécurité les interdit) ----------
+// ---------- Trophées : médaillon Wallindirain dessiné en SVG (monogramme W, bord crénelé, étoiles de rang, ruban ; aucun style en ligne : la politique de sécurité les interdit) ----------
 export const TROPHY = {
-  none: { icon: '', name: 'Pas encore de trophée', c1: '#cfd6e0', c2: '#9aa5b5' },
-  bronze: { name: 'Bronze', c1: '#e0a064', c2: '#8c5a1f' },
-  silver: { name: 'Argent', c1: '#f1f3f6', c2: '#8d96a3' },
-  gold: { name: 'Or', c1: '#ffe27a', c2: '#b8860b' },
-  platinum: { name: 'Platine', c1: '#f4f8fc', c2: '#8aa3bd', ring: true },
-  diamond: { name: 'Diamant', c1: '#e6fbff', c2: '#35b6d6', gem: true },
-  blue_diamond: { name: 'Diamant Bleu', c1: '#6db6ff', c2: '#0b3d91', gem: true, spark: true },
+  none: { icon: '', name: 'Pas encore de médaillon', c1: '#cfd6e0', c2: '#9aa5b5', stars: 0 },
+  bronze: { name: 'Bronze', c1: '#e0a064', c2: '#8c5a1f', stars: 1 },
+  silver: { name: 'Argent', c1: '#f1f3f6', c2: '#8d96a3', stars: 2 },
+  gold: { name: 'Or', c1: '#ffe27a', c2: '#b8860b', stars: 3 },
+  platinum: { name: 'Platine', c1: '#f4f8fc', c2: '#8aa3bd', stars: 3, wreath: true },
+  diamond: { name: 'Diamant', c1: '#e6fbff', c2: '#35b6d6', stars: 3, wreath: true, gem: true },
+  blue_diamond: { name: 'Diamant Bleu', c1: '#6db6ff', c2: '#0b3d91', stars: 3, wreath: true, gem: true, spark: true },
 };
 export const TROPHY_ORDER = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'blue_diamond'];
 let trophyId = 0;
+const STAR = 'M0-3l.9 1.9 2.1.3-1.5 1.5.4 2.1L0 1.8-1.9 2.8l.4-2.1-1.5-1.5 2.1-.3z';
 export function trophy(tier = 'none', size = 56) {
   const t = TROPHY[tier] || TROPHY.none;
   const NS = 'http://www.w3.org/2000/svg';
   const el = (name, attrs = {}, ...kids) => { const n = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); n.append(...kids); return n; };
   const id = `tg${++trophyId}`;
-  const svg = el('svg', { viewBox: '0 0 64 64', width: size, height: size, role: 'img', 'aria-label': tier === 'none' ? 'Trophée à gagner' : `Trophée ${t.name}`, class: `trophy${tier === 'none' ? ' trophy-none' : ''}` },
-    el('defs', {}, el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '1' }, el('stop', { offset: '0', 'stop-color': t.c1 }), el('stop', { offset: '1', 'stop-color': t.c2 }))),
-    el('path', { d: 'M16 12H9c0 10 4 14 9 15M48 12h7c0 10-4 14-9 15', fill: 'none', stroke: t.c2, 'stroke-width': '3', 'stroke-linecap': 'round' }),
-    el('path', { d: 'M16 6h32v18c0 10-7 18-16 18S16 34 16 24z', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1.5' }),
-    el('rect', { x: '29', y: '41', width: '6', height: '11', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1' }),
-    el('rect', { x: '20', y: '52', width: '24', height: '7', rx: '2', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1.5' }));
-  if (t.gem) svg.append(el('path', { d: 'M32 12l9 9-9 14-9-14z', fill: '#ffffff', 'fill-opacity': '.85', stroke: t.c2, 'stroke-width': '1' }), el('path', { d: 'M23 21h18M32 12v23', stroke: t.c2, 'stroke-width': '.8', fill: 'none' }));
-  else if (tier !== 'none') svg.append(el('path', { d: 'M32 12l3.1 6.4 7 .9-5.1 4.9 1.3 7-6.3-3.4-6.3 3.4 1.3-7-5.1-4.9 7-.9z', fill: '#ffffff', 'fill-opacity': '.8' }));
-  if (t.ring) svg.append(el('circle', { cx: '32', cy: '24', r: '14', fill: 'none', stroke: '#ffffff', 'stroke-opacity': '.7', 'stroke-width': '1.2' }));
-  if (t.spark) svg.append(el('path', { d: 'M8 4v6M5 7h6M56 2v5M53.5 4.5h5', stroke: t.c1, 'stroke-width': '1.6', 'stroke-linecap': 'round' }));
+  const none = tier === 'none';
+  const svg = el('svg', { viewBox: '0 0 64 64', width: size, height: size, role: 'img', 'aria-label': none ? 'Médaillon à gagner' : `Médaillon Wallindirain ${t.name}`, class: `trophy${none ? ' trophy-none' : ''}` },
+    el('defs', {},
+      el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '1' }, el('stop', { offset: '0', 'stop-color': t.c1 }), el('stop', { offset: '1', 'stop-color': t.c2 })),
+      el('linearGradient', { id: `${id}d`, x1: '1', y1: '1', x2: '0', y2: '0' }, el('stop', { offset: '0', 'stop-color': t.c1 }), el('stop', { offset: '1', 'stop-color': t.c2 }))));
+  // ruban sous le médaillon
+  svg.append(el('path', { d: 'M21 46l-5 15 7-3 4 5 4-17z', fill: t.c2, stroke: t.c2, 'stroke-width': '1', 'stroke-linejoin': 'round' }),
+    el('path', { d: 'M43 46l5 15-7-3-4 5-4-17z', fill: t.c2, 'fill-opacity': '.8', stroke: t.c2, 'stroke-width': '1', 'stroke-linejoin': 'round' }));
+  // bord, crénelage, disque intérieur
+  svg.append(el('circle', { cx: '32', cy: '28', r: '26', fill: `url(#${id})`, stroke: t.c2, 'stroke-width': '1.5' }),
+    el('circle', { cx: '32', cy: '28', r: '23', fill: 'none', stroke: t.c2, 'stroke-width': '2.2', 'stroke-dasharray': '1.6 2.2', 'stroke-opacity': '.65' }),
+    el('circle', { cx: '32', cy: '28', r: '19.5', fill: `url(#${id}d)`, stroke: t.c2, 'stroke-width': '1' }));
+  if (t.wreath) svg.append(el('path', { d: 'M15.5 40A19 19 0 0 1 15 17M48.5 40A19 19 0 0 0 49 17', fill: 'none', stroke: '#ffffff', 'stroke-opacity': '.9', 'stroke-width': '2.6', 'stroke-linecap': 'round', 'stroke-dasharray': '.1 3.6' }));
+  // monogramme W
+  svg.append(el('path', { d: 'M20 17l5 17 7-12 7 12 5-17', fill: 'none', stroke: none ? t.c2 : '#ffffff', 'stroke-opacity': none ? '.6' : '1', 'stroke-width': '4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+  // étoiles de rang
+  const xs = !t.stars ? [] : t.stars === 1 ? [32] : t.stars === 2 ? [27, 37] : [24, 32, 40];
+  for (const x of xs) svg.append(el('path', { d: STAR, transform: `translate(${x} 41.5) scale(1.25)`, fill: '#ffffff', 'fill-opacity': '.95', stroke: t.c2, 'stroke-width': '.4' }));
+  if (t.gem) svg.append(el('path', { d: 'M32 0.5l5 5-5 6.5-5-6.5z', fill: '#ffffff', stroke: t.c2, 'stroke-width': '1', 'stroke-linejoin': 'round' }), el('path', { d: 'M27 5.5h10M32 .5v11.5', stroke: t.c2, 'stroke-width': '.6', fill: 'none' }));
+  if (t.spark) svg.append(el('path', { d: 'M6 6v6M3 9h6M58 10v5M55.5 12.5h5', stroke: t.c1, 'stroke-width': '1.6', 'stroke-linecap': 'round' }));
   return svg;
 }
 

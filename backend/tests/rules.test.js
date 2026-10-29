@@ -207,7 +207,7 @@ test('retours : refus client, défectueux, abîmé en transport', async () => {
   b = await sum(PLATFORM);
   r = await failAndReturn('620000053', 'damaged_transport');
   assert.equal(r.delta, -1);
-  assert.equal(await sum(PLATFORM) - b, -60000 - 1000); // perte à la charge de Wallindirain + paie de l'agent
+  assert.equal(await sum(PLATFORM) - b, -60000);        // perte à la charge de Wallindirain ; l'agent n'est payé qu'à la livraison (034)
   assert.equal((await db.app.query('SELECT status FROM orders WHERE id=$1', [r.o.id])).rows[0].status, 'returned');
 });
 
