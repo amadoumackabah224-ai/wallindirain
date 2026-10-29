@@ -331,13 +331,13 @@ function adminSubscriptions() {
 function trophyCard(settings, refresh) {
   const val = (t) => Number(settings.find((s) => s.key === `trophy_${t}`)?.value || 0);
   const edit = action(async () => {
-    const v = await ask({ title: 'Montants des trophées (GNF)', text: 'Ventes livrées cumulées à atteindre, produits des fournisseurs seulement. Chaque niveau doit être plus haut que le précédent.', submit: 'Enregistrer',
+    const v = await ask({ title: 'Montants des médaillons (GNF)', text: 'Ventes livrées cumulées à atteindre, produits des fournisseurs seulement. Chaque niveau doit être plus haut que le précédent.', submit: 'Enregistrer',
       fields: TROPHY_ORDER.map((t) => ({ name: t, label: TROPHY[t].name, type: 'number', inputmode: 'numeric', value: val(t) })) });
     if (!v) return;
     await post('/admin/trophies', Object.fromEntries(TROPHY_ORDER.map((t) => [t, Number(v[t])])));
-  }, { ok: 'Montants des trophées enregistrés', refresh });
-  return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Trophées des vendeurs'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit }, 'Modifier les montants')),
-    h('p', { class: 'small muted' }, 'Un vendeur obtient un trophée quand ses commandes livrées et encaissées (produits des fournisseurs, pas ses produits personnels) atteignent le montant. Le changement s\'applique tout de suite à tous les vendeurs.'),
+  }, { ok: 'Montants des médaillons enregistrés', refresh });
+  return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Médaillons des vendeurs'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit }, 'Modifier les montants')),
+    h('p', { class: 'small muted' }, 'Un vendeur obtient un médaillon quand ses commandes livrées et encaissées (produits des fournisseurs, pas ses produits personnels) atteignent le montant. Le changement s\'applique tout de suite à tous les vendeurs.'),
     h('div', { class: 'trophy-grid' }, TROPHY_ORDER.map((t) => h('div', { class: 'trophy-cell' }, trophy(t, 56), h('b', {}, TROPHY[t].name), h('span', { class: 'small' }, fmtGNF(val(t)))))));
 }
 
