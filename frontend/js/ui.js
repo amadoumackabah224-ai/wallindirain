@@ -288,3 +288,12 @@ export function applyTheme() {
 export function setTheme(t) { themeMem = t === 'auto' ? null : t; try { if (t === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, t); } catch { /* stockage indisponible : le choix vaut pour cette visite */ } applyTheme(); }
 applyTheme();
 try { globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch { /* ancien navigateur */ }
+
+/** Imprime un morceau de page (facture, bon…) : une feuille cachée à l'écran, seule visible à l'impression ; aucun style en ligne (politique de sécurité). */
+export function printNode(node, { invoice = false } = {}) {
+  const sheet = h('div', { class: `print-sheet${invoice ? ' print-inv' : ''}` }, node);
+  const done = () => { document.body.classList.remove('printing'); sheet.remove(); window.removeEventListener('afterprint', done); };
+  document.body.append(sheet); document.body.classList.add('printing');
+  window.addEventListener('afterprint', done);
+  setTimeout(() => window.print(), 50);
+}

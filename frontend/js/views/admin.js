@@ -3,6 +3,7 @@ import { h, ask, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statu
 import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
+import { receiptButton } from './invoices.js';
 
 
 export function adminDashboard({ goTo }) {
@@ -96,7 +97,19 @@ export function adminUsers() {
 }
 
 export function adminProducts() {
-  return liveView(() => get('/admin/products'), ({ products }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')) }), ({ products, counts }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+    counts.some((c) => c.status === 'pending') && h('div', { class: 'card' }, h('h2', {}, 'Inventaires à valider'),
+      h('p', { class: 'muted small' }, 'Le magasinier a compté un autre nombre que celui attendu. Rien ne change dans le stock tant que vous n\'avez pas décidé.'),
+      table(['Produit', 'Attendu', 'Compté', 'Écart', 'Explication', 'Par', ''], counts.filter((c) => c.status === 'pending').map((c) => {
+        const decide = (approve) => action(async () => {
+          const v = await ask({ title: approve ? `Corriger le stock de « ${c.product_name} » ?` : `Refuser l'inventaire de « ${c.product_name} » ?`, text: approve ? `Le stock sera corrigé de ${c.delta > 0 ? '+' : ''}${c.delta} unité(s). Aucun montant n'est modifié.` : 'Expliquez pourquoi : le magasinier devra recompter.',
+            submit: approve ? 'Corriger le stock' : 'Refuser', danger: !approve, fields: [{ name: 'note', label: approve ? 'Note (facultatif)' : 'Raison du refus', type: 'textarea', maxlength: 300 }] });
+          if (!v) return;
+          await post(`/admin/stock-counts/${c.id}/review`, { approve, ...((v.note || '').trim() ? { note: v.note.trim() } : {}) });
+        }, { ok: approve ? 'Stock corrigé' : 'Inventaire refusé', refresh });
+        return [h('b', {}, c.product_name), c.expected_qty, c.counted_qty, h('b', {}, `${c.delta > 0 ? '+' : ''}${c.delta}`), c.note || '', c.by_name || '',
+          h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: decide(true) }, 'Corriger'), h('button', { class: 'btn btn-sm btn-ghost', onclick: decide(false) }, 'Refuser'))];
+      }))),
     h('div', { class: 'card' }, table(['Produit', 'Fournisseur', 'Prix fournisseur', 'Marge', 'Stockage', 'Stock', 'Statut', ''], products.map((p) => {
       const review = (approve) => action(async () => {
         if (approve) {
@@ -166,8 +179,9 @@ export function adminWithdrawals() {
       const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
       return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), `${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}`,
         badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
+        w.status === 'paid' && receiptButton(w.id),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
-    }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6]), r[7]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
+    }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6], r[7]), r[8]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
 }
 
 export function adminDeposit() {
