@@ -1,5 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 
@@ -44,12 +44,18 @@ function orderCard(o, refresh) {
     h('div', { class: 'gap mt actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
 }
 
+let catFilter = '';   // rayon choisi (gardé tant que la page reste ouverte)
 export function sellerCatalog() {
-  return liveView(() => get('/seller/catalog'), ({ products, call_fee, max_delivery_fee }, refresh) => {
+  return liveView(() => get('/seller/catalog'), ({ products, categories = [], call_fee, max_delivery_fee }, refresh) => {
     if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), empty('🛍️', 'Aucun produit validé pour le moment'));
+    const shown = catFilter ? products.filter((p) => p.category_id === catFilter) : products;
+    const sections = (catFilter ? categories.filter((c) => c.id === catFilter) : categories).map((c) => [c.name, shown.filter((p) => p.category_id === c.id)]).filter(([, l]) => l.length);
+    const rest = shown.filter((p) => !categories.some((c) => c.id === p.category_id));
+    if (rest.length) sections.push(['Autres', rest]);
     return h('div', {}, h('h1', {}, 'Catalogue'),
       h('div', { class: 'notice' }, `Votre prix de vente doit couvrir le prix vendeur, le call center (${fmtGNF(call_fee)}) et la livraison la plus chère (${fmtGNF(max_delivery_fee)}) : vous ne vendez jamais à perte.`),
-      h('div', { class: 'grid g2' }, products.map((p) => {
+      h('div', { class: 'chips mb' }, [['', 'Tous'], ...categories.filter((c) => products.some((p) => p.category_id === c.id)).map((c) => [c.id, c.name])].map(([id, name]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(catFilter === id), onclick: () => { catFilter = id; refresh(); } }, name))),
+      sections.map(([title, list]) => h('div', { class: 'catalog-section' }, h('h2', { class: 'section-title' }, title), h('div', { class: 'grid g2' }, list.map((p) => {
         const setPrice = action(async () => {
           const v = await ask({ title: p.name, text: `Prix minimum autorisé : ${fmtGNF(p.min_price)}`, submit: 'Enregistrer', fields: [{ name: 'price', label: 'Votre prix de vente (GNF)', type: 'number', inputmode: 'numeric', value: p.sale_price || '' }] });
           if (v) await post('/seller/prices', { product_id: p.id, price: Number(v.price) });
@@ -69,7 +75,7 @@ export function sellerCatalog() {
           h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm', onclick: setPrice }, p.sale_price ? 'Changer mon prix' : 'Fixer mon prix'),
             p.sale_price && h('button', { class: 'btn btn-sm btn-gold', onclick: link }, p.link_code ? 'Copier mon lien' : 'Créer mon lien'),
             p.can_prepay && h('button', { class: 'btn btn-sm btn-ghost', onclick: buy }, 'Acheter du stock')));
-      })));
+      })))));
   });
 }
 
@@ -83,7 +89,8 @@ export function sellerNewOrder({ goTo }) {
     const qty = h('input', { type: 'number', min: 1, max: 100, value: 1, required: true });
     const cname = h('input', { type: 'text', required: true, maxlength: 100 });
     const cphone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
-    const commune = h('select', { required: true }, info.communes.map((c) => h('option', { value: c.commune }, `${c.commune} · ${fmtGNF(c.fee)}`)));
+    const commune = h('select', { required: true }, zoneOptions(info.communes));
+    const communeHint = zoneHint(commune);
     const addr = h('textarea', { required: true, maxlength: 300, placeholder: 'Rue, repère connu (pharmacie, mosquée, marché…)' });
     const already = h('input', { type: 'checkbox' });
     const note = h('input', { type: 'text', maxlength: 300 });
@@ -106,7 +113,7 @@ export function sellerNewOrder({ goTo }) {
       h('label', { class: 'f' }, h('span', {}, 'Type de produit'), h('div', { class: 'gap' }, own, h('span', {}, 'Mon propre produit (hors catalogue)'))),
       catBox, ownBox, h('label', { class: 'f' }, h('span', {}, 'Quantité'), qty),
       h('h2', { class: 'mt' }, 'Client'), h('label', { class: 'f' }, h('span', {}, 'Nom'), cname), h('label', { class: 'f' }, h('span', {}, 'Téléphone'), cphone),
-      h('label', { class: 'f' }, h('span', {}, 'Quartier ou ville'), commune), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
+      h('label', { class: 'f' }, h('span', {}, 'Quartier ou ville'), commune, communeHint), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
       h('label', { class: 'f check' }, already, h('span', {}, h('b', {}, 'J\'ai déjà appelé ce client et il a confirmé.'), h('div', { class: 'hint' }, 'Cochée : la commande ne passe pas par le call center (pas de frais d\'appel) et va directement à l\'affectation au livreur. Ne cochez que si le client a vraiment confirmé.'))),
       h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer la commande'));
     host.replaceChildren(h('h1', {}, 'Nouvelle commande'), h('div', { class: 'card' }, form), importCard());

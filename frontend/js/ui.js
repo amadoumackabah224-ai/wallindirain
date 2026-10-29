@@ -305,6 +305,30 @@ export function setTheme(t) { themeMem = t === 'auto' ? null : t; try { if (t ==
 applyTheme();
 try { globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch { /* ancien navigateur */ }
 
+/** Liste de zones classée : par commune (avec ses quartiers), puis villes de l'intérieur (gare voiture). Renvoie les éléments <option>/<optgroup> d'un <select>. */
+export function zoneOptions(zones, { fee = true } = {}) {
+  const label = (z, name = z.commune) => `${name}${fee ? ` · ${fmtGNF(z.fee)}` : ''}`;
+  const opt = (z, name) => h('option', { value: z.commune, 'data-kind': z.kind, 'data-pickup': z.pickup_point || '' }, label(z, name));
+  const out = [];
+  for (const c of zones.filter((z) => z.kind === 'commune')) {
+    const kids = zones.filter((z) => z.parent === c.commune);
+    out.push(h('optgroup', { label: c.commune }, opt(c, `${c.commune} (autre quartier)`), kids.map((k) => opt(k))));
+  }
+  const loose = zones.filter((z) => z.kind === 'quartier' && !zones.some((c) => c.commune === z.parent));
+  if (loose.length) out.push(h('optgroup', { label: 'Autres quartiers' }, loose.map((z) => opt(z))));
+  const villes = zones.filter((z) => z.kind === 'ville');
+  if (villes.length) out.push(h('optgroup', { label: 'Villes de l\'intérieur (livraison à la gare voiture)' }, villes.map((z) => opt(z))));
+  for (const z of zones.filter((z) => z.kind === 'autre')) out.push(opt(z));
+  return out;
+}
+/** Petit message sous le choix de zone : pour une ville de l'intérieur, rappelle que le colis part à la gare voiture. */
+export function zoneHint(select) {
+  const hint = h('div', { class: 'hint hidden' });
+  const upd = () => { const o = select.selectedOptions[0]; const ville = o?.dataset.kind === 'ville'; hint.classList.toggle('hidden', !ville); hint.textContent = ville ? `Livraison à la gare voiture${o.dataset.pickup ? ` : ${o.dataset.pickup}` : ' de la ville'}. Indiquez dans l'adresse le nom de la gare ou de la compagnie, et un numéro joignable sur place.` : ''; };
+  select.addEventListener('change', upd); upd();
+  return hint;
+}
+
 /** Imprime un morceau de page (facture, bon…) : une feuille cachée à l'écran, seule visible à l'impression ; aucun style en ligne (politique de sécurité). */
 export function printNode(node, { invoice = false } = {}) {
   const sheet = h('div', { class: `print-sheet${invoice ? ' print-inv' : ''}` }, node);
