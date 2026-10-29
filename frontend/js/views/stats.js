@@ -161,9 +161,9 @@ function rankingCard() {
     const month = `${MONTHS[Number(r.month.slice(5, 7)) - 1]} ${r.month.slice(0, 4)}`;
     const toggle = async () => { try { await post('/seller/ranking-visibility', { hidden: !r.hidden }); refresh(); } catch (e) { toast(e.message, 'bad'); } };
     return h('div', { class: 'card' },
-      h('h2', {}, 'Médaillons et classement'),
-      h('div', { class: 'trophy-hero' }, trophy(r.tier, 84), h('div', {}, h('b', { class: 'trophy-name' }, r.tier === 'none' ? 'Pas encore de médaillon' : `Médaillon ${name}`), h('div', { class: 'small' }, r.next_tier ? `Prochain trophée : ${nextName}` : 'Niveau maximum'))),
-      h('p', {}, r.next_tier ? `Encore ${fmtGNF(Math.max(0, Number(r.next_at) - Number(r.lifetime)))} de ventes livrées pour le médaillon ${nextName}.` : 'Niveau maximum atteint, bravo !'),
+      h('h2', {}, 'Trophées et classement'),
+      h('div', { class: 'trophy-hero' }, trophy(r.tier, 84), h('div', {}, h('b', { class: 'trophy-name' }, r.tier === 'none' ? 'Pas encore de trophée' : `Trophée ${name}`), h('div', { class: 'small' }, r.next_tier ? `Prochain trophée : ${nextName}` : 'Niveau maximum'))),
+      h('p', {}, r.next_tier ? `Encore ${fmtGNF(Math.max(0, Number(r.next_at) - Number(r.lifetime)))} de ventes livrées pour le trophée ${nextName}.` : 'Niveau maximum atteint, bravo !'),
       r.next_tier && progress(Math.round(((Number(r.lifetime) - Number(r.tier_from)) * 100) / Math.max(1, Number(r.next_at) - Number(r.tier_from)))),
       h('div', { class: 'list' }, r.tiers.map((t) => h('div', { class: 'list-item' },
         h('span', { class: Number(r.lifetime) >= Number(t.at) ? '' : 'locked' }, trophy(t.tier, 34)), ' ', h('div', { class: 'grow' }, `${TROPHY[t.tier].name} : ${fmtGNF(t.at)} de ventes livrées`),
@@ -176,7 +176,7 @@ function rankingCard() {
           ? h('p', {}, `Vous êtes ${r.rank}${r.rank === 1 ? 'er' : 'e'} sur ${r.participants} · ${r.my_delivered} livraison(s) · ${fmtGNF(r.my_sales)}.`)
           : h('p', { class: 'muted' }, 'Aucune livraison ce mois-ci : une première livraison vous place dans le classement.'),
       r.top.length
-        ? table(['Rang', 'Vendeur', 'Livraisons', 'Médaillon'], r.top.map((t) => [t.rank, t.me ? `${t.name} (vous)` : t.name, t.delivered, t.tier === 'none' ? '–' : trophy(t.tier, 24)]))
+        ? table(['Rang', 'Vendeur', 'Livraisons', 'Trophée'], r.top.map((t) => [t.rank, t.me ? `${t.name} (vous)` : t.name, t.delivered, t.tier === 'none' ? '–' : trophy(t.tier, 24)]))
         : null,
       h('p', { class: 'small muted mt' }, 'Les autres vendeurs ne voient jamais vos montants : seulement votre rang, votre prénom et l\'initiale de votre nom, votre nombre de livraisons et votre trophée.'),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: toggle }, r.hidden ? 'Réapparaître dans le classement' : 'Me retirer du classement'));
