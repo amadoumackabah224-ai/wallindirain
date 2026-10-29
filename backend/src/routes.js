@@ -932,6 +932,40 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   // =========================================================================
+  // FACTURES ET DOCUMENTS NUMÉROTÉS : émis à la demande, figés ; chacun ne voit que les siens (l'administrateur voit tout)
+  // =========================================================================
+  const INV_ALL = ['seller', 'supplier', 'agent', 'call_chief', 'courier', 'admin'];
+  const KINDS = ['delivery', 'seller_services', 'supplier_statement', 'withdrawal_receipt'];
+  const isoDate = (x, name) => { if (typeof x !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x) || Number.isNaN(Date.parse(x))) throw new HttpError(400, 'invalid_input', `${name} invalide`); return x; };
+  const optDate = (x, name) => (x == null || x === '' ? null : isoDate(x, name));
+  app.get('/api/invoices', guard(INV_ALL, async (ctx) => ({
+    invoices: await q('SELECT * FROM fn_invoice_list($1, $2, $3, $4, $5, $6)', [ctx.user.id, ctx.query.kind ? v.oneOf(ctx.query.kind, KINDS, 'Type') : null, optDate(ctx.query.from, 'Date de début'), optDate(ctx.query.to, 'Date de fin'),
+      ctx.query.q ? v.str(ctx.query.q, 'Recherche', { min: 1, max: 60 }) : null, ctx.query.limit ? v.int(ctx.query.limit, 'Limite', { min: 1, max: 500 }) : 100])
+  })));
+  app.get('/api/invoices/:id', guard(INV_ALL, async (ctx) => ({ invoice: await fn('fn_invoice_get', ctx.user.id, v.uuid(ctx.params.id, 'Document')) })));
+  app.post('/api/invoices/delivery', guard(['seller', 'admin'], async (ctx) => {
+    limit(`inv:${ctx.user.id}`, 120, 3600_000);
+    let order = ctx.body.order_id;
+    if (!order && ctx.user.role === 'admin' && ctx.body.ref) order = (await q('SELECT id FROM orders WHERE ref = $1', [v.str(ctx.body.ref, 'Référence', { min: 3, max: 20 }).toUpperCase()]))[0]?.id;
+    if (!order) throw new HttpError(404, 'not_found', 'Commande introuvable');
+    return { id: await fn('fn_invoice_issue_delivery', ctx.user.id, v.uuid(order, 'Commande')) };
+  }));
+  app.post('/api/invoices/statement', guard(['seller', 'supplier', 'admin'], async (ctx) => {
+    limit(`inv:${ctx.user.id}`, 120, 3600_000);
+    return { id: await fn('fn_invoice_issue_statement', ctx.user.id, ctx.body.user_id ? v.uuid(ctx.body.user_id, 'Compte') : null, isoDate(ctx.body.period_from, 'Date de début'), isoDate(ctx.body.period_to, 'Date de fin')) };
+  }));
+  app.post('/api/invoices/withdrawal', guard(['seller', 'supplier', 'agent', 'call_chief', 'courier', 'admin'], async (ctx) => {
+    limit(`inv:${ctx.user.id}`, 120, 3600_000);
+    return { id: await fn('fn_invoice_issue_withdrawal', ctx.user.id, v.uuid(ctx.body.withdrawal_id, 'Retrait')) };
+  }));
+  // Commandes livrées du vendeur, avec le numéro de facture si elle a déjà été émise
+  app.get('/api/seller/delivered-orders', guard(['seller'], async (ctx) => ({
+    orders: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.customer_name, o.sale_total, o.delivered_at, i.id AS invoice_id, i.number AS invoice_number
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN invoices i ON i.order_id = o.id
+        WHERE o.seller_id = $1 AND o.status = 'delivered' ORDER BY o.delivered_at DESC LIMIT 100`, [ctx.user.id])
+  })));
+
+  // =========================================================================
   // ADMINISTRATEUR
   // =========================================================================
   const ADM = ['admin'];
@@ -1182,6 +1216,28 @@ export function registerRoutes(app, { db, cfg }) {
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id WHERE p.deleted_at IS NULL AND ($1::text IS NULL OR p.status::text = $1) ORDER BY p.created_at DESC LIMIT 300`, [ctx.query.status || null])
   })));
+  // Finance : vue d'ensemble, informations de l'entreprise (en-tête des documents), export
+  app.get('/api/admin/finance', guard(ADM, async (ctx) => {
+    const today = new Date().toISOString().slice(0, 10), first = `${today.slice(0, 8)}01`;
+    return { summary: await fn('fn_admin_finance_summary', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today) };
+  }));
+  app.get('/api/admin/company', guard(ADM, async (ctx) => ({ company: await fn('fn_company_get', ctx.user.id) })));
+  app.post('/api/admin/company', guard(ADM, async (ctx) => {
+    const b = ctx.body;
+    await fn('fn_admin_set_company', ctx.user.id, v.str(b.legal_name, 'Nom de l\'entreprise', { min: 2, max: 150 }), v.optStr(b.address, 'Adresse', 250), v.optStr(b.phone, 'Téléphone', 40), v.optStr(b.email, 'E-mail', 120), v.optStr(b.nif, 'NIF', 60), v.optStr(b.rccm, 'RCCM', 60), v.optStr(b.footer_note, 'Mention de bas de page', 400));
+    return { ok: true };
+  }));
+  app.get('/api/admin/invoices/export', guard(ADM, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_invoice_list($1, $2, $3, $4, NULL, 500)', [ctx.user.id, ctx.query.kind ? v.oneOf(ctx.query.kind, KINDS, 'Type') : null, optDate(ctx.query.from, 'Date de début'), optDate(ctx.query.to, 'Date de fin')]);
+    const KIND_FR = { delivery: 'Facture de livraison', seller_services: 'Facture de services', supplier_statement: 'Relevé fournisseur', withdrawal_receipt: 'Reçu de retrait' };
+    const cell = (x) => { const t = String(x ?? ''); return /^[=+\-@]/.test(t) ? `"'${t.replace(/"/g, '""')}"` : /[";\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };   // pas d'injection de formule dans un tableur
+    const csv = ['Numéro;Type;Date d\'émission;Titulaire;Commande;Début de période;Fin de période;Total (GNF)', ...rows.map((r) => [r.number, KIND_FR[r.kind], new Date(r.issued_at).toISOString().slice(0, 10), r.user_name, r.order_ref || '', r.period_from ? String(r.period_from).slice(0, 10) : '', r.period_to ? String(r.period_to).slice(0, 10) : '', r.total].map(cell).join(';'))].join('\r\n');
+    ctx.headers['Content-Type'] = 'text/csv; charset=utf-8';
+    ctx.headers['Content-Disposition'] = 'attachment; filename="journal-factures.csv"';
+    ctx.headers['Cache-Control'] = 'no-store';
+    return Buffer.from('﻿' + csv, 'utf8');
+  }));
+
   // Inventaires du magasinier : décision de l'administrateur avant toute correction du stock
   app.get('/api/admin/stock-counts', guard(ADM, async () => ({
     counts: await q(`SELECT c.id, p.name AS product_name, u.full_name AS supplier_name, p.stock_qty, p.reserved_qty, c.expected_qty, c.counted_qty, c.delta, c.note, c.status, c.review_note, c.counted_at, c.reviewed_at, w.full_name AS by_name

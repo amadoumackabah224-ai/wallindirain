@@ -431,8 +431,35 @@ div.notif { cursor: default; }
 @media print {
   body.printing > *:not(.print-sheet) { display: none !important; }
   body.printing .print-sheet { display: block; color: #000; background: #fff; padding: 12mm; font-size: 12pt; }
-  .print-sheet h1 { font-size: 18pt; margin: 0 0 4mm; }
-  .print-sheet table { width: 100%; border-collapse: collapse; margin: 6mm 0; }
-  .print-sheet th, .print-sheet td { border: 1px solid #000; padding: 3mm; text-align: left; }
-  .print-sheet .print-sign { display: flex; justify-content: space-between; margin-top: 16mm; }
+  .print-sheet:not(.print-inv) h1 { font-size: 18pt; margin: 0 0 4mm; }
+  .print-sheet:not(.print-inv) table { width: 100%; border-collapse: collapse; margin: 6mm 0; }
+  .print-sheet:not(.print-inv) th, .print-sheet:not(.print-inv) td { border: 1px solid #000; padding: 3mm; text-align: left; }
+  .print-sheet:not(.print-inv) .print-sign { display: flex; justify-content: space-between; margin-top: 16mm; }
 }
+
+/* Documents numérotés (factures, relevés, reçus) : papier blanc à l'écran et à l'impression, quel que soit le thème */
+.inv { background: #fff; color: #111; padding: 24px; max-width: 820px; margin: 0 auto; font-size: 14px; line-height: 1.45; text-align: left; }
+.inv * { color: inherit; }
+.inv-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; background: #0b1b3a; padding: 16px 20px; border-radius: 8px; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.inv-head * { color: #fff; }
+.inv-logo { height: 44px; width: auto; }
+.inv-issuer { text-align: right; font-size: 12px; line-height: 1.5; }
+.inv-meta { display: flex; justify-content: space-between; gap: 24px; margin: 20px 0; flex-wrap: wrap; }
+.inv-meta h1 { font-size: 22px; margin: 0 0 4px; }
+.inv-meta .inv-no { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; font-weight: 700; }
+.inv-box { min-width: 220px; font-size: 13px; }
+.inv-box h3 { margin: 0 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5b6475; }
+.inv table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.inv th { background: #eef1f7; text-align: left; padding: 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #3b4457; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.inv td { padding: 8px; border-bottom: 1px solid #e3e6ee; vertical-align: top; }
+.inv .num { text-align: right; white-space: nowrap; }
+.inv .sub { font-size: 11px; color: #5b6475; }
+.inv-total { display: flex; justify-content: flex-end; align-items: baseline; gap: 16px; margin-top: 14px; font-size: 18px; font-weight: 700; }
+.inv-stamp { display: inline-block; border: 2px solid #1a7f4b; color: #1a7f4b; padding: 3px 12px; letter-spacing: .14em; font-weight: 800; transform: rotate(-5deg); margin-top: 10px; }
+.inv-note { margin-top: 16px; font-size: 12px; color: #3b4457; }
+.inv-foot { margin-top: 24px; padding-top: 8px; border-top: 1px solid #d7dbe5; font-size: 11px; color: #5b6475; }
+.inv-overlay .inv-modal { max-width: 900px; width: 100%; max-height: 94vh; overflow: auto; padding: 12px; }
+.inv-bar { display: flex; gap: 8px; margin-bottom: 10px; position: sticky; top: 0; }
+@media (max-width: 600px) { .inv { padding: 14px; } .inv-head { flex-direction: column; align-items: flex-start; } .inv-issuer { text-align: left; } }
+@page { size: A4; margin: 12mm; }
+@media print { body.printing { background: #fff !important; } body.printing .print-sheet.print-inv { padding: 0; } .inv { padding: 0; max-width: none; } }

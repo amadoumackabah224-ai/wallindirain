@@ -3,6 +3,7 @@ import { h, ask, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statu
 import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
+import { receiptButton } from './invoices.js';
 
 
 export function adminDashboard({ goTo }) {
@@ -178,8 +179,9 @@ export function adminWithdrawals() {
       const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
       return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), `${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}`,
         badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
+        w.status === 'paid' && receiptButton(w.id),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
-    }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6]), r[7]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
+    }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6], r[7]), r[8]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
 }
 
 export function adminDeposit() {
