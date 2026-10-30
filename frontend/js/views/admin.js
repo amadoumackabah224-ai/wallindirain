@@ -1,5 +1,5 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
-import { h, ask, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER, pageHead, metric, alertRow } from '../ui.js';
+import { h, ask, payoutText, PAYOUT_LABEL, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER, pageHead, metric, alertRow } from '../ui.js';
 import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
@@ -85,7 +85,7 @@ export function adminUsers() {
           reviewIdentity(u, refresh);
         }, { refresh });
         return [h('div', {}, h('b', {}, u.full_name), u.team && h('div', { class: 'small muted' }, u.team), u.role === 'courier' && h('div', { class: 'small muted' }, [VEH.find(([k]) => k === (u.vehicle || ''))?.[1], u.zones?.length ? u.zones.join(', ') : 'aucune zone', u.availability === 'unavailable' ? 'indisponible' : 'disponible'].filter(Boolean).join(' · '))), ROLE_LABEL[u.role], h('div', {}, fmtPhone(u.phone), u.email && h('div', { class: 'small muted' }, u.email, u.email_verified ? ' ✓' : ' (non confirmée)')),
-          u.payout_phone ? h('div', { class: 'small' }, u.payout_method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', h('div', { class: 'muted' }, fmtPhone(u.payout_phone))) : h('span', { class: 'small muted' }, 'non défini'),
+          u.payout_phone ? h('div', { class: 'small' }, PAYOUT_LABEL[u.payout_method] || u.payout_method, h('div', { class: 'muted' }, u.payout_method === 'other' ? u.payout_phone : fmtPhone(u.payout_phone))) : h('span', { class: 'small muted' }, 'non défini'),
           badge({ active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[u.status], { active: 'ok', pending: 'warn', suspended: 'bad' }[u.status]),
           (u.identity_doc || u.kyc_status) ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge(...({ submitted: ['À examiner', 'warn'], rejected: ['Refusée', 'bad'], draft: ['Incomplète', 'warn'] }[u.kyc_status] || ['Sans photos', 'warn'])), h('div', { class: 'small muted' }, u.identity_doc || '')) : '—',
           u.balance != null ? amount(u.balance) : '', h('div', { class: 'gap' }, (u.identity_doc || u.kyc_status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: verify }, u.identity_verified ? 'Retirer' : (u.kyc_status ? 'Examiner la pièce' : 'Vérifier ID')),
@@ -172,14 +172,14 @@ export function adminWithdrawals() {
     h('div', { class: 'notice' }, 'Procédure : 1) vérifiez la demande, 2) envoyez l\'argent à la main par Orange Money ou MTN MoMo au numéro enregistré, 3) cliquez « Payer », saisissez la référence et joignez la capture d\'écran. Le montant est débité du portefeuille à ce moment-là. Une demande refusée ne coûte rien à la personne.'),
     h('div', { class: 'card' }, table(['Date', 'Bénéficiaire', 'Montant', 'Envoyer à', 'Statut', ''], withdrawals.map((w) => {
       const pay = action(async () => {
-        const v = await ask({ title: `Payer ${fmtGNF(w.amount)}`, text: `${w.full_name} · ${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}. Envoyez l'argent, puis notez la référence et joignez la capture d'écran du transfert : la personne la verra dans son portefeuille.`, submit: 'Confirmer le paiement', fields: [
+        const v = await ask({ title: `Payer ${fmtGNF(w.amount)}`, text: `${w.full_name} · ${payoutText(w.method, w.account_number)}${w.method === 'other' ? ' (versement manuel : envoyez selon ces coordonnées et, si besoin, contactez la personne)' : ''}. Envoyez l'argent, puis notez la référence et joignez la capture d'écran du transfert : la personne la verra dans son portefeuille.`, submit: 'Confirmer le paiement', fields: [
           { name: 'ref', label: 'Référence de la transaction' }, { name: 'image', label: 'Capture d\'écran du transfert envoyé', type: 'image' }] });
         if (!v) return;
         const proof = (await post('/proofs', { kind: 'withdrawal_payment', image: v.image })).id;
         await post(`/admin/withdrawals/${w.id}/pay`, { payment_ref: v.ref, proof_id: proof });
       }, { ok: 'Retrait marqué payé', refresh });
       const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
-      return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), `${w.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} ${fmtPhone(w.account_number)}`,
+      return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), payoutText(w.method, w.account_number),
         badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
         w.status === 'paid' && receiptButton(w.id),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
