@@ -1095,8 +1095,8 @@ export function registerRoutes(app, { db, cfg }) {
     return {
       independent: settings,
       scales: await q(`SELECT s.id, s.per_delivery, s.tour_extra, s.failed_trip, s.prime_threshold, s.prime_amount, s.effective_from, s.note, s.created_at, a.full_name AS created_by_name,
-          (s.effective_from <= now() AND s.id = (SELECT x.id FROM courier_pay_scales x WHERE x.effective_from <= now() ORDER BY x.effective_from DESC, x.created_at DESC LIMIT 1)) AS in_force
-          FROM courier_pay_scales s LEFT JOIN users a ON a.id = s.created_by ORDER BY s.effective_from DESC, s.created_at DESC LIMIT 50`),
+          (s.effective_from <= now() AND s.id = (SELECT x.id FROM courier_pay_scales x WHERE x.courier_id IS NULL AND x.effective_from <= now() ORDER BY x.effective_from DESC, x.created_at DESC LIMIT 1)) AS in_force
+          FROM courier_pay_scales s LEFT JOIN users a ON a.id = s.created_by WHERE s.courier_id IS NULL ORDER BY s.effective_from DESC, s.created_at DESC LIMIT 50`),
       min_zone_fee: Number((await q('SELECT COALESCE(min(fee), 0)::bigint AS f FROM delivery_rates WHERE active'))[0].f),
       avg_zone_fee: Number((await q('SELECT COALESCE(round(avg(fee)), 0)::bigint AS f FROM delivery_rates WHERE active AND fee > 0'))[0].f)
     };
@@ -1111,6 +1111,38 @@ export function registerRoutes(app, { db, cfg }) {
     ctx.status = 201;
     return { id: await fn('fn_admin_set_company_scale', ctx.user.id, x.per, x.extra, x.failed, x.thr, x.prime, eff, v.optStr(b.note, 'Note', 200)) };
   }));
+  // Accords individuels : conditions de rémunération propres à un compte, conclues avec la personne puis activées ici (datées, jamais rétroactives, historique conservé)
+  const effDate = (x) => (x == null || x === '' ? null : (Number.isNaN(Date.parse(x)) ? (() => { throw new HttpError(400, 'invalid_input', 'Date d\'entrée en vigueur invalide'); })() : new Date(x).toISOString()));
+  app.get('/api/admin/agreements/:id', guard(ADM, async (ctx) => {
+    const id = v.uuid(ctx.params.id, 'Compte');
+    const [u] = await q('SELECT id, full_name, role FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
+    if (!u) throw new HttpError(404, 'not_found', 'Compte introuvable');
+    if (u.role === 'courier') {
+      const [{ kind }] = await q(`SELECT ${KIND_OF('$1::uuid')} AS kind`, [id]);
+      const terms = await q(`SELECT s.id, s.per_delivery, s.tour_extra, s.failed_trip, s.prime_threshold, s.prime_amount, s.effective_from, s.note, s.created_at, a.full_name AS created_by_name
+          FROM courier_pay_scales s LEFT JOIN users a ON a.id = s.created_by WHERE s.courier_id = $1 ORDER BY s.effective_from DESC, s.created_at DESC LIMIT 30`, [id]);
+      const cur = terms.find((t) => new Date(t.effective_from) <= new Date());
+      return { user: u, kind: 'courier', courier_kind: kind, terms, in_force: cur && Number(cur.per_delivery) > 0 ? cur : null, min_zone_fee: Number((await q('SELECT COALESCE(min(fee), 0)::bigint AS f FROM delivery_rates WHERE active'))[0].f) };
+    }
+    if (u.role === 'agent' || u.role === 'call_chief') {
+      const terms = await q(`SELECT t.id, t.pay_per_order, t.effective_from, t.note, t.created_at, a.full_name AS created_by_name FROM agent_terms t LEFT JOIN users a ON a.id = t.created_by
+          WHERE t.agent_id = $1 ORDER BY t.effective_from DESC, t.created_at DESC LIMIT 30`, [id]);
+      const cur = terms.find((t) => new Date(t.effective_from) <= new Date());
+      const [{ v: common }] = await q(`SELECT value AS v FROM settings WHERE key = 'agent_pay'`);
+      return { user: u, kind: 'agent', terms, in_force: cur && cur.pay_per_order != null ? cur : null, common_pay: Number(common) };
+    }
+    throw new HttpError(400, 'invalid_input', 'Les accords individuels concernent les livreurs, les agents et les chefs d\'équipe');
+  }));
+  app.post('/api/admin/agreements/:id/courier', guard(ADM, async (ctx) => {
+    const b = ctx.body; const x = scaleBody(b); ctx.status = 201;
+    return { id: await fn('fn_admin_set_courier_agreement', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), x.per, x.extra, x.failed, x.thr, x.prime, effDate(b.effective_from), v.optStr(b.note, 'Note', 200)) };
+  }));
+  app.post('/api/admin/agreements/:id/courier/end', guard(ADM, async (ctx) => ({ id: await fn('fn_admin_end_courier_agreement', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.optStr(ctx.body.note, 'Note', 200)) })));
+  app.post('/api/admin/agreements/:id/agent', guard(ADM, async (ctx) => {
+    ctx.status = 201;
+    return { id: await fn('fn_admin_set_agent_agreement', ctx.user.id, v.uuid(ctx.params.id, 'Agent'), v.int(ctx.body.pay, 'Rémunération', { min: 0, max: 1e6 }), effDate(ctx.body.effective_from), v.optStr(ctx.body.note, 'Note', 200)) };
+  }));
+  app.post('/api/admin/agreements/:id/agent/end', guard(ADM, async (ctx) => ({ id: await fn('fn_admin_end_agent_agreement', ctx.user.id, v.uuid(ctx.params.id, 'Agent'), v.optStr(ctx.body.note, 'Note', 200)) })));
   // Simulation avant activation : aucun effet, seulement un calcul (un seul endroit de calcul, côté serveur)
   app.post('/api/admin/courier-scales/simulate', guard(ADM, async (ctx) => {
     const b = ctx.body; const x = scaleBody(b.scale || {});
