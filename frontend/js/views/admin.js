@@ -225,7 +225,7 @@ export function adminAudit() {
   return h('div', {}, h('h1', {}, 'Journal'), chips, host);
 }
 
-// Reversements par transfert déclarés par les livreurs : contrôler la capture, puis confirmer le montant réellement reçu
+// Reversements (espèces ou transfert) déclarés par les livreurs : contrôler la capture, puis confirmer le montant réellement reçu
 export function adminRemittances() {
   const ST = { pending: ['À valider', 'warn'], confirmed: ['Validé', 'ok'], rejected: ['Refusé', 'bad'] };
   return liveView(() => get('/admin/remittances'), ({ remittances }, refresh) => h('div', {}, h('h1', {}, 'Reversements des livreurs'),
@@ -246,7 +246,7 @@ export function adminRemittances() {
         h('div', {}, r.method === 'cash' ? 'Espèces' : r.method === 'orange_money' ? 'Orange Money' : 'MTN MoMo', r.handed_to && h('div', { class: 'small muted' }, `Remis à : ${r.handed_to}`), r.reference && h('div', { class: 'small muted' }, r.reference)),
         h('div', {}, badge(...ST[r.status]), r.status === 'confirmed' && r.received !== r.amount && h('div', { class: 'small muted' }, `Reçu : ${fmtGNF(r.received)}`), r.decision_note && h('div', { class: 'small muted' }, r.decision_note)),
         h('div', { class: 'gap' }, r.proof_id && proofButton(r.proof_id, 'Capture'), r.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: confirm }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser')])];
-    }), { empty: empty('📲', 'Aucun reversement par transfert') }))), { poll: 20000 });
+    }), { empty: empty('💵', 'Aucun reversement pour le moment') }))), { poll: 20000 });
 }
 
 // Messagerie avec l'équipe : conversations des utilisateurs connectés et des visiteurs (mot de passe oublié, urgence)

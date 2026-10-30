@@ -111,11 +111,16 @@ export function courierCash() {
     const total = due.reduce((a, e) => a + e.amount, 0);
     return h('div', {}, h('h1', {}, 'Caisse'),
       h('div', { class: 'kpi mb' }, h('div', { class: 'v' }, fmtGNF(total)), h('div', { class: 'l' }, 'À remettre à l\'administration (en espèces ou par transfert)')),
-      h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Encaissements à remettre'), due.length > 0 && [h('button', { class: 'btn btn-sm btn-gold', onclick: remit }, 'Reverser par transfert'), h('button', { class: 'btn btn-sm btn-gold', onclick: remitCash }, 'Remettre en espèces')]),
+      h('div', { class: 'card' }, h('h2', {}, 'Comment remettre l\'argent ?'),
+        h('div', { class: 'cash-choices' },
+          h('button', { class: 'btn btn-gold btn-block', onclick: remitCash, disabled: !due.length }, icon('banknote'), ' Remettre en espèces'),
+          h('button', { class: 'btn btn-ghost btn-block', onclick: remit, disabled: !due.length }, icon('phoneMoney'), ' Reverser par transfert (Orange Money, MTN MoMo)')),
+        h('p', { class: 'small muted' }, due.length ? 'En espèces : vous remettez l\'argent en main propre et vous indiquez à qui. Par transfert : vous joignez la capture d\'écran. Dans les deux cas, l\'administrateur vérifie la somme reçue.' : 'Rien à remettre pour le moment : les boutons s\'activent dès qu\'une livraison est encaissée.')),
+      h('div', { class: 'card' }, h('h2', {}, 'Encaissements à remettre'),
         table(['Commande', 'Montant', 'Livrée le', 'Situation'], entries.map((e) => [h('b', {}, e.ref), amount(e.amount), fmtDate(e.created_at), e.in_remittance ? badge('Reversement en attente', 'warn') : badge('À remettre', 'gold')]),
           { empty: empty('✅', 'Rien à remettre pour le moment') })),
       h('div', { class: 'card' }, h('h2', {}, 'Mes reversements'), table(['Date', 'Montant', 'Via', 'Statut', ''], remittances.map((r) => [fmtDate(r.created_at), amount(r.amount),
         `${OPERATOR[r.method]}${r.handed_to ? ` · remis à ${r.handed_to}` : ''}${r.reference ? ` · ${r.reference}` : ''}`, h('div', {}, badge(...REMIT_STATUS[r.status]), r.status === 'confirmed' && r.received !== r.amount && h('div', { class: 'small muted' }, `Reçu : ${fmtGNF(r.received)}`), r.decision_note && h('div', { class: 'small muted' }, r.decision_note)), proofButton(r.proof_id)]),
-        { empty: empty('📲', 'Aucun reversement par transfert') })));
+        { empty: empty('💵', 'Aucun reversement pour le moment') })));
   }, { poll: 30000 });
 }
