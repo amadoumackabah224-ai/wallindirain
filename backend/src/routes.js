@@ -103,11 +103,14 @@ export function registerRoutes(app, { db, cfg }) {
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
     if (b.accept_terms !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter les conditions d\'utilisation et la politique de confidentialité');
     const role = v.oneOf(b.role, ['seller', 'supplier'], 'Rôle');
-    const phone = v.phone(b.phone);
+    const phone = v.account(b.phone);
+    const foreign = phone.startsWith('+');
+    if (foreign && role !== 'seller') throw new HttpError(400, 'foreign_seller_only', 'Les numéros étrangers sont acceptés pour les vendeurs seulement');
     if (b.email) v.email(b.email);   // validé avant la création du compte
-    // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut
-    const payMethod = v.oneOf(b.payout_method, ['orange_money', 'mtn_momo'], 'Opérateur de versement');
-    const payPhone = b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : phone;
+    // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut ; un vendeur de l'étranger écrit ses coordonnées (versement manuel)
+    const payMethod = v.oneOf(b.payout_method, foreign ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur de versement');
+    if (payMethod === 'other' && !foreign) throw new HttpError(400, 'invalid_input', 'Opérateur de versement invalide');
+    const payPhone = payMethod === 'other' ? v.payoutTarget('other', b.payout_phone) : (b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : (foreign ? v.phone(b.payout_phone, 'Numéro de versement') : phone));
     const id = await fn('fn_register', phone, v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
       await hashPassword(b.password),
       v.optStr(b.identity_doc, 'Pièce d\'identité', 60),   // aucune pièce à l'inscription : demandée au premier retrait
@@ -116,8 +119,8 @@ export function registerRoutes(app, { db, cfg }) {
     let referral = null;
     if (role === 'seller' && typeof b.referral_code === 'string' && b.referral_code.trim()) referral = await fn('fn_register_referral', id, v.str(b.referral_code, 'Code de parrainage', { min: 4, max: 12 }));
     ctx.status = 201;
-    return { id, pending_validation: role === 'supplier', email_pending: !!b.email, referral_applied: referral,
-      message: role === 'supplier' ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
+    return { id, pending_validation: role === 'supplier' || foreign, email_pending: !!b.email, referral_applied: referral,
+      message: role === 'supplier' || foreign ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
   });
 
   const legalPending = async (user) => user.role !== 'admin' && (await q('SELECT fn_legal_status($1, $2) AS s', [user.id, cfg.legal.version]))[0].s.pending;
@@ -244,7 +247,7 @@ export function registerRoutes(app, { db, cfg }) {
     limit(`datareq:${clientIp(ctx.req)}`, 5, 3600_000);
     const b = ctx.body;
     const id = await fn('fn_data_request_create', v.oneOf(b.kind, ['access', 'rectification', 'erasure', 'opposition'], 'Type de demande'),
-      v.str(b.name, 'Nom', { min: 2, max: 100 }), v.phone(b.phone), v.optStr(b.message, 'Message', 1000));
+      v.str(b.name, 'Nom', { min: 2, max: 100 }), v.account(b.phone), v.optStr(b.message, 'Message', 1000));
     ctx.status = 201;
     return { id, message: 'Demande reçue. Nous vous répondrons sous 30 jours, après vérification de votre identité par un appel.' };
   });
@@ -298,7 +301,8 @@ export function registerRoutes(app, { db, cfg }) {
     limit(`payout:${ctx.user.id}`, 5, 3600_000);
     const b = ctx.body;
     await requirePassword(ctx, b.password);
-    await fn('fn_change_payout', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Opérateur'), v.phone(b.phone, 'Numéro de versement'));
+    const m = v.oneOf(b.method, ctx.user.phone.startsWith('+') ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur');
+    await fn('fn_change_payout', ctx.user.id, m, v.payoutTarget(m, b.phone));
   }));
   app.post('/api/me/avatar', guard(ANY_ROLE, async (ctx) => {
     limit(`avatar:${ctx.user.id}`, 20, 3600_000);
@@ -404,7 +408,7 @@ export function registerRoutes(app, { db, cfg }) {
         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [id]),
       payout: (await q('SELECT payout_method AS method, payout_phone AS phone FROM users WHERE id = $1', [id]))[0],
       min_withdrawal: Number((await q(`SELECT value FROM settings WHERE key = 'min_withdrawal'`))[0].value),
-      role: ctx.user.role,
+      role: ctx.user.role, foreign: ctx.user.phone.startsWith('+'),
       reserved: Number((await q(`SELECT COALESCE(sum(amount),0)::bigint AS r FROM withdrawals WHERE user_id = $1 AND status = 'requested' AND NOT debited`, [id]))[0].r),
       subscription: ctx.user.role === 'seller' ? await subscriptionInfo(id) : null,
       identity_verified: ctx.user.identity_verified,
@@ -428,7 +432,8 @@ export function registerRoutes(app, { db, cfg }) {
     const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
     const pw = typeof b.password === 'string' ? b.password.slice(0, 128) : '';
     if (!rows.length || !(await verifyPassword(pw, rows[0].password_hash))) throw new HttpError(403, 'bad_password', 'Mot de passe incorrect');
-    await fn('fn_set_payout', ctx.user.id, v.oneOf(b.method, ['orange_money', 'mtn_momo'], 'Opérateur'), v.phone(b.phone, 'Numéro de versement'));
+    const m = v.oneOf(b.method, ctx.user.phone.startsWith('+') ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur');
+    await fn('fn_set_payout', ctx.user.id, m, v.payoutTarget(m, b.phone));
     return { ok: true };
   }));
 

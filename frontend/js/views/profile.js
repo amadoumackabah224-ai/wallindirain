@@ -1,5 +1,5 @@
 // Profil : nom, photo, mot de passe, numéro de versement, accès à mes droits sur mes données.
-import { h, ask, fmtPhone, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, showLegal, getTheme, setTheme } from '../ui.js';
+import { h, ask, fmtPhone, payoutText, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, showLegal, getTheme, setTheme } from '../ui.js';
 import { icon } from '../icons.js';
 import { get, post } from '../api.js';
 import { kycCard } from './kyc.js';
@@ -32,12 +32,13 @@ export function profileView({ onChanged }) {
         { name: 'next', label: 'Nouveau mot de passe', type: 'password', hint: '8 caractères minimum, avec des lettres et des chiffres.' }] });
       if (v) await post('/me/password', v);
     }, { ok: 'Mot de passe changé. Vos autres appareils sont déconnectés.' });
+    const foreign = (p.phone || '').startsWith('+');
     const changePayout = action(async () => {
       const v = await ask({ title: p.payout ? 'Changer mon numéro de versement' : 'Enregistrer mon numéro de versement',
-        text: p.payout ? `Numéro actuel : ${OPERATOR[p.payout.method]} · ${fmtPhone(p.payout.phone)}. L\'ancien numéro recevra un message d\'alerte.` : 'Votre argent sera envoyé sur ce numéro.',
+        text: p.payout ? `Coordonnées actuelles : ${payoutText(p.payout.method, p.payout.phone)}. Un message d\'alerte sera envoyé.` : 'Votre argent sera envoyé sur ce numéro.',
         submit: 'Enregistrer', fields: [
-          { name: 'method', label: 'Opérateur', type: 'select', value: p.payout?.method || 'orange_money', options: Object.entries(OPERATOR) },
-          { name: 'phone', label: 'Nouveau numéro Mobile Money', type: 'tel', inputmode: 'numeric', placeholder: '6XX XX XX XX' },
+          { name: 'method', label: 'Opérateur', type: 'select', value: p.payout?.method || 'orange_money', options: Object.entries(foreign ? { ...OPERATOR, other: 'Autre (j\'écris mes coordonnées)' } : OPERATOR) },
+          { name: 'phone', label: foreign ? 'Nouveau numéro Mobile Money, ou mes coordonnées (opérateur, pays, numéro ou IBAN)' : 'Nouveau numéro Mobile Money', type: foreign ? 'text' : 'tel', inputmode: foreign ? 'text' : 'numeric', placeholder: foreign ? 'Ex. Wave Sénégal 77 123 45 67' : '6XX XX XX XX' },
           { name: 'password', label: 'Votre mot de passe (pour confirmer)', type: 'password' }] });
       if (v) await post('/me/payout/change', { method: v.method, phone: v.phone, password: v.password });
     }, { ok: 'Numéro de versement enregistré', refresh: changed });
@@ -86,8 +87,8 @@ export function profileView({ onChanged }) {
             p.email && !p.email_verified && h('button', { class: 'btn btn-sm btn-gold', onclick: verifyEmail }, 'Saisir le code reçu'),
             p.email && !p.email_verified && h('button', { class: 'btn btn-sm btn-ghost', onclick: resendEmail }, 'Renvoyer le code'),
             h('button', { class: 'btn btn-sm btn-ghost', onclick: setEmail }, p.email ? 'Changer mon adresse' : 'Ajouter mon adresse'))),
-        PAYOUT_ROLES.includes(p.role) && row('payout', 'phoneMoney', 'Numéro de versement', p.payout ? `${OPERATOR[p.payout.method]} · ${fmtPhone(p.payout.phone)}` : 'Aucun numéro enregistré',
-          p.payout ? h('p', {}, `${OPERATOR[p.payout.method]} · `, h('b', {}, fmtPhone(p.payout.phone))) : h('p', { class: 'muted' }, 'Aucun numéro enregistré.'),
+        PAYOUT_ROLES.includes(p.role) && row('payout', 'phoneMoney', 'Numéro de versement', p.payout ? payoutText(p.payout.method, p.payout.phone) : 'Aucun numéro enregistré',
+          p.payout ? h('p', {}, h('b', {}, payoutText(p.payout.method, p.payout.phone))) : h('p', { class: 'muted' }, 'Aucun numéro enregistré.'),
           h('p', { class: 'small muted' }, 'Ce numéro sert uniquement à vous verser votre argent.'),
           h('button', { class: 'btn btn-sm btn-ghost', onclick: changePayout }, p.payout ? 'Changer mon numéro' : 'Enregistrer mon numéro')),
         row('theme', getTheme() === 'dark' ? 'moon' : 'sun', 'Apparence', { auto: 'Selon mon téléphone', light: 'Clair', dark: 'Sombre' }[getTheme()], themePicker(() => refresh())),

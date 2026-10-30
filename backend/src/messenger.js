@@ -6,8 +6,8 @@
 
 import { EMAIL_PROVIDERS } from './email.js';
 
-/** Numéro guinéen à 9 chiffres -> format international sans "+" */
-export const toInternational = (phone) => `224${phone}`;
+/** Numéro guinéen à 9 chiffres (ou numéro étranger +indicatif…) -> format international sans "+" */
+export const toInternational = (phone) => (String(phone).startsWith('+') ? String(phone).slice(1) : `224${phone}`);
 
 const PROVIDERS = {
   // Aucun envoi réel : le message est simplement marqué "simulated" (visible dans l'espace administrateur).

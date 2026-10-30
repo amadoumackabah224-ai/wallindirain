@@ -43,9 +43,23 @@ export function loginView({ onLogin, contact }) {
 export function registerView({ ref } = {}) {
   const role = h('select', {}, h('option', { value: 'seller' }, 'Vendeur : je vends des produits en ligne'), h('option', { value: 'supplier' }, 'Fournisseur : je propose des produits'));
   const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
-  const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 16, placeholder: '6XX XX XX XX' });
+  const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 24, placeholder: '6XX XX XX XX' });
+  // vendeur de l'étranger : numéro international, coordonnées de versement écrites, compte activé après validation par l'administration
+  const abroad = h('input', { type: 'checkbox' });
+  const abroadBox = h('label', { class: 'f check' }, abroad, h('span', {}, 'Je vends depuis l\'étranger (numéro de téléphone hors Guinée)'));
+  const syncAbroad = () => {
+    const on = abroad.checked && role.value === 'seller';
+    phone.placeholder = on ? '+33 6 12 34 56 78 (avec l\'indicatif du pays)' : '6XX XX XX XX';
+    phone.setAttribute('inputmode', on ? 'tel' : 'numeric');
+    payMethod.replaceChildren(...(on ? [['other', 'Autre : j\'écris mes coordonnées'], ['orange_money', 'Orange Money (numéro guinéen)'], ['mtn_momo', 'MTN MoMo (numéro guinéen)']] : [['orange_money', 'Orange Money'], ['mtn_momo', 'MTN MoMo']]).map(([v, l]) => h('option', { value: v }, l)));
+    payPhone.placeholder = on ? 'Opérateur, pays, numéro ou IBAN (ex. Wave Sénégal 77 123 45 67)' : 'Laisser vide = mon numéro de téléphone';
+    payPhone.setAttribute('inputmode', on ? 'text' : 'numeric'); payPhone.type = on ? 'text' : 'tel';
+    payNote.textContent = on ? 'Votre compte sera activé après validation par l\'administration. Vos retraits sont payés à la main, en francs guinéens, selon ces coordonnées. Vous pourrez les changer dans Profil (mot de passe demandé).' : 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).';
+  };
+  abroad.addEventListener('change', syncAbroad);
   const syncDoc = () => {
     const sup = role.value === 'supplier';
+    abroadBox.classList.toggle('hidden', sup); if (sup) abroad.checked = false; syncAbroad();
     refField.replaceChildren(sup ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
   };
   const accept = h('input', { type: 'checkbox', required: true });
@@ -58,7 +72,8 @@ export function registerView({ ref } = {}) {
   const email = h('input', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', maxlength: 254, placeholder: 'nom@exemple.com (facultatif)' });
   const referral = h('input', { type: 'text', maxlength: 12, autocapitalize: 'characters', spellcheck: 'false', value: ref || '', placeholder: 'Facultatif' });
   const refField = h('div');
-  const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 16, placeholder: 'Laisser vide = mon numéro de téléphone' });
+  const payNote = h('div', { class: 'hint' });
+  const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 120, placeholder: 'Laisser vide = mon numéro de téléphone' });
   const out = h('div');
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault();
@@ -70,11 +85,11 @@ export function registerView({ ref } = {}) {
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
   } },
-    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
+    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), abroadBox, field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
     flags.email && field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
     refField,
     field('Mon argent sera versé sur', payMethod),
-    field('Numéro de versement', payPhone, 'Vos retraits seront envoyés à ce numéro. Vous pourrez le changer dans Profil (mot de passe demandé).'),
+    field('Numéro de versement', payPhone), payNote,
     pwField('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
     h('label', { class: 'f check' }, accept, consentText),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));

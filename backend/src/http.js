@@ -134,6 +134,23 @@ export const v = {
     if (!/^[0-9]{9}$/.test(s)) throw new HttpError(400, 'invalid_input', `${name} invalide (9 chiffres, ex. 624390707)`);
     return s;
   },
+  // numéro de compte : guinéen (9 chiffres) ou, pour un vendeur de l'étranger, international (+indicatif…, hors +224) ; renvoie la forme normalisée
+  account(x, name = 'Numéro') {
+    const raw = typeof x === 'string' ? x.replace(/[\s.()-]/g, '') : '';
+    if (/^(\+224|00224)/.test(raw) || !/^(\+|00)/.test(raw)) return v.phone(x, name);
+    const s = '+' + raw.replace(/^(\+|00)/, '');
+    if (!/^\+[1-9][0-9]{7,14}$/.test(s)) throw new HttpError(400, 'invalid_input', `${name} invalide (ex. +33612345678)`);
+    return s;
+  },
+  // coordonnées de versement : opérateur guinéen (9 chiffres) ou « autre » (texte libre : opérateur, pays, numéro ou IBAN ; versement manuel)
+  payoutTarget(method, x, name = 'Numéro de versement') {
+    if (method === 'other') {
+      const s = typeof x === 'string' ? x.trim() : '';
+      if (s.length < 5 || s.length > 120) throw new HttpError(400, 'invalid_input', `${name} : écrivez vos coordonnées (5 à 120 caractères)`);
+      return s;
+    }
+    return v.phone(x, name);
+  },
   email(x, name = 'Adresse e-mail') {
     const s = typeof x === 'string' ? x.trim().toLowerCase() : '';
     if (s.length > 254 || !/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(s)) throw new HttpError(400, 'invalid_input', `${name} invalide (ex. nom@exemple.com)`);
@@ -141,7 +158,7 @@ export const v = {
   },
   // numéro (9 chiffres) OU adresse e-mail : renvoie la forme normalisée
   identifier(x, name = 'Numéro ou adresse e-mail') {
-    return typeof x === 'string' && x.includes('@') ? v.email(x, name) : v.phone(x, name);
+    return typeof x === 'string' && x.includes('@') ? v.email(x, name) : v.account(x, name);
   },
   // clé d'envoi unique d'un formulaire (anti double commande)
   requestKey(x) {

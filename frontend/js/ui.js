@@ -37,7 +37,10 @@ export const since = (d) => { if (!d) return ''; const m = Math.max(0, Math.roun
 /** Colis affecté mais pas récupéré depuis plus de `hours` heures (0 = alerte désactivée). */
 export const pickupLate = (o, hours) => o.status === 'assigned' && hours > 0 && o.assigned_since && Date.now() - new Date(String(o.assigned_since).replace(' ', 'T').replace(/\+00$/, 'Z')).getTime() > hours * 3600_000;
 export const fmtDate = (d) => d ? new Date(d.replace(' ', 'T').replace(/\+00$/, 'Z')).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-export const fmtPhone = (p) => (p || '').replace(/(\d{3})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4');
+export const fmtPhone = (p) => ((p || '').startsWith('+') ? p : (p || '').replace(/(\d{3})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4'));
+/** Coordonnées de versement : numéro Mobile Money guinéen, ou texte libre (« autre », versement manuel pour un vendeur de l'étranger). */
+export const PAYOUT_LABEL = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo', other: 'Autre (versement manuel)' };
+export const payoutText = (method, value) => `${PAYOUT_LABEL[method] || method} · ${method === 'other' ? value : fmtPhone(value)}`;
 
 export const ORDER_STATUS = {
   new: ['Nouvelle', 'gold'], in_call: ['En appel', 'warn'], confirmed: ['Confirmée', 'ok'], assigned: ['Affectée', 'info'],

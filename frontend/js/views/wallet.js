@@ -1,5 +1,5 @@
 // Portefeuille et retraits : commun au vendeur, fournisseur, agent, chef et livreur.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, table, badge, amount, action, WALLET_KIND, empty, toast, proofButton } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, payoutText, liveView, table, badge, amount, action, WALLET_KIND, empty, toast, proofButton } from '../ui.js';
 import { get, post } from '../api.js';
 import { startIdentityFlow } from './kyc.js';
 import { receiptButton } from './invoices.js';
@@ -14,8 +14,8 @@ export function walletView() {
     // comptes sans numéro de versement : à enregistrer une seule fois (mot de passe demandé)
     const setPayout = action(async () => {
       const v = await ask({ title: 'Numéro de versement', text: 'Votre argent sera toujours envoyé sur ce numéro. Vous ne pourrez plus le changer vous-même : seule l\'administration le peut.', submit: 'Enregistrer', fields: [
-        { name: 'method', label: 'Opérateur', type: 'select', options: Object.entries(OPERATOR) },
-        { name: 'phone', label: 'Numéro Mobile Money', type: 'tel', inputmode: 'numeric', placeholder: '6XX XX XX XX' },
+        { name: 'method', label: 'Opérateur', type: 'select', options: Object.entries(w.foreign ? { ...OPERATOR, other: 'Autre (j\'écris mes coordonnées)' } : OPERATOR) },
+        { name: 'phone', label: w.foreign ? 'Numéro Mobile Money, ou mes coordonnées (opérateur, pays, numéro ou IBAN)' : 'Numéro Mobile Money', type: w.foreign ? 'text' : 'tel', inputmode: w.foreign ? 'text' : 'numeric', placeholder: w.foreign ? 'Ex. Wave Sénégal 77 123 45 67' : '6XX XX XX XX' },
         { name: 'password', label: 'Votre mot de passe (pour confirmer)', type: 'password' }] });
       if (v) await post('/me/payout', v);
     }, { ok: 'Numéro de versement enregistré', refresh });
@@ -48,10 +48,10 @@ export function walletView() {
           ? h('div', { class: 'notice bad' }, `Votre pièce a été refusée : ${w.kyc_status.reject_reason || 'motif non précisé'}. `, h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: action(async () => { if (await startIdentityFlow({})) await refresh(); }) }, 'Renvoyer mes photos'))
           : null),
       hasPayout
-        ? h('div', { class: 'notice' }, `Numéro de versement : ${OPERATOR[w.payout.method]} · ${fmtPhone(w.payout.phone)}. `, h('a', { href: '#/app/profile' }, 'Le modifier dans Profil'))
+        ? h('div', { class: 'notice' }, `Versement : ${payoutText(w.payout.method, w.payout.phone)}. `, h('a', { href: '#/app/profile' }, 'Le modifier dans Profil'))
         : h('div', { class: 'notice warn' }, 'Aucun numéro de versement enregistré. ', h('button', { class: 'btn btn-sm btn-gold', onclick: setPayout }, 'Enregistrer mon numéro')),
       h('div', { class: 'card' }, h('h2', {}, 'Mes retraits'), table(['Date', 'Montant', 'Via', 'Statut', 'Référence', ''], w.withdrawals.map((x) => [
-        fmtDate(x.created_at), amount(x.amount), `${OPERATOR[x.method]} · ${fmtPhone(x.account_number)}`, badge(...WD_STATUS[x.status]), x.payment_ref || '', h('div', { class: 'gap' }, proofButton(x.proof_id, 'Preuve du transfert'), x.status === 'paid' && receiptButton(x.id))]),
+        fmtDate(x.created_at), amount(x.amount), payoutText(x.method, x.account_number), badge(...WD_STATUS[x.status]), x.payment_ref || '', h('div', { class: 'gap' }, proofButton(x.proof_id, 'Preuve du transfert'), x.status === 'paid' && receiptButton(x.id))]),
         { empty: empty('💸', 'Aucun retrait pour le moment') })),
       h('div', { class: 'card' }, h('h2', {}, 'Mouvements'), table(['Date', 'Opération', 'Montant', 'Disponible'], w.entries.map((e) => [
         fmtDate(e.created_at), h('div', {}, WALLET_KIND[e.kind] || e.kind, e.description && h('div', { class: 'small muted' }, e.description)), amount(e.amount, true),
