@@ -156,7 +156,7 @@ test('droits de la base : fonctions publiques sécurisées, déclencheurs intern
 });
 
 test('retour arrière 027 : retire notifications et déclencheurs sans toucher aux commandes ; migration rejouable', async () => {
-  const rb = ['035', '034', '033', '032', '031', '028', '027'].map((x) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${x}.sql`), 'utf8')).join('\n');   // la 028 dépend de la 027
+  const rb = ['036', '035', '034', '033', '032', '031', '028', '027'].map((x) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${x}.sql`), 'utf8')).join('\n');   // la 028 dépend de la 027
   await db.owner.query('BEGIN');
   try { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await db.owner.query(s); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; }
   assert.equal(await count(`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('notifications','announcements')`), 0, 'tables');

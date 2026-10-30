@@ -4,6 +4,7 @@ import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
 import { reviewIdentity } from './kyc.js';
 import { receiptButton } from './invoices.js';
+import { openAgreement } from './agreements.js';
 
 
 export function adminDashboard({ goTo }) {
@@ -89,7 +90,7 @@ export function adminUsers() {
           (u.identity_doc || u.kyc_status) ? h('div', {}, u.identity_verified ? badge('Vérifiée', 'ok') : badge(...({ submitted: ['À examiner', 'warn'], rejected: ['Refusée', 'bad'], draft: ['Incomplète', 'warn'] }[u.kyc_status] || ['Sans photos', 'warn'])), h('div', { class: 'small muted' }, u.identity_doc || '')) : '—',
           u.balance != null ? amount(u.balance) : '', h('div', { class: 'gap' }, (u.identity_doc || u.kyc_status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: verify }, u.identity_verified ? 'Retirer' : (u.kyc_status ? 'Examiner la pièce' : 'Vérifier ID')),
             u.status !== 'active' ? h('button', { class: 'btn btn-sm btn-ok', onclick: setStatus('active', 'Compte activé') }, 'Activer') : h('button', { class: 'btn btn-sm btn-ghost', onclick: setStatus('suspended', 'Compte suspendu') }, 'Suspendre'),
-            h('button', { class: 'btn btn-sm btn-ghost', onclick: edit }, 'Modifier'), h('button', { class: 'btn btn-sm btn-ghost', onclick: resetPw }, 'Mot de passe'), h('button', { class: 'btn btn-sm btn-ghost', onclick: unlock }, 'Débloquer'), u.role !== 'admin' && h('button', { class: 'btn btn-sm btn-ghost', onclick: anonymize }, 'Anonymiser'))];
+            h('button', { class: 'btn btn-sm btn-ghost', onclick: edit }, 'Modifier'), h('button', { class: 'btn btn-sm btn-ghost', onclick: resetPw }, 'Mot de passe'), ['agent', 'call_chief'].includes(u.role) && h('button', { class: 'btn btn-sm btn-ghost', onclick: openAgreement(u, refresh) }, 'Accord'), h('button', { class: 'btn btn-sm btn-ghost', onclick: unlock }, 'Débloquer'), u.role !== 'admin' && h('button', { class: 'btn btn-sm btn-ghost', onclick: anonymize }, 'Anonymiser'))];
       }), { empty: empty('👥', 'Aucun utilisateur') })));
   }));
   load();
