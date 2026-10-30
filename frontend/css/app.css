@@ -470,3 +470,7 @@ div.notif { cursor: default; }
 
 .cash-choices { display: grid; gap: 10px; margin: 8px 0; }
 @media (min-width: 640px) { .cash-choices { grid-template-columns: 1fr 1fr; } }
+/* Application installable : bandeau hors connexion */
+.offline-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--bnav-h, 0px) + env(safe-area-inset-bottom)); z-index: 70; padding: 8px 14px; background: var(--warn-bg); color: #6b4200; border-top: 2px solid var(--warn); font-size: .86rem; text-align: center; }
+.offline-bar.hidden { display: none; }
+.install .install-act { margin-top: 10px; }

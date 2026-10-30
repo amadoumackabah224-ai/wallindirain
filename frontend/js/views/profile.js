@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { get, post } from '../api.js';
 import { kycCard } from './kyc.js';
 import { referralCard } from './stats.js';
+import { installCard } from '../pwa.js';
 
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const PAYOUT_ROLES = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
@@ -97,6 +98,7 @@ export function profileView({ onChanged }) {
           documentsBody(),
           h('p', { class: 'small' }, 'Vous pouvez demander l\'accès à vos données, leur correction ou la suppression de votre compte.'),
           h('a', { class: 'btn btn-sm btn-ghost', href: '#/demande-donnees' }, 'Exercer mes droits'))),
+      installCard(),
       ['seller', 'supplier'].includes(p.role) && referralCard());
   });
 }
