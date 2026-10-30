@@ -467,3 +467,6 @@ div.notif { cursor: default; }
 .section-title { margin: 18px 0 8px; font-size: 1.05rem; }
 .zone-group { border: 1px solid var(--line-2); border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
 .zone-group > summary { cursor: pointer; font-weight: 700; display: flex; gap: 8px; align-items: center; }
+
+.cash-choices { display: grid; gap: 10px; margin: 8px 0; }
+@media (min-width: 640px) { .cash-choices { grid-template-columns: 1fr 1fr; } }
