@@ -11,6 +11,7 @@ import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { adminCouriers } from './views/couriers.js';
 import { icon } from './icons.js';
+import { startPwa, offlineScreen } from './pwa.js';
 import { supplierProducts, supplierOrders } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
@@ -109,7 +110,7 @@ async function route() {
   if (a === 'c' && b) return pub(clientOrderView(b));          // page publique du client
   if (a === 'suivi' && b) return pub(trackView(b));              // suivi de commande pour le client
   if (a === 'demande-donnees') return pub(dataRequestView());
-  if (!user) { try { user = (await get('/auth/me')).user; } catch { user = null; } }
+  if (!user) { try { user = (await get('/auth/me')).user; } catch (e) { user = null; if (e?.code === 'network') return pub(offlineScreen(route)); } }
   if (!user) {
     if (a === 'register') return pub(registerView({ ref: b }));
     if (a === 'forgot') return pub(forgotView());
@@ -121,5 +122,6 @@ async function route() {
 
 setUnauthorizedHandler(() => { if (user) { user = null; toast('Session expirée : reconnectez-vous.', 'bad'); location.hash = '#/login'; route(); } });
 window.addEventListener('hashchange', route);
+startPwa();
 render(spinner());
 get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; }).catch(() => {}).finally(route);
