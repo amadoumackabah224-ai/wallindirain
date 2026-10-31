@@ -340,3 +340,5 @@ export function printNode(node, { invoice = false } = {}) {
   window.addEventListener('afterprint', done);
   setTimeout(() => window.print(), 50);
 }
+
+export const CHANNEL_LABEL = { facebook: 'Facebook', whatsapp: 'WhatsApp', tiktok: 'TikTok', instagram: 'Instagram', site: 'Site web', phone: 'Appel direct', other: 'Autre', unknown: 'Non précisé' };
