@@ -239,6 +239,7 @@ export function sellerDeposits() {
         h('div', { class: 'order-head' }, h('h3', {}, d.name), d.status === 'stored' ? badge('Reçu', 'ok') : badge('En attente de comptage', 'warn')),
         kv(d.status === 'stored'
           ? [['Annoncé', d.announced_qty], ['Compté', d.qty], ['Réservé', d.reserved_qty], ['Disponible', d.free_qty, 'key'], d.count_note && ['Note de l\'entrepôt', d.count_note], ...(d.losses || []).map((l) => [`Retiré le ${fmtDate(l.at)}`, `${l.qty} unité(s) : ${l.note}`])]
-          : [['Annoncé', d.announced_qty, 'key'], ['Date', fmtDate(d.created_at)]]))) : empty('📦', 'Aucun stock envoyé pour le moment'));
+          : [['Annoncé', d.announced_qty, 'key'], ['Date', fmtDate(d.created_at)]]),
+        d.status === 'announced' && h('div', { class: 'mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: `Corriger : ${d.name}`, text: 'Possible tant que le magasinier n\'a pas compté le dépôt.', submit: 'Enregistrer', fields: [{ name: 'name', label: 'Nom du produit', value: d.name }, { name: 'qty', label: 'Quantité envoyée', type: 'number', inputmode: 'numeric', value: d.announced_qty }] }); if (v) await post(`/seller/deposits/${d.id}/edit`, { name: v.name, qty: Number(v.qty) }); }, { ok: 'Dépôt corrigé', refresh }) }, 'Corriger')))) : empty('📦', 'Aucun stock envoyé pour le moment'));
   });
 }
