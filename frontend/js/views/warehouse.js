@@ -111,7 +111,16 @@ function buildTodo({ arrivals: allA, handovers: allH, returns: allR, deposits: a
 // ---------- Stock ----------
 function stockView() {
   let filter = '';
-  return liveView(() => get('/warehouse/stock'), ({ products, low_threshold }, refresh) => {
+  return liveView(() => get('/warehouse/stock'), ({ products, low_threshold, deposits = [] }, refresh) => {
+    const lossDeposit = (d) => action(async () => {
+      const v = await ask({ title: `Casse ou perte : ${d.name}`, text: `Stock du vendeur ${d.seller_name}. Seules les unités libres (${d.free_qty}) peuvent être retirées. Le vendeur et l'administration sont prévenus.`, submit: 'Retirer du stock',
+        fields: [{ name: 'qty', label: 'Quantité', type: 'number', inputmode: 'numeric', value: 1 }, { name: 'reason', label: 'Motif', type: 'select', options: Object.entries(LOSS_LABEL) }, { name: 'note', label: 'Explication', type: 'textarea', maxlength: 300, placeholder: 'Ce qui s\'est passé' }] });
+      if (!v) return;
+      const note = (v.note || '').trim(), qty = Number(v.qty);
+      if (!Number.isInteger(qty) || qty < 1) { toast('Quantité invalide', 'bad'); return; }
+      if (note.length < 3) { toast('Écrivez une explication de quelques mots', 'bad'); return; }
+      await post(`/warehouse/deposits/${d.id}/loss`, { qty, reason: v.reason, note });
+    }, { ok: 'Stock du vendeur mis à jour', refresh });
     const declare = action(async () => {
       const usable = products.filter((p) => p.free_qty > 0);
       if (!usable.length) { toast('Aucun produit avec du stock libre', 'bad'); return; }
@@ -157,7 +166,10 @@ function stockView() {
     search.oninput = (e) => { filter = e.target.value; list.replaceChildren(...build()); };
     return h('div', {},
       pageHead('Stock de l\'entrepôt', `${products.length} produit(s) · ${out} en rupture · ${lowN} stock bas`, h('button', { class: 'btn btn-ghost', onclick: declare }, 'Casse ou perte')),
-      h('label', { class: 'f' }, search), list);
+      h('label', { class: 'f' }, search), list,
+      deposits.length > 0 && h('div', {}, h('h2', { class: 'mt' }, 'Stock gardé pour des vendeurs'), deposits.map((d) => h('div', { class: 'card' }, h('h3', {}, d.name),
+        kv([['Vendeur', d.seller_name], ['Libre', `${d.free_qty} unité(s)`, 'key'], ['Réservé (commandes)', d.reserved_qty], ['Total', d.qty]]),
+        d.free_qty > 0 && h('div', { class: 'mt' }, h('button', { class: 'btn btn-ghost', onclick: lossDeposit(d) }, 'Casse ou perte'))))));
   }, { poll: 30000 });
 }
 

@@ -568,7 +568,8 @@ export function registerRoutes(app, { db, cfg }) {
   }));
   app.get('/api/seller/deposits', guard(SEL, async (ctx) => ({
     storage_fee: Number((await q(`SELECT value FROM settings WHERE key = 'seller_storage_fee'`))[0]?.value ?? 0),
-    deposits: await q(`SELECT id, name, announced_qty, qty, reserved_qty, (qty - reserved_qty) AS free_qty, status, count_note, counted_at, created_at
+    deposits: await q(`SELECT id, name, announced_qty, qty, reserved_qty, (qty - reserved_qty) AS free_qty, status, count_note, counted_at, created_at,
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object('qty', l.qty, 'reason', l.reason, 'note', l.note, 'at', l.created_at) ORDER BY l.created_at DESC), '[]'::jsonb) FROM seller_deposit_losses l WHERE l.deposit_id = seller_deposits.id) AS losses
         FROM seller_deposits WHERE seller_id = $1 ORDER BY created_at DESC LIMIT 100`, [ctx.user.id])
   })));
   app.post('/api/seller/deposits', guard(SEL, async (ctx) => {
@@ -943,7 +944,9 @@ export function registerRoutes(app, { db, cfg }) {
           (SELECT max(a.counted_at) FROM arrivals a WHERE a.product_id = p.id) AS last_arrival, ${IMG_IDS('p.id')} AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id
         WHERE p.storage = 'wallindirain' AND p.status = 'approved' AND p.deleted_at IS NULL ORDER BY (p.stock_qty - p.reserved_qty), p.name`);
-    return { low_threshold: low, products: products.map((p) => ({ ...p, expected_shelf: exp.get(p.id)?.expected ?? null, count_pending: !!exp.get(p.id)?.pending })) };
+    const deposits = await q(`SELECT d.id, d.name, u.full_name AS seller_name, d.qty, d.reserved_qty, (d.qty - d.reserved_qty) AS free_qty
+        FROM seller_deposits d JOIN users u ON u.id = d.seller_id WHERE d.status = 'stored' ORDER BY d.name`);
+    return { low_threshold: low, deposits, products: products.map((p) => ({ ...p, expected_shelf: exp.get(p.id)?.expected ?? null, count_pending: !!exp.get(p.id)?.pending })) };
   }));
   // Historique : arrivages comptés, retours réceptionnés, remises, casses (60 derniers de chaque)
   app.get('/api/warehouse/history', guard(WH, async () => ({
@@ -964,6 +967,10 @@ export function registerRoutes(app, { db, cfg }) {
   })));
   app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => {
     await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
+  }));
+  app.post('/api/warehouse/deposits/:id/loss', guard(WH, async (ctx) => {
+    ctx.status = 201;
+    return { id: await fn('fn_warehouse_declare_deposit_loss', ctx.user.id, v.uuid(ctx.params.id, 'Dépôt'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }), v.oneOf(ctx.body.reason, ['damaged', 'lost', 'expired', 'other'], 'Motif'), v.str(ctx.body.note, 'Explication', { min: 3, max: 300 })) };
   }));
   app.post('/api/warehouse/deposits/:id/count', guard(WH, async (ctx) => {
     await fn('fn_warehouse_count_deposit', ctx.user.id, v.uuid(ctx.params.id, 'Dépôt'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
