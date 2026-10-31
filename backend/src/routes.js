@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
 import { legalMissing, createLegal, docsFor, canRead, audienceOf, SUMMARY, AUDIENCE_LABEL, OPEN_AUDIENCES } from './legal.js';
 import { answer, suggestions, topic, topics } from './assistant.js';
-import { parseSheetUrl, fetchSheetCsv, parseCsv, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
+import { parseSheetUrl, fetchSheetCsv, parseCsv, xlsxToRows, mapRows, phone9, isYes, parsePrice, rowHash } from './sheets.js';
 import { simulate as simulatePay } from './pay-sim.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
@@ -616,37 +616,62 @@ export function registerRoutes(app, { db, cfg }) {
     return { sheet: { url: `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${gid}` } };
   }));
   app.post('/api/seller/import', guard(SEL, async (ctx) => {
-    limit(`import:${ctx.user.id}`, 10, 3600_000);
-    let text;
-    if (typeof ctx.body.csv === 'string' && ctx.body.csv.trim()) text = ctx.body.csv.slice(0, 1_000_000);
-    else {
-      const [s] = await q('SELECT sheet_id, gid FROM seller_sheets WHERE seller_id = $1', [ctx.user.id]);
-      if (!s) throw new HttpError(400, 'invalid_input', 'Enregistrez d\'abord le lien de votre Google Sheet, ou collez votre tableau en CSV');
-      text = await (app.fetchSheet || fetchSheetCsv)({ id: s.sheet_id, gid: s.gid });
+    limit(`import:${ctx.user.id}`, 30, 3600_000);
+    const dry = ctx.body.dry_run === true;                 // aperçu : rien n'est créé
+    let table;
+    if (typeof ctx.body.xlsx === 'string' && ctx.body.xlsx) {
+      if (ctx.body.xlsx.length > 800_000) throw new HttpError(413, 'too_large', 'Fichier Excel trop volumineux (600 Ko maximum)');
+      table = xlsxToRows(Buffer.from(ctx.body.xlsx, 'base64'));
+    } else {
+      let text;
+      if (typeof ctx.body.csv === 'string' && ctx.body.csv.trim()) text = ctx.body.csv.slice(0, 1_000_000);
+      else {
+        const [s] = await q('SELECT sheet_id, gid FROM seller_sheets WHERE seller_id = $1', [ctx.user.id]);
+        if (!s) throw new HttpError(400, 'invalid_input', 'Enregistrez d\'abord le lien de votre Google Sheet, ou collez votre tableau en CSV, ou choisissez un fichier');
+        text = await (app.fetchSheet || fetchSheetCsv)({ id: s.sheet_id, gid: s.gid });
+      }
+      table = parseCsv(text);
     }
-    const rows = mapRows(parseCsv(text));
+    const rows = mapRows(table);
     const catalog = await q(`SELECT p.id, lower(p.name) AS n FROM products p WHERE p.status = 'approved' AND p.deleted_at IS NULL`);
     const zones = await q('SELECT commune FROM delivery_rates WHERE active');
     const zoneOf = (z) => zones.find((x) => x.commune.toLowerCase() === z.toLowerCase())?.commune;
     const other = zones.find((x) => x.commune === 'Autre quartier / ville')?.commune;
-    const out = { created: 0, duplicates: 0, errors: [] };
+    const out = { dry_run: dry, created: 0, duplicates: 0, errors: [], preview: [] };
+    const seen = new Set();
     for (const r of rows) {
+      const brief = { line: r.line, name: r.name, phone: r.phone, zone: r.zone, address: r.address, product: r.product, qty: r.qty, price: r.price, confirmed: r.confirmed, note: r.note };
       try {
         const phone = phone9(r.phone);
         if (!/^[0-9]{9}$/.test(phone)) throw new Error('Téléphone invalide (9 chiffres attendus)');
+        if (!r.name || r.name.length < 2) throw new Error('Nom du client manquant');
+        if (!r.address || r.address.length < 3) throw new Error('Adresse manquante');
         let zone = zoneOf(r.zone), address = r.address;
         if (!zone) { if (!other) throw new Error(`Zone « ${r.zone || 'vide'} » non desservie`); zone = other; address = r.zone ? `${r.zone}, ${r.address}` : r.address; }
         const prod = catalog.find((c) => c.n === r.product.toLowerCase());
         const price = parsePrice(r.price);
         const qty = r.qty ? Number(r.qty.replace(/\D/g, '')) : 1;
+        if (!Number.isInteger(qty) || qty < 1 || qty > 100) throw new Error('Quantité invalide (1 à 100)');
         if (!prod && !price) throw new Error(`Produit « ${r.product} » absent du catalogue : indiquez un prix pour le traiter comme votre propre produit`);
-        const res = await refusalLogged('import', ctx.user.id, zone, () => fn('fn_seller_import_order', ctx.user.id, rowHash(ctx.user.id, r), prod ? prod.id : null, prod ? null : r.product, price, qty,
+        const hash = rowHash(ctx.user.id, r);
+        if (dry) {
+          const dup = seen.has(hash) || (await q('SELECT 1 FROM sheet_imports WHERE seller_id = $1 AND row_hash = $2', [ctx.user.id, hash])).length > 0;
+          seen.add(hash);
+          if (dup) out.duplicates++; else out.created++;
+          out.preview.push({ line: r.line, name: r.name, product: r.product, qty, zone, status: dup ? 'duplicate' : 'ok', own: !prod });
+          continue;
+        }
+        const res = await refusalLogged('import', ctx.user.id, zone, () => fn('fn_seller_import_order', ctx.user.id, hash, prod ? prod.id : null, prod ? null : r.product, price, qty,
           r.name, phone, zone, address.slice(0, 300), r.note ? r.note.slice(0, 300) : null, isYes(r.confirmed)));
         if (res.duplicate) out.duplicates++; else out.created++;
-      } catch (e) { out.errors.push({ line: r.line, message: e.message?.replace(/^[a-z_]+\|/, '') || 'Erreur' }); }
+      } catch (e) {
+        const message = e.message?.replace(/^[a-z_]+\|/, '') || 'Erreur';
+        out.errors.push({ line: r.line, message, row: brief });
+        if (dry) out.preview.push({ line: r.line, name: r.name, product: r.product, status: 'error', message });
+      }
     }
     return out;
-  }));
+  }), { maxBody: MAX_PROOF_BODY });
 
 
   // Où récupérer le colis : entrepôt, fournisseur (adresse indiquée par lui) ou vendeur (propre produit). L'adresse du fournisseur n'est donnée qu'à l'équipe et au livreur.

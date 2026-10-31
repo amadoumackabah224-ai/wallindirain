@@ -2,6 +2,7 @@
 // Sécurité : on ne télécharge JAMAIS une adresse donnée par l'utilisateur ; on n'en extrait que l'identifiant du classeur
 // et on reconstruit nous-mêmes l'adresse docs.google.com (pas d'accès à des adresses internes).
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { HttpError } from './http.js';
 
 export const MAX_ROWS = 300;
@@ -101,3 +102,54 @@ export const phone9 = (s) => { const d = String(s).replace(/\D/g, ''); return (d
 export const isYes = (s) => ['oui', 'o', 'yes', 'y', '1', 'x', 'vrai', 'true', 'ok', 'confirme'].includes(norm(s));
 export const parsePrice = (s) => { const d = String(s).replace(/[^\d]/g, ''); return d ? Number(d) : null; };
 export const rowHash = (sellerId, r) => crypto.createHash('sha256').update(JSON.stringify([sellerId, r.name.toLowerCase(), phone9(r.phone), norm(r.zone), norm(r.address), norm(r.product), r.qty || '1', parsePrice(r.price)])).digest('hex');
+
+// ---------- Fichier Excel (.xlsx) : lecture minimale sans dépendance (zip + XML), première feuille uniquement ----------
+const XML_MAX = 5_000_000;
+const unxml = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&amp;/g, '&');
+const badXlsx = () => new HttpError(400, 'invalid_input', 'Fichier Excel illisible : enregistrez-le au format .xlsx (ou en CSV) puis réessayez');
+export function xlsxToRows(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 100) throw badXlsx();
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0) throw badXlsx();
+  const total = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  const entries = {};
+  for (let i = 0; i < total; i++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) throw badXlsx();
+    const nlen = buf.readUInt16LE(p + 28), elen = buf.readUInt16LE(p + 30), clen = buf.readUInt16LE(p + 32);
+    entries[buf.toString('utf8', p + 46, p + 46 + nlen)] = { method: buf.readUInt16LE(p + 10), csize: buf.readUInt32LE(p + 20), usize: buf.readUInt32LE(p + 24), lho: buf.readUInt32LE(p + 42) };
+    p += 46 + nlen + elen + clen;
+  }
+  const read = (name) => {
+    const e = entries[name]; if (!e) return null;
+    if (e.usize > XML_MAX) throw new HttpError(413, 'too_large', 'Fichier Excel trop volumineux');
+    if (e.lho + 30 > buf.length || buf.readUInt32LE(e.lho) !== 0x04034b50) throw badXlsx();
+    const start = e.lho + 30 + buf.readUInt16LE(e.lho + 26) + buf.readUInt16LE(e.lho + 28);
+    const raw = buf.subarray(start, start + e.csize);
+    try { return (e.method === 0 ? raw : e.method === 8 ? zlib.inflateRawSync(raw, { maxOutputLength: XML_MAX }) : null)?.toString('utf8') ?? null; } catch { throw badXlsx(); }
+  };
+  const sheetName = Object.keys(entries).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort((a, b) => Number(a.match(/(\d+)\.xml/)[1]) - Number(b.match(/(\d+)\.xml/)[1]))[0];
+  const xml = sheetName && read(sheetName);
+  if (!xml) throw badXlsx();
+  const shared = [];
+  const ss = read('xl/sharedStrings.xml');
+  if (ss) for (const m of ss.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) shared.push(unxml([...m[1].replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((x) => x[1]).join('')));
+  const colIdx = (ref) => { let n = 0; for (const ch of ref.replace(/[0-9]/g, '')) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  const rows = [];
+  for (const rm of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const row = [];
+    for (const cm of rm[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const ref = /\br="([A-Z]+)\d+"/.exec(cm[1]); if (!ref) continue;
+      const type = /\bt="([^"]+)"/.exec(cm[1])?.[1];
+      const body = cm[2] || '';
+      let val = '';
+      if (type === 'inlineStr') val = unxml([...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((x) => x[1]).join(''));
+      else { const v = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1] ?? ''; val = type === 's' ? (shared[Number(v)] ?? '') : unxml(v); }
+      const c = colIdx(ref[1]); if (c > 60) continue;
+      while (row.length < c) row.push('');
+      row[c] = val;
+    }
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((x) => String(x).trim() !== ''));
+}
