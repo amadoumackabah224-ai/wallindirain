@@ -81,7 +81,10 @@ export function sellerCatalog() {
 
 export function sellerNewOrder({ goTo }) {
   const host = h('div', {}, h('div', { class: 'spinner' }));
-  Promise.all([get('/seller/catalog'), get('/public/info')]).then(([cat, info]) => {
+  Promise.all([get('/seller/catalog'), get('/public/info'), get('/seller/deposits').catch(() => ({ deposits: [] }))]).then(([cat, info, dep]) => {
+    const stored = dep.deposits.filter((d) => d.status === 'stored' && d.free_qty > 0);
+    const depositSel = h('select', {}, h('option', { value: '' }, 'Non : il est chez moi'), stored.map((d) => h('option', { value: d.id }, `${d.name} · ${d.free_qty} disponible(s)`)));
+    const depositBox = stored.length ? h('label', { class: 'f' }, h('span', {}, 'Sortir du stock gardé chez Wallindirain ?'), depositSel, h('div', { class: 'hint' }, 'Si oui, le livreur récupère le colis à l\'entrepôt : inutile d\'indiquer une adresse.')) : null;
     const own = h('input', { type: 'checkbox' });
     const product = h('select', {}, cat.products.map((p) => h('option', { value: p.id }, `${p.name}${p.sale_price ? ` · ${fmtGNF(p.sale_price)}` : ' · prix à fixer'}`)));
     const ownName = h('input', { type: 'text', maxlength: 120, placeholder: 'Nom de votre produit' });
@@ -97,7 +100,7 @@ export function sellerNewOrder({ goTo }) {
     const channel = h('select', {}, h('option', { value: '' }, 'Non précisé'), Object.entries(CHANNEL_LABEL).filter(([k]) => k !== 'unknown').map(([k, l]) => h('option', { value: k }, l)));
     const channelBox = info.features?.order_channel ? h('label', { class: 'f' }, h('span', {}, 'D\'où vient cette commande ?'), channel) : null;
     const pickup = h('input', { type: 'text', maxlength: 200, placeholder: 'Quartier, repère, téléphone sur place' });
-    const ownBox = h('div', { class: 'hidden' }, h('label', { class: 'f' }, h('span', {}, 'Nom du produit'), ownName), h('label', { class: 'f' }, h('span', {}, 'Où récupérer le colis ?'), pickup, h('div', { class: 'hint' }, 'Le livreur passera prendre le colis à cet endroit.')), h('label', { class: 'f' }, h('span', {}, 'Prix de vente unitaire (GNF)'), price,
+    const ownBox = h('div', { class: 'hidden' }, depositBox, h('label', { class: 'f' }, h('span', {}, 'Nom du produit'), ownName), h('label', { class: 'f' }, h('span', {}, 'Où récupérer le colis ?'), pickup, h('div', { class: 'hint' }, 'Le livreur passera prendre le colis à cet endroit.')), h('label', { class: 'f' }, h('span', {}, 'Prix de vente unitaire (GNF)'), price,
       h('div', { class: 'hint' }, `Doit couvrir au moins la livraison et le call center.`)));
     const catBox = h('label', { class: 'f' }, h('span', {}, 'Produit du catalogue'), product);
     own.addEventListener('change', () => { ownBox.classList.toggle('hidden', !own.checked); catBox.classList.toggle('hidden', own.checked); });
@@ -106,7 +109,7 @@ export function sellerNewOrder({ goTo }) {
       e.preventDefault(); const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
         const body = { request_key: requestKey, qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value, already_confirmed: already.checked, channel: channel.value || undefined };
-        if (own.checked) { body.own_product_name = ownName.value; body.pickup_detail = pickup.value; body.unit_price = Number(price.value); } else body.product_id = product.value;
+        if (own.checked) { body.own_product_name = ownName.value || 'Produit'; body.pickup_detail = pickup.value || 'Entrepôt Wallindirain'; body.unit_price = Number(price.value); if (depositSel.value) body.deposit_id = depositSel.value; } else body.product_id = product.value;
         const r = await post('/seller/orders', body);
         if (r.replayed) { toast(`Commande ${r.ref} déjà enregistrée : aucune seconde commande n'a été créée`, 'ok'); goTo('orders'); return; }
         toast(`Commande ${r.ref} créée${r.status === 'confirmed' ? ' : prête à être affectée à un livreur' : r.risk ? ' (client à surveiller)' : ''}`, 'ok'); goTo('orders');
@@ -191,4 +194,25 @@ export function showGuide() {
       h('h3', {}, '5. Retirer votre argent'), h('p', {}, 'Dans Portefeuille, demandez un retrait vers votre numéro Orange ou MTN.'),
       h('button', { class: 'btn btn-ghost btn-block mt', onclick: () => overlay.remove() }, 'Fermer')));
   document.body.append(overlay);
+}
+
+/** Stock du vendeur gardé à l'entrepôt Wallindirain : annonce, comptage par le magasinier, quantités libres. */
+export function sellerDeposits() {
+  return liveView(() => get('/seller/deposits'), ({ deposits, storage_fee }, refresh) => {
+    const announce = action(async () => {
+      const v = await ask({ title: 'Envoyer du stock à Wallindirain', text: 'Annoncez ce que vous envoyez. Le magasinier le comptera à la réception : seul le nombre compté sera disponible pour vos commandes.', submit: 'Annoncer',
+        fields: [{ name: 'name', label: 'Nom du produit', type: 'text', maxlength: 120 }, { name: 'qty', label: 'Quantité envoyée', type: 'number', inputmode: 'numeric', value: 1 }] });
+      if (!v) return;
+      await post('/seller/deposits', { name: v.name, qty: Number(v.qty) });
+    }, { ok: 'Dépôt annoncé : le magasinier va le compter', refresh });
+    return h('div', {}, h('h1', {}, 'Mon stock chez Wallindirain'),
+      h('div', { class: 'notice' }, 'Ce stock reste à vous. Wallindirain le garde, et les livreurs le récupèrent à l\'entrepôt quand vous créez une commande avec « Mon propre produit ». Vos gains ne changent pas.',
+        storage_fee > 0 ? ' Des frais de stockage sont prévus : ils vous seront annoncés avant toute facturation.' : ' Le stockage est gratuit pour le moment.'),
+      h('button', { class: 'btn btn-gold btn-block mt', type: 'button', onclick: announce }, 'Envoyer du stock'),
+      deposits.length ? deposits.map((d) => h('div', { class: 'card' },
+        h('div', { class: 'order-head' }, h('h3', {}, d.name), d.status === 'stored' ? badge('Reçu', 'ok') : badge('En attente de comptage', 'warn')),
+        kv(d.status === 'stored'
+          ? [['Annoncé', d.announced_qty], ['Compté', d.qty], ['Réservé', d.reserved_qty], ['Disponible', d.free_qty, 'key'], d.count_note && ['Note de l\'entrepôt', d.count_note]]
+          : [['Annoncé', d.announced_qty, 'key'], ['Date', fmtDate(d.created_at)]]))) : empty('📦', 'Aucun stock envoyé pour le moment'));
+  });
 }

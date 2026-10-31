@@ -410,8 +410,8 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
   const data = async () => (await owner.query(`SELECT
       (SELECT count(*) FROM wallet_entries)::text || '/' || (SELECT COALESCE(sum(amount),0) FROM wallet_entries)::text || '/' ||
       (SELECT md5(string_agg(w::text, ',' ORDER BY id)) FROM wallet_entries w) AS ecritures,
-      (SELECT md5(string_agg((to_jsonb(o) - 'pickup_detail' - 'courier_kind' - 'courier_scale_id' - 'courier_pay_paid' - 'channel')::text, ',' ORDER BY id)) FROM orders o) AS commandes,
-      (SELECT md5(string_agg(key || '=' || value::text, ',' ORDER BY key)) FROM settings WHERE key NOT IN ('feature_order_channel','mission_offer_minutes','mission_max_offers','courier_max_open','tour_bonus_per_extra_order','tour_share_bps','tour_extra_share_bps','alert_low_stock_qty','alert_cash_hours','alert_payout_days')) AS valeurs,
+      (SELECT md5(string_agg((to_jsonb(o) - 'pickup_detail' - 'courier_kind' - 'courier_scale_id' - 'courier_pay_paid' - 'channel' - 'deposit_id')::text, ',' ORDER BY id)) FROM orders o) AS commandes,
+      (SELECT md5(string_agg(key || '=' || value::text, ',' ORDER BY key)) FROM settings WHERE key NOT IN ('seller_storage_fee','feature_order_channel','mission_offer_minutes','mission_max_offers','courier_max_open','tour_bonus_per_extra_order','tour_share_bps','tour_extra_share_bps','alert_low_stock_qty','alert_cash_hours','alert_payout_days')) AS valeurs,
       (SELECT md5(string_agg(commune || '=' || fee::text || active::text, ',' ORDER BY commune)) FROM delivery_rates) AS zones`)).rows[0];
   const funcs = async () => (await owner.query(`SELECT p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || p.prosecdef::text || ':' || COALESCE(p.proconfig::text, '') || ':' || COALESCE(p.proacl::text, '') AS f
       FROM pg_proc p WHERE p.proname IN ('fn_seller_import_order','fn_admin_reset_activity','fn_admin_set_delivery_rate','fn_admin_set_setting','fn_ledger_check','fn_seller_create_order','fn_public_order')
@@ -432,7 +432,7 @@ test('migration 017 puis retour arrière : données financières intactes, fonct
   assert.equal((await owner.query(`SELECT count(*)::int AS n FROM fn_ledger_check()`)).rows[0].n, 0);
 
   // 2) retour arrière (dans l'ordre inverse des migrations : 019, 018 — appliquées par migrate() — puis 017)
-  for (const f of ['retour-arriere-038.sql', 'retour-arriere-037.sql', 'retour-arriere-036.sql', 'retour-arriere-035.sql', 'retour-arriere-034.sql', 'retour-arriere-033.sql', 'retour-arriere-032.sql', 'retour-arriere-031.sql', 'retour-arriere-030.sql', 'retour-arriere-029.sql', 'retour-arriere-028.sql', 'retour-arriere-027.sql', 'retour-arriere-026.sql', 'retour-arriere-025.sql', 'retour-arriere-024.sql', 'retour-arriere-023.sql', 'retour-arriere-022.sql', 'retour-arriere-021.sql', 'retour-arriere-020.sql', 'retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
+  for (const f of ['retour-arriere-039.sql', 'retour-arriere-038.sql', 'retour-arriere-037.sql', 'retour-arriere-036.sql', 'retour-arriere-035.sql', 'retour-arriere-034.sql', 'retour-arriere-033.sql', 'retour-arriere-032.sql', 'retour-arriere-031.sql', 'retour-arriere-030.sql', 'retour-arriere-029.sql', 'retour-arriere-028.sql', 'retour-arriere-027.sql', 'retour-arriere-026.sql', 'retour-arriere-025.sql', 'retour-arriere-024.sql', 'retour-arriere-023.sql', 'retour-arriere-022.sql', 'retour-arriere-021.sql', 'retour-arriere-020.sql', 'retour-arriere-019.sql', 'retour-arriere-018.sql', 'retour-arriere-017.sql']) {
     const rb = fs.readFileSync(path.join(root, 'docs', f), 'utf8');
     await owner.tx(async (tx) => { for (const s of splitSql(rb)) { if (/^(begin|commit)$/i.test(s.trim())) continue; await tx.query(s); } });
   }
