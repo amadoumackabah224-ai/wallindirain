@@ -468,6 +468,7 @@ export function registerRoutes(app, { db, cfg }) {
     categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
     products: await q(`SELECT id, name, description, category_id, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = products.id) AS image_ids
+        , (SELECT jsonb_build_object('new_price', c.new_price, 'created_at', c.created_at) FROM product_price_changes c WHERE c.product_id = products.id AND c.status = 'pending') AS price_request
         FROM products WHERE supplier_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [ctx.user.id]),
     arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.counted_qty, a.created_at, a.counted_at
         FROM arrivals a JOIN products p ON p.id = a.product_id WHERE p.supplier_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [ctx.user.id])
@@ -483,6 +484,14 @@ export function registerRoutes(app, { db, cfg }) {
     return { id, message: 'Produit proposé. Il sera visible des vendeurs après validation.' };
   }));
 
+  app.post('/api/supplier/products/:id/edit', guard(SUP, async (ctx) => {
+    await fn('fn_supplier_edit_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(ctx.body.description, 'Description', 1000));
+    return { ok: true };
+  }));
+  app.post('/api/supplier/products/:id/price', guard(SUP, async (ctx) => {
+    const r = await fn('fn_supplier_set_price', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.price, 'Prix', { min: 1, max: 1e9 }));
+    return { result: r, message: r === 'pending' ? 'Demande envoyée : l\'ancien prix reste actif jusqu\'à la validation de l\'administrateur' : 'Prix enregistré' };
+  }));
   app.post('/api/supplier/products/:id/category', guard(SUP, async (ctx) => { await fn('fn_set_product_category', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.category_id, 'Rayon')); }));
 
   // Photos du produit (jusqu'à 4) : ajout, suppression ; lecture contrôlée par rôle
@@ -575,6 +584,10 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/deposits', guard(SEL, async (ctx) => {
     ctx.status = 201;
     return { id: await fn('fn_seller_announce_deposit', ctx.user.id, v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 })) };
+  }));
+  app.post('/api/seller/deposits/:id/edit', guard(SEL, async (ctx) => {
+    await fn('fn_seller_edit_deposit', ctx.user.id, v.uuid(ctx.params.id, 'Dépôt'), v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }));
+    return { ok: true };
   }));
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
@@ -1356,6 +1369,26 @@ export function registerRoutes(app, { db, cfg }) {
   })));
   app.post('/api/admin/stock-counts/:id/review', guard(ADM, async (ctx) => {
     await fn('fn_admin_review_stock_count', ctx.user.id, v.uuid(ctx.params.id, 'Inventaire'), ctx.body.approve === true, v.optStr(ctx.body.note, 'Note', 300));
+  }));
+  app.get('/api/admin/price-requests', guard(ADM, async () => ({
+    requests: await q(`SELECT c.id, c.product_id, p.name AS product_name, u.full_name AS supplier_name, c.old_price, c.new_price, c.status, c.review_note, c.created_at, c.reviewed_at,
+          (SELECT value FROM settings WHERE key = 'margin_bps') AS default_margin_bps, (EXISTS (SELECT 1 FROM seller_stock ss WHERE ss.product_id = c.product_id AND ss.qty > 0) OR EXISTS (SELECT 1 FROM orders o WHERE o.product_id = c.product_id AND o.status NOT IN ('delivered','returned','refused','cancelled'))) AS locked
+        FROM product_price_changes c JOIN products p ON p.id = c.product_id JOIN users u ON u.id = p.supplier_id
+        ORDER BY (c.status = 'pending') DESC, c.created_at DESC LIMIT 100`)
+  })));
+  app.post('/api/admin/price-requests/:id/review', guard(ADM, async (ctx) => {
+    await fn('fn_admin_review_price_change', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), v.bool(ctx.body.approve, 'Décision'),
+      ctx.body.margin_bps == null || ctx.body.margin_bps === '' ? null : v.int(ctx.body.margin_bps, 'Marge', { min: 0, max: 10000 }), v.optStr(ctx.body.note, 'Note', 300));
+    return { ok: true };
+  }));
+  app.post('/api/admin/products/:id/edit', guard(ADM, async (ctx) => {
+    await fn('fn_admin_edit_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(ctx.body.description, 'Description', 1000));
+    return { ok: true };
+  }));
+  app.post('/api/admin/products/:id/price', guard(ADM, async (ctx) => {
+    await fn('fn_admin_set_product_price', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.price, 'Prix', { min: 1, max: 1e9 }),
+      ctx.body.margin_bps == null || ctx.body.margin_bps === '' ? null : v.int(ctx.body.margin_bps, 'Marge', { min: 0, max: 10000 }));
+    return { ok: true };
   }));
   app.post('/api/admin/products/:id/review', guard(ADM, async (ctx) => {
     await fn('fn_admin_review_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.bool(ctx.body.approve, 'Décision'),
