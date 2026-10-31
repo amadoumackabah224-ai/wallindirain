@@ -238,7 +238,7 @@ export function sellerDeposits() {
       deposits.length ? deposits.map((d) => h('div', { class: 'card' },
         h('div', { class: 'order-head' }, h('h3', {}, d.name), d.status === 'stored' ? badge('Reçu', 'ok') : badge('En attente de comptage', 'warn')),
         kv(d.status === 'stored'
-          ? [['Annoncé', d.announced_qty], ['Compté', d.qty], ['Réservé', d.reserved_qty], ['Disponible', d.free_qty, 'key'], d.count_note && ['Note de l\'entrepôt', d.count_note]]
+          ? [['Annoncé', d.announced_qty], ['Compté', d.qty], ['Réservé', d.reserved_qty], ['Disponible', d.free_qty, 'key'], d.count_note && ['Note de l\'entrepôt', d.count_note], ...(d.losses || []).map((l) => [`Retiré le ${fmtDate(l.at)}`, `${l.qty} unité(s) : ${l.note}`])]
           : [['Annoncé', d.announced_qty, 'key'], ['Date', fmtDate(d.created_at)]]))) : empty('📦', 'Aucun stock envoyé pour le moment'));
   });
 }

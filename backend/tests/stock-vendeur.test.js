@@ -105,7 +105,7 @@ test('stock insuffisant, dépôt non compté, dépôt d\'un autre vendeur : refu
 });
 
 test('retour arrière : refusé si des dépôts existent, accepté sinon', async () => {
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-039.sql'), 'utf8');
+  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-040.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-039.sql'), 'utf8');   // la 040 dépend de la 039
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
   await assert.rejects(run, /dépôts de vendeur existent/);
   await db.owner.query('UPDATE orders SET deposit_id = NULL'); await db.owner.query('DELETE FROM seller_deposits');
