@@ -1,5 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 
@@ -132,30 +132,56 @@ function importCard() {
   const url = h('input', { type: 'url', placeholder: 'https://docs.google.com/spreadsheets/d/…', maxlength: 300, 'aria-label': 'Lien de votre Google Sheet' });
   const csv = h('textarea', { rows: 4, placeholder: 'Ou collez ici votre tableau (copié depuis Excel / Sheets)', 'aria-label': 'Tableau collé en CSV' });
   get('/seller/sheet').then((r) => { if (r.sheet) url.value = r.sheet.url; }).catch(() => {});
+  const file = h('input', { type: 'file', accept: '.xlsx,.csv,.txt', 'aria-label': 'Fichier Excel ou CSV' });
+  const csvQuote = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+  const downloadRejected = (errors) => {
+    const head = ['ligne', 'nom', 'téléphone', 'quartier', 'adresse', 'produit', 'quantité', 'prix', 'confirmé', 'note', 'motif du rejet'];
+    const lines = errors.map((e) => [e.line, e.row?.name, e.row?.phone, e.row?.zone, e.row?.address, e.row?.product, e.row?.qty, e.row?.price, e.row?.confirmed, e.row?.note, e.message].map(csvQuote).join(','));
+    const url = URL.createObjectURL(new Blob(['\ufeff' + [head.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' }));
+    const a = h('a', { href: url, download: 'lignes-rejetees.csv' }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+  const rejectedBlock = (errors) => errors.length > 0 && h('div', { class: 'mt' }, ...errors.slice(0, 30).map((e) => h('div', { class: 'small' }, `Ligne ${e.line} : ${e.message}`)),
+    h('button', { class: 'btn btn-sm btn-ghost mt', type: 'button', onclick: () => downloadRejected(errors) }, 'Télécharger les lignes rejetées'));
   const show = (r) => out.replaceChildren(
-    h('div', { class: r.errors.length ? 'notice warn' : 'notice ok' }, `${r.created} commande(s) créée(s), ${r.duplicates} déjà importée(s), ${r.errors.length} ligne(s) en erreur.`),
-    ...r.errors.slice(0, 30).map((e) => h('div', { class: 'small' }, `Ligne ${e.line} : ${e.message}`)));
+    h('div', { class: r.errors.length ? 'notice warn' : 'notice ok' }, `${r.created} commande(s) créée(s), ${r.duplicates} déjà importée(s), ${r.errors.length} ligne(s) rejetée(s).`),
+    rejectedBlock(r.errors));
+  const STATUS = { ok: ['À créer', 'ok'], duplicate: ['Déjà importée', 'grey'], error: ['Rejetée', 'bad'] };
+  const showPreview = (r, body) => out.replaceChildren(
+    h('div', { class: r.errors.length ? 'notice warn' : 'notice ok' }, `Aperçu : ${r.created} commande(s) à créer, ${r.duplicates} déjà importée(s), ${r.errors.length} ligne(s) rejetée(s). Rien n'est encore créé.`),
+    table(['Ligne', 'Client', 'Produit', 'Statut'], r.preview.map((x) => [x.line, x.name, `${x.product || '—'}${x.qty ? ` × ${x.qty}` : ''}`, x.status === 'error' ? h('span', {}, badge('Rejetée', 'bad'), h('div', { class: 'small muted' }, x.message)) : badge(...STATUS[x.status])])),
+    r.created > 0 ? h('button', { class: 'btn btn-gold mt', type: 'button', onclick: action(async () => { show(await post('/seller/import', body)); }, {}) }, `Importer ${r.created} commande(s)`) : h('p', { class: 'small muted mt' }, 'Aucune commande à créer. Corrigez votre tableau puis refaites un aperçu.'),
+    rejectedBlock(r.errors));
+  const toBase64 = (buf) => { let bin = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(bin); };
   const save = action(async () => { await post('/seller/sheet', { url: url.value.trim() }); }, { ok: 'Lien enregistré' });
   // L'état de l'import reste affiché dans la page (et pas seulement en petit message qui disparaît)
   const run = action(async () => {
-    const fromSheet = !csv.value.trim();
-    out.replaceChildren(h('div', { class: 'notice' }, fromSheet ? 'Lecture de votre Google Sheet en cours… cela peut prendre jusqu\'à 30 secondes.' : 'Import en cours…'));
+    out.replaceChildren(h('div', { class: 'notice' }, 'Lecture en cours… un Google Sheet peut prendre jusqu\'à 30 secondes.'));
     try {
-      if (fromSheet && url.value.trim()) await post('/seller/sheet', { url: url.value.trim() });   // le lien collé est enregistré automatiquement
-      if (fromSheet && !url.value.trim()) throw new Error('Collez le lien de votre Google Sheet, ou collez votre tableau en CSV.');
-      show(await post('/seller/import', fromSheet ? {} : { csv: csv.value }));
-    } catch (e) { out.replaceChildren(h('div', { class: 'notice bad' }, e?.message || 'L\'import a échoué. Réessayez.')); }
+      let body;
+      const f = file.files?.[0];
+      if (f) {
+        if (f.size > 550_000) throw new Error('Fichier trop volumineux (550 Ko maximum).');
+        body = /\.xlsx$/i.test(f.name) ? { xlsx: toBase64(await f.arrayBuffer()) } : { csv: await f.text() };
+      } else if (csv.value.trim()) body = { csv: csv.value };
+      else {
+        if (!url.value.trim()) throw new Error('Choisissez un fichier, collez votre tableau, ou collez le lien de votre Google Sheet.');
+        await post('/seller/sheet', { url: url.value.trim() });   // le lien collé est enregistré automatiquement
+        body = {};
+      }
+      showPreview(await post('/seller/import', { ...body, dry_run: true }), body);
+    } catch (e) { out.replaceChildren(h('div', { class: 'notice bad' }, e?.message || 'La lecture a échoué. Réessayez.')); }
   }, {});
   const MODEL = 'nom\ttéléphone\tquartier\tadresse\tproduit\tquantité\tprix\tconfirmé\nMamadou Diallo\t620000001\tRatoma\tPrès du marché\tMontre\t1\t150000\toui';
   const copyModel = async () => { try { await navigator.clipboard.writeText(MODEL); toast('Modèle copié : collez-le dans la case A1 de votre Google Sheet', 'ok'); } catch { csv.value = MODEL.replace(/\t/g, ','); toast('Modèle placé dans la case « tableau collé » ci-dessous', 'ok'); } };
-  return h('div', { class: 'card' }, h('h2', {}, 'Importer depuis un Google Sheet'),
+  return h('div', { class: 'card' }, h('h2', {}, 'Importer des commandes (Excel, CSV ou Google Sheet)'),
     h('p', { class: 'small muted' }, 'Une ligne = une commande. En-têtes attendus : nom, téléphone, quartier ou ville, adresse, produit, quantité, prix, confirmé (oui/non). Un produit qui n\'est pas dans le catalogue est traité comme votre propre produit (le prix est alors obligatoire). Les lignes déjà importées sont ignorées.'),
     h('p', { class: 'small muted' }, 'Votre Google Sheet doit être partagé avec « Toute personne disposant du lien » en lecture seule.'),
     h('label', { class: 'f' }, h('span', {}, 'Lien de votre Google Sheet'), url),
     h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: save }, 'Enregistrer le lien'), h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: copyModel }, 'Copier le modèle')),
     h('p', { class: 'small muted' }, 'Pas sûr des colonnes ? « Copier le modèle », puis collez-le dans la case A1 de votre Google Sheet : les titres sont sur la ligne 1 et vos commandes à partir de la ligne 2.'),
+    h('label', { class: 'f mt' }, h('span', {}, 'Ou un fichier Excel (.xlsx) ou CSV'), file),
     h('label', { class: 'f mt' }, h('span', {}, 'Ou tableau collé (CSV)'), csv),
-    h('button', { class: 'btn btn-gold mt', type: 'button', onclick: run }, 'Importer mes commandes'), out);
+    h('button', { class: 'btn btn-gold mt', type: 'button', onclick: run }, 'Voir l\'aperçu avant d\'importer'), out);
 }
 
 const STEPS = [
