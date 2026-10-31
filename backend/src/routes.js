@@ -468,7 +468,8 @@ export function registerRoutes(app, { db, cfg }) {
     categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
     products: await q(`SELECT id, name, description, category_id, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = products.id) AS image_ids
-        , (SELECT jsonb_build_object('new_price', c.new_price, 'created_at', c.created_at) FROM product_price_changes c WHERE c.product_id = products.id AND c.status = 'pending') AS price_request
+        , (SELECT jsonb_build_object('new_price', c.new_price, 'created_at', c.created_at) FROM product_price_changes c WHERE c.product_id = products.id AND c.status = 'pending') AS price_request,
+        (SELECT n.new_name FROM product_name_changes n WHERE n.product_id = products.id AND n.status = 'pending') AS name_request
         FROM products WHERE supplier_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [ctx.user.id]),
     arrivals: await q(`SELECT a.id, p.name AS product_name, a.announced_qty, a.counted_qty, a.created_at, a.counted_at
         FROM arrivals a JOIN products p ON p.id = a.product_id WHERE p.supplier_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [ctx.user.id])
@@ -485,8 +486,8 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   app.post('/api/supplier/products/:id/edit', guard(SUP, async (ctx) => {
-    await fn('fn_supplier_edit_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(ctx.body.description, 'Description', 1000));
-    return { ok: true };
+    const r = await fn('fn_supplier_edit_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(ctx.body.description, 'Description', 1000));
+    return { result: r, message: r === 'pending' ? 'Description enregistrée. Le nouveau nom attend la validation de l\'administrateur : l\'ancien nom reste affiché en attendant' : 'Produit modifié' };
   }));
   app.post('/api/supplier/products/:id/price', guard(SUP, async (ctx) => {
     const r = await fn('fn_supplier_set_price', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.price, 'Prix', { min: 1, max: 1e9 }));
@@ -1379,6 +1380,14 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/admin/price-requests/:id/review', guard(ADM, async (ctx) => {
     await fn('fn_admin_review_price_change', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), v.bool(ctx.body.approve, 'Décision'),
       ctx.body.margin_bps == null || ctx.body.margin_bps === '' ? null : v.int(ctx.body.margin_bps, 'Marge', { min: 0, max: 10000 }), v.optStr(ctx.body.note, 'Note', 300));
+    return { ok: true };
+  }));
+  app.get('/api/admin/name-requests', guard(ADM, async () => ({
+    name_requests: await q(`SELECT n.id, n.old_name, n.new_name, u.full_name AS supplier_name, n.created_at
+        FROM product_name_changes n JOIN products p ON p.id = n.product_id JOIN users u ON u.id = p.supplier_id WHERE n.status = 'pending' ORDER BY n.created_at`)
+  })));
+  app.post('/api/admin/name-requests/:id/review', guard(ADM, async (ctx) => {
+    await fn('fn_admin_review_name_change', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), v.bool(ctx.body.approve, 'Décision'), v.optStr(ctx.body.note, 'Note', 300));
     return { ok: true };
   }));
   app.post('/api/admin/products/:id/edit', guard(ADM, async (ctx) => {

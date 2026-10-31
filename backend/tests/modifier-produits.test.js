@@ -44,13 +44,35 @@ after(async () => { await srv.close(); await db.owner.end(); await db.app.end();
 const prod = async (extra = {}) => { const id = await approvedProduct(db, w, { price: 60000, qty: 10, ...extra }); await call(db.app, 'fn_seller_set_price', w.seller, id, 200000); return id; };
 const P = async (id) => (await db.owner.query('SELECT supplier_price, margin_unit, name, description FROM products WHERE id = $1', [id])).rows[0];
 
-test('fournisseur : modifie nom et description ; un autre compte ne peut pas', async () => {
+test('fournisseur : description immédiate, renommage d\'un produit validé soumis à l\'administrateur ; un autre compte ne peut pas', async () => {
   const id = await prod();
-  await call(db.app, 'fn_supplier_edit_product', w.supplier, id, 'Sac en cuir noir', 'Cuir véritable');
-  assert.deepEqual([(await P(id)).name, (await P(id)).description], ['Sac en cuir noir', 'Cuir véritable']);
+  assert.equal(await call(db.app, 'fn_supplier_edit_product', w.supplier, id, (await P(id)).name, 'Cuir véritable'), 'applied');   // même nom : tout de suite
+  assert.equal((await P(id)).description, 'Cuir véritable');
+  const old = (await P(id)).name;
+  const s = await login(w.supplier);
+  const r = await s.post(`/api/supplier/products/${id}/edit`, { name: 'Sac en cuir noir', description: 'Cuir noir' });
+  assert.equal(r.status, 200); assert.equal(r.json.result, 'pending');
+  assert.deepEqual([(await P(id)).name, (await P(id)).description], [old, 'Cuir noir']);              // l'ancien nom reste, la description est déjà à jour
+  assert.equal((await s.get('/api/supplier/products')).json.products.find((x) => x.id === id).name_request, 'Sac en cuir noir');
   await expectErr(call(db.app, 'fn_supplier_edit_product', w.seller, id, 'Piraté', null), 'forbidden');
   await expectErr(call(db.app, 'fn_supplier_edit_product', w.supplier, id, 'x', null), 'invalid_input');
-  await expectErr(call(db.app, 'fn_admin_edit_product', w.supplier, id, 'Autre', null), 'forbidden');
+  const adm = await login(w.admin);
+  const req = (await adm.get('/api/admin/name-requests')).json.name_requests.find((x) => x.new_name === 'Sac en cuir noir');
+  await expectErr(call(db.app, 'fn_admin_review_name_change', w.supplier, req.id, true), 'forbidden');
+  assert.equal((await adm.post(`/api/admin/name-requests/${req.id}/review`, { approve: true })).status, 200);
+  assert.equal((await P(id)).name, 'Sac en cuir noir');
+  await expectErr(call(db.app, 'fn_admin_review_name_change', w.admin, req.id, true), 'invalid_state');
+  // refus : le nom reste ; demande remplacée par la suivante
+  await call(db.app, 'fn_supplier_edit_product', w.supplier, id, 'Nom A', null);
+  await call(db.app, 'fn_supplier_edit_product', w.supplier, id, 'Nom B', null);
+  const pend = (await db.owner.query(`SELECT id, new_name FROM product_name_changes WHERE product_id = $1 AND status = 'pending'`, [id])).rows;
+  assert.deepEqual(pend.map((x) => x.new_name), ['Nom B']);
+  await call(db.app, 'fn_admin_review_name_change', w.admin, pend[0].id, false, 'Nom trompeur');
+  assert.equal((await P(id)).name, 'Sac en cuir noir');
+  // produit non validé : renommage immédiat ; administrateur : direct
+  const nv = await call(db.app, 'fn_supplier_add_product', w.supplier, 'Brouillon', null, 50000, 'wallindirain', 0, null);
+  assert.equal(await call(db.app, 'fn_supplier_edit_product', w.supplier, nv, 'Brouillon 2', null), 'applied');
+  assert.equal((await P(nv)).name, 'Brouillon 2');
   await call(db.app, 'fn_admin_edit_product', w.admin, id, 'Sac cuir noir', null);
   assert.equal((await P(id)).name, 'Sac cuir noir');
 });
@@ -118,10 +140,10 @@ test('vendeur : corrige son dépôt avant le comptage seulement', async () => {
 });
 
 test('retour arrière 041 : refusé s\'il existe des demandes, accepté sinon', async () => {
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-041.sql'), 'utf8');
+  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-042.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-041.sql'), 'utf8');   // la 042 d\'abord
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
-  await assert.rejects(run, /demandes de changement de prix/);
-  await db.owner.query('DELETE FROM product_price_changes');
+  await assert.rejects(run, /demandes de changement de nom/);
+  await db.owner.query('DELETE FROM product_price_changes'); await db.owner.query('DELETE FROM product_name_changes');
   await run();
   assert.equal((await db.owner.query(`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'product_price_changes'`)).rows[0].n, 0);
 });
