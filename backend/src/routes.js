@@ -566,8 +566,25 @@ export function registerRoutes(app, { db, cfg }) {
     await fn('fn_seller_set_channel', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.channel, CHANNELS, 'Canal'));
     return { ok: true };
   }));
+  app.get('/api/seller/deposits', guard(SEL, async (ctx) => ({
+    storage_fee: Number((await q(`SELECT value FROM settings WHERE key = 'seller_storage_fee'`))[0]?.value ?? 0),
+    deposits: await q(`SELECT id, name, announced_qty, qty, reserved_qty, (qty - reserved_qty) AS free_qty, status, count_note, counted_at, created_at
+        FROM seller_deposits WHERE seller_id = $1 ORDER BY created_at DESC LIMIT 100`, [ctx.user.id])
+  })));
+  app.post('/api/seller/deposits', guard(SEL, async (ctx) => {
+    ctx.status = 201;
+    return { id: await fn('fn_seller_announce_deposit', ctx.user.id, v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 })) };
+  }));
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
+    const depositId = b.deposit_id == null || b.deposit_id === '' ? null : v.uuid(b.deposit_id, 'Dépôt');
+    if (depositId) {                     // commande sortie du stock gardé à l'entrepôt : vérification avant de créer la commande
+      const [d] = await q(`SELECT name, status, qty - reserved_qty AS free FROM seller_deposits WHERE id = $1 AND seller_id = $2`, [depositId, ctx.user.id]);
+      if (!d) throw new HttpError(404, 'not_found', 'Dépôt introuvable');
+      if (d.status !== 'stored') throw new HttpError(409, 'invalid_state', 'Ce dépôt n\'a pas encore été compté par l\'entrepôt');
+      if (d.free < Number(b.qty)) throw new HttpError(409, 'insufficient_stock', `Stock insuffisant dans ce dépôt : ${d.free} disponible(s)`);
+      b.product_id = null; b.own_product_name = d.name; b.pickup_detail = 'Entrepôt Wallindirain';
+    }
     const own = b.product_id == null || b.product_id === '';
     const pickup = own ? v.str(b.pickup_detail, 'Où récupérer le colis', { min: 3, max: 200 }) : null;   // produit du vendeur : l'adresse de récupération est obligatoire
     const r = await refusalLogged('vendeur', ctx.user.id, typeof b.commune === 'string' ? b.commune : '', () => fn('fn_seller_create_order_once', ctx.user.id, v.requestKey(b.request_key), own ? null : v.uuid(b.product_id, 'Produit'),
@@ -575,7 +592,8 @@ export function registerRoutes(app, { db, cfg }) {
       b.unit_price == null || b.unit_price === '' ? null : v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }),
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
       v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true));
-    if (own && !r.replayed) await fn('fn_seller_set_pickup', ctx.user.id, r.id, pickup);
+    if (depositId && !r.replayed) await fn('fn_seller_attach_deposit', ctx.user.id, r.id, depositId);
+    else if (own && !r.replayed) await fn('fn_seller_set_pickup', ctx.user.id, r.id, pickup);
     if (!r.replayed && b.channel != null && b.channel !== '' && await channelOn()) await fn('fn_seller_set_channel', ctx.user.id, r.id, v.oneOf(b.channel, CHANNELS, 'Canal'));
     ctx.status = r.replayed ? 200 : 201;
     return r;
@@ -632,11 +650,11 @@ export function registerRoutes(app, { db, cfg }) {
 
 
   // Où récupérer le colis : entrepôt, fournisseur (adresse indiquée par lui) ou vendeur (propre produit). L'adresse du fournisseur n'est donnée qu'à l'équipe et au livreur.
-  const PICKUP_PLACE = `CASE WHEN o.product_id IS NULL THEN 'seller' WHEN p.storage = 'supplier' THEN 'supplier' ELSE 'warehouse' END`;
-  const PICKUP_DETAIL = `CASE WHEN o.product_id IS NULL THEN o.pickup_detail WHEN p.storage = 'supplier' THEN p.pickup_detail ELSE NULL END`;
+  const PICKUP_PLACE = `CASE WHEN o.deposit_id IS NOT NULL THEN 'warehouse' WHEN o.product_id IS NULL THEN 'seller' WHEN p.storage = 'supplier' THEN 'supplier' ELSE 'warehouse' END`;
+  const PICKUP_DETAIL = `CASE WHEN o.deposit_id IS NOT NULL THEN NULL WHEN o.product_id IS NULL THEN o.pickup_detail WHEN p.storage = 'supplier' THEN p.pickup_detail ELSE NULL END`;
   const SELLER_ORDER_COLS = `o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total,
       o.customer_name, o.customer_phone, o.commune, o.address, o.delivery_fee, o.call_fee, o.call_attempts, o.failure_reason, o.return_cause,
-      o.created_at, o.delivered_at, o.track_token, o.risk_flag, o.channel, ${PICKUP_PLACE} AS pickup_place, CASE WHEN o.product_id IS NULL THEN o.pickup_detail END AS pickup_detail, (o.product_id IS NULL AND o.pickup_detail IS NULL) AS pickup_missing,
+      o.created_at, o.delivered_at, o.track_token, o.risk_flag, o.channel, ${PICKUP_PLACE} AS pickup_place, CASE WHEN o.product_id IS NULL AND o.deposit_id IS NULL THEN o.pickup_detail END AS pickup_detail, (o.product_id IS NULL AND o.pickup_detail IS NULL) AS pickup_missing, o.deposit_id,
       (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
       (o.sale_total - o.delivery_fee - o.call_fee - o.qty_from_catalog * o.seller_unit_price) AS expected_gain,
       (o.status = 'new' AND o.call_attempts = 0 AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.order_id = o.id)) AS cancellable`;
@@ -879,12 +897,14 @@ export function registerRoutes(app, { db, cfg }) {
     arrivals: await q(`SELECT a.id, p.name AS product_name, u.full_name AS supplier_name, a.announced_qty, a.created_at, ${IMG_IDS('p.id')} AS image_ids
         FROM arrivals a JOIN products p ON p.id = a.product_id JOIN users u ON u.id = p.supplier_id
         WHERE a.counted_qty IS NULL ORDER BY a.created_at`),
-    handovers: await q(`SELECT o.id, o.ref, p.name AS product_name, o.qty, o.commune, c.full_name AS courier_name, c.phone AS courier_phone,
+    deposits: await q(`SELECT d.id, d.name AS product_name, u.full_name AS seller_name, d.announced_qty, d.created_at
+        FROM seller_deposits d JOIN users u ON u.id = d.seller_id WHERE d.status = 'announced' ORDER BY d.created_at`),
+    handovers: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.commune, c.full_name AS courier_name, c.phone AS courier_phone,
           (SELECT max(h.at) FROM order_history h WHERE h.order_id = o.id AND h.to_status = 'assigned') AS assigned_at,
           hv.handed_at, ${IMG_IDS('p.id')} AS image_ids
-        FROM orders o JOIN products p ON p.id = o.product_id AND p.storage = 'wallindirain' JOIN users c ON c.id = o.courier_id
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id JOIN users c ON c.id = o.courier_id
         LEFT JOIN order_handovers hv ON hv.order_id = o.id AND hv.courier_id = o.courier_id
-        WHERE o.status = 'assigned' ORDER BY (hv.handed_at IS NOT NULL), assigned_at`),
+        WHERE o.status = 'assigned' AND (o.deposit_id IS NOT NULL OR p.storage = 'wallindirain') ORDER BY (hv.handed_at IS NOT NULL), assigned_at`),
     returns: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.failure_reason, o.created_at,
           (SELECT n.note FROM return_notes n WHERE n.order_id = o.id) AS note,
           (SELECT COALESCE(jsonb_agg(rp.id ORDER BY rp.created_at), '[]'::jsonb) FROM return_photos rp WHERE rp.order_id = o.id) AS photo_ids
@@ -909,8 +929,8 @@ export function registerRoutes(app, { db, cfg }) {
           (SELECT n.note FROM return_notes n WHERE n.order_id = o.id) AS note,
           (SELECT COALESCE(jsonb_agg(rp.id ORDER BY rp.created_at), '[]'::jsonb) FROM return_photos rp WHERE rp.order_id = o.id) AS photo_ids
         FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.status = 'returned' ORDER BY o.closed_at DESC NULLS LAST LIMIT 60`),
-    handovers: await q(`SELECT o.ref, p.name AS product_name, o.qty, c.full_name AS courier_name, hv.handed_at, w.full_name AS by_name
-        FROM order_handovers hv JOIN orders o ON o.id = hv.order_id JOIN products p ON p.id = o.product_id JOIN users c ON c.id = hv.courier_id LEFT JOIN users w ON w.id = hv.handed_by
+    handovers: await q(`SELECT o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, c.full_name AS courier_name, hv.handed_at, w.full_name AS by_name
+        FROM order_handovers hv JOIN orders o ON o.id = hv.order_id LEFT JOIN products p ON p.id = o.product_id JOIN users c ON c.id = hv.courier_id LEFT JOIN users w ON w.id = hv.handed_by
         ORDER BY hv.handed_at DESC LIMIT 60`),
     counts: await q(`SELECT c.id, p.name AS product_name, c.expected_qty, c.counted_qty, c.delta, c.note, c.status, c.review_note, c.counted_at, c.reviewed_at, w.full_name AS by_name
         FROM stock_counts c JOIN products p ON p.id = c.product_id LEFT JOIN users w ON w.id = c.counted_by ORDER BY c.counted_at DESC LIMIT 60`),
@@ -919,6 +939,9 @@ export function registerRoutes(app, { db, cfg }) {
   })));
   app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => {
     await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
+  }));
+  app.post('/api/warehouse/deposits/:id/count', guard(WH, async (ctx) => {
+    await fn('fn_warehouse_count_deposit', ctx.user.id, v.uuid(ctx.params.id, 'Dépôt'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
   }));
   app.post('/api/warehouse/stock/:id/count', guard(WH, async (ctx) => {
     ctx.status = 201;

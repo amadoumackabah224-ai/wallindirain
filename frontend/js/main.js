@@ -6,7 +6,7 @@ import { profileView } from './views/profile.js';
 import { helpButton } from './views/support.js';
 import { walletView } from './views/wallet.js';
 import { sellerStats, adminStats, trackView } from './views/stats.js';
-import { sellerOrders, sellerCatalog, sellerNewOrder } from './views/seller.js';
+import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { adminCouriers } from './views/couriers.js';
@@ -25,7 +25,7 @@ let contact = '624390707';
 
 // Onglets par rôle : [clé, icône, libellé, fonction de vue, groupe du menu latéral]
 const TABS = {
-  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c) => sellerOrders(c), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', () => sellerCatalog(), 'Ventes'],
+  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c) => sellerOrders(c), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', () => sellerCatalog(), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
     ['stats', 'chart', 'Mes chiffres', () => sellerStats(), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', () => walletView(), 'Mon activité'], ['invoices', 'receipt', 'Factures', () => myInvoices('seller'), 'Mon activité']],
   supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],

@@ -30,12 +30,13 @@ function todoView() {
   return h('div', {}, h('label', { class: 'f' }, search), liveView(() => get('/warehouse/arrivals'), (data, refresh) => { cache = data; again = refresh; draw(); return box; }, { poll: 20000 }));
 }
 
-function buildTodo({ arrivals: allA, handovers: allH, returns: allR }, refresh, q) {
+function buildTodo({ arrivals: allA, handovers: allH, returns: allR, deposits: allD = [] }, refresh, q) {
     const needle = q.trim().toLowerCase();
     const hit = (...vals) => !needle || vals.some((x) => String(x ?? '').toLowerCase().includes(needle));
     const arrivals = allA.filter((a) => hit(a.product_name, a.supplier_name));
     const handovers = allH.filter((o) => hit(o.ref, o.product_name, o.courier_name, o.commune));
     const returns = allR.filter((r) => hit(r.ref, r.product_name));
+    const deposits = allD.filter((d) => hit(d.product_name, d.seller_name));
     const pending = handovers.filter((x) => !x.handed_at);
     const who = '';
     const handOver = (o) => action(async () => { await post(`/warehouse/handovers/${o.id}`); }, { ok: 'Remise enregistrée', refresh });
@@ -55,6 +56,22 @@ function buildTodo({ arrivals: allA, handovers: allH, returns: allR }, refresh, 
       }
       await post(`/warehouse/arrivals/${a.id}/count`, { counted, ...(note ? { note } : {}) });
     }, { ok: 'Stock mis à jour', refresh });
+    const countDeposit = (d) => action(async () => {
+      const v = await ask({ title: `Compter le dépôt : ${d.product_name}`, text: `Le vendeur annonce ${d.announced_qty} unité(s). Comptez ce que vous avez réellement reçu : seul ce nombre sera disponible pour ses commandes.`, submit: 'Continuer',
+        fields: [{ name: 'counted', label: 'Quantité réellement reçue', type: 'number', inputmode: 'numeric', value: d.announced_qty }] });
+      if (!v) return;
+      const counted = Number(v.counted);
+      if (!Number.isInteger(counted) || counted < 0) { toast('Quantité invalide', 'bad'); return; }
+      let note = null;
+      if (counted !== d.announced_qty) {
+        const w = await ask({ title: 'Écart avec la quantité annoncée', text: `Annoncé : ${d.announced_qty} · Compté : ${counted}. Expliquez l'écart (le vendeur en sera informé).`, submit: `Valider ${counted} unité(s)`,
+          fields: [{ name: 'note', label: 'Explication', type: 'textarea', maxlength: 300, placeholder: 'Ex. 2 cartons manquants, 3 produits abîmés…' }] });
+        if (!w) return;
+        note = (w.note || '').trim();
+        if (note.length < 3) { toast('Écrivez une explication de quelques mots', 'bad'); return; }
+      }
+      await post(`/warehouse/deposits/${d.id}/count`, { counted, ...(note ? { note } : {}) });
+    }, { ok: 'Dépôt enregistré', refresh });
     const receiveReturn = (r) => action(async () => {
       const v = await ask({ title: `Réception du retour ${r.ref}`, text: 'Examinez le colis puis indiquez la cause. Elle décide qui supporte les frais. Une note et des photos (facultatives) protègent tout le monde en cas de désaccord.', submit: 'Enregistrer le retour',
         fields: [{ name: 'cause', label: 'Cause du retour', type: 'select', options: Object.entries(CAUSE_LABEL) },
@@ -80,6 +97,10 @@ function buildTodo({ arrivals: allA, handovers: allH, returns: allR }, refresh, 
         arrivals.length ? arrivals.map((a) => parcel(a.image_ids, h('h3', {}, a.product_name),
           kv([['Fournisseur', a.supplier_name], ['Annoncé', `${a.announced_qty} unité(s)`, 'key'], ['Date', fmtDate(a.created_at)]]),
           h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: countArrival(a) }, 'Compter l\'arrivage')))) : empty('package', 'Aucun arrivage en attente')),
+      deposits.length > 0 && section('Dépôts de vendeurs à compter', deposits.length,
+        deposits.map((d) => h('div', { class: 'card' }, h('h3', {}, d.product_name),
+          kv([['Vendeur', d.seller_name], ['Annoncé', `${d.announced_qty} unité(s)`, 'key'], ['Date', fmtDate(d.created_at)]]),
+          h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: countDeposit(d) }, 'Compter le dépôt'))))),
       section('Retours à réceptionner', returns.length,
         returns.length ? returns.map((r) => h('div', { class: 'card' },
           h('div', { class: 'order-head' }, h('span', { class: 'ref' }, r.ref), r.failure_reason && badge(FAIL_LABEL[r.failure_reason], 'warn')),
