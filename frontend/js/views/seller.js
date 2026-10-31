@@ -1,5 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 
@@ -36,7 +36,7 @@ function orderCard(o, refresh) {
   const trackUrl = `${location.origin}/#/suivi/${o.track_token}`;
   const copyTrack = async () => { try { await navigator.clipboard.writeText(trackUrl); toast('Lien de suivi copié', 'ok'); } catch { toast(trackUrl, 'ok'); } };
   return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''}` },
-    h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad'), o.formula === 'C' && badge('Produit propre', 'grey'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
+    h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.risk_flag && badge('Client à risque', 'bad'), o.formula === 'C' && badge('Produit propre', 'grey'), o.channel && badge(CHANNEL_LABEL[o.channel] || o.channel, 'grey'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
     o.risk_flag && o.status !== 'delivered' && h('div', { class: 'notice bad' }, h('b', {}, icon('alert', 16), ' Client à risque. '), `Ce numéro a déjà eu ${o.risk_incidents || 1} commande(s) non aboutie(s) sur Wallindirain. Prévenez-le que le paiement à la livraison est obligatoire.`),
     kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', h('span', { class: 'gap' }, `${o.customer_name} · `, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, c'est votre vendeur. Suivez votre commande ${o.ref} ici : ${trackUrl}`))], ['Colis à récupérer', pickupText(o)], ['Livraison', `${o.commune}, ${o.address}`],
       ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain), 'key'],
@@ -94,6 +94,8 @@ export function sellerNewOrder({ goTo }) {
     const addr = h('textarea', { required: true, maxlength: 300, placeholder: 'Rue, repère connu (pharmacie, mosquée, marché…)' });
     const already = h('input', { type: 'checkbox' });
     const note = h('input', { type: 'text', maxlength: 300 });
+    const channel = h('select', {}, h('option', { value: '' }, 'Non précisé'), Object.entries(CHANNEL_LABEL).filter(([k]) => k !== 'unknown').map(([k, l]) => h('option', { value: k }, l)));
+    const channelBox = info.features?.order_channel ? h('label', { class: 'f' }, h('span', {}, 'D\'où vient cette commande ?'), channel) : null;
     const pickup = h('input', { type: 'text', maxlength: 200, placeholder: 'Quartier, repère, téléphone sur place' });
     const ownBox = h('div', { class: 'hidden' }, h('label', { class: 'f' }, h('span', {}, 'Nom du produit'), ownName), h('label', { class: 'f' }, h('span', {}, 'Où récupérer le colis ?'), pickup, h('div', { class: 'hint' }, 'Le livreur passera prendre le colis à cet endroit.')), h('label', { class: 'f' }, h('span', {}, 'Prix de vente unitaire (GNF)'), price,
       h('div', { class: 'hint' }, `Doit couvrir au moins la livraison et le call center.`)));
@@ -103,7 +105,7 @@ export function sellerNewOrder({ goTo }) {
     const form = h('form', { onsubmit: async (e) => {
       e.preventDefault(); const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const body = { request_key: requestKey, qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value, already_confirmed: already.checked };
+        const body = { request_key: requestKey, qty: Number(qty.value), customer_name: cname.value, customer_phone: cphone.value, commune: commune.value, address: addr.value, note: note.value, already_confirmed: already.checked, channel: channel.value || undefined };
         if (own.checked) { body.own_product_name = ownName.value; body.pickup_detail = pickup.value; body.unit_price = Number(price.value); } else body.product_id = product.value;
         const r = await post('/seller/orders', body);
         if (r.replayed) { toast(`Commande ${r.ref} déjà enregistrée : aucune seconde commande n'a été créée`, 'ok'); goTo('orders'); return; }
@@ -113,7 +115,7 @@ export function sellerNewOrder({ goTo }) {
       h('label', { class: 'f' }, h('span', {}, 'Type de produit'), h('div', { class: 'gap' }, own, h('span', {}, 'Mon propre produit (hors catalogue)'))),
       catBox, ownBox, h('label', { class: 'f' }, h('span', {}, 'Quantité'), qty),
       h('h2', { class: 'mt' }, 'Client'), h('label', { class: 'f' }, h('span', {}, 'Nom'), cname), h('label', { class: 'f' }, h('span', {}, 'Téléphone'), cphone),
-      h('label', { class: 'f' }, h('span', {}, 'Quartier ou ville'), commune, communeHint), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note),
+      h('label', { class: 'f' }, h('span', {}, 'Quartier ou ville'), commune, communeHint), h('label', { class: 'f' }, h('span', {}, 'Adresse'), addr), h('label', { class: 'f' }, h('span', {}, 'Note pour le call center (facultatif)'), note), channelBox,
       h('label', { class: 'f check' }, already, h('span', {}, h('b', {}, 'J\'ai déjà appelé ce client et il a confirmé.'), h('div', { class: 'hint' }, 'Cochée : la commande ne passe pas par le call center (pas de frais d\'appel) et va directement à l\'affectation au livreur. Ne cochez que si le client a vraiment confirmé.'))),
       h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer la commande'));
     host.replaceChildren(h('h1', {}, 'Nouvelle commande'), h('div', { class: 'card' }, form), importCard());

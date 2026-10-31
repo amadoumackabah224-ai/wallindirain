@@ -90,7 +90,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/public/info', async () => ({
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
-    communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune')
+    communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
+    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1 }
   }));
 
   // =========================================================================
@@ -558,6 +559,13 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/stock', guard(SEL, async (ctx) =>
     fn('fn_seller_buy_stock', ctx.user.id, v.uuid(ctx.body.product_id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }))));
 
+  const CHANNELS = ['facebook', 'whatsapp', 'tiktok', 'instagram', 'site', 'phone', 'other'];
+  const channelOn = async () => (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1;
+  app.post('/api/seller/orders/:id/channel', guard(SEL, async (ctx) => {
+    if (!(await channelOn())) throw new HttpError(404, 'not_found', 'Fonction non disponible');
+    await fn('fn_seller_set_channel', ctx.user.id, v.uuid(ctx.params.id, 'Commande'), v.oneOf(ctx.body.channel, CHANNELS, 'Canal'));
+    return { ok: true };
+  }));
   app.post('/api/seller/orders', guard(SEL, async (ctx) => {
     const b = ctx.body;
     const own = b.product_id == null || b.product_id === '';
@@ -568,6 +576,7 @@ export function registerRoutes(app, { db, cfg }) {
       v.int(b.qty, 'Quantité', { min: 1, max: 100 }), v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'),
       v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }), v.optStr(b.note, 'Note', 300), b.already_confirmed === true));
     if (own && !r.replayed) await fn('fn_seller_set_pickup', ctx.user.id, r.id, pickup);
+    if (!r.replayed && b.channel != null && b.channel !== '' && await channelOn()) await fn('fn_seller_set_channel', ctx.user.id, r.id, v.oneOf(b.channel, CHANNELS, 'Canal'));
     ctx.status = r.replayed ? 200 : 201;
     return r;
   }));
@@ -627,7 +636,7 @@ export function registerRoutes(app, { db, cfg }) {
   const PICKUP_DETAIL = `CASE WHEN o.product_id IS NULL THEN o.pickup_detail WHEN p.storage = 'supplier' THEN p.pickup_detail ELSE NULL END`;
   const SELLER_ORDER_COLS = `o.id, o.ref, o.status, o.formula, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total,
       o.customer_name, o.customer_phone, o.commune, o.address, o.delivery_fee, o.call_fee, o.call_attempts, o.failure_reason, o.return_cause,
-      o.created_at, o.delivered_at, o.track_token, o.risk_flag, ${PICKUP_PLACE} AS pickup_place, CASE WHEN o.product_id IS NULL THEN o.pickup_detail END AS pickup_detail, (o.product_id IS NULL AND o.pickup_detail IS NULL) AS pickup_missing,
+      o.created_at, o.delivered_at, o.track_token, o.risk_flag, o.channel, ${PICKUP_PLACE} AS pickup_place, CASE WHEN o.product_id IS NULL THEN o.pickup_detail END AS pickup_detail, (o.product_id IS NULL AND o.pickup_detail IS NULL) AS pickup_missing,
       (SELECT incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents,
       (o.sale_total - o.delivery_fee - o.call_fee - o.qty_from_catalog * o.seller_unit_price) AS expected_gain,
       (o.status = 'new' AND o.call_attempts = 0 AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.order_id = o.id)) AS cancellable`;
@@ -635,8 +644,9 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/seller/orders', guard(SEL, async (ctx) => {
     const { limit: l, offset } = page(ctx.query);
     const st = ctx.query.status ? v.str(ctx.query.status, 'Statut', { max: 20 }) : null;
+    const ch = ctx.query.channel ? v.oneOf(ctx.query.channel, CHANNELS, 'Canal') : null;
     return { orders: await q(`SELECT ${SELLER_ORDER_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
-        WHERE o.seller_id = $1 AND ($4::text IS NULL OR o.status::text = $4) ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`, [ctx.user.id, l, offset, st]) };
+        WHERE o.seller_id = $1 AND ($4::text IS NULL OR o.status::text = $4) AND ($5::text IS NULL OR o.channel = $5) ORDER BY o.created_at DESC LIMIT $2 OFFSET $3`, [ctx.user.id, l, offset, st, ch]) };
   }));
 
   // Tableau de bord du vendeur : résultats de ses commandes, gains par semaine, produits les plus rentables
@@ -661,7 +671,10 @@ export function registerRoutes(app, { db, cfg }) {
         GROUP BY 1 ORDER BY gain DESC, delivered DESC LIMIT 5`, [ctx.user.id, days]);
     const failedByCause = await q(`SELECT COALESCE(return_cause::text, 'unknown') AS cause, count(*)::int AS n FROM orders
         WHERE seller_id = $1 AND status IN ('failed','return_pending','returned','refused') AND created_at >= now() - make_interval(days => $2) GROUP BY 1 ORDER BY n DESC`, [ctx.user.id, days]);
-    return { days, ...t, delivery_rate: done ? Math.round((t.delivered * 1000) / done) / 10 : null, weeks, products, failed_by_cause: failedByCause };
+    const byChannel = await channelOn() ? await q(`SELECT COALESCE(channel, 'unknown') AS channel, count(*)::int AS total, count(*) FILTER (WHERE status = 'delivered')::int AS delivered,
+        COALESCE(sum(sale_total) FILTER (WHERE status = 'delivered'), 0)::bigint AS sales
+        FROM orders WHERE seller_id = $1 AND created_at >= now() - make_interval(days => $2) GROUP BY 1 ORDER BY total DESC`, [ctx.user.id, days]) : null;
+    return { days, ...t, by_channel: byChannel, delivery_rate: done ? Math.round((t.delivered * 1000) / done) / 10 : null, weeks, products, failed_by_cause: failedByCause };
   }));
 
   app.get('/api/seller/ranking', guard(SEL, async (ctx) => (await q('SELECT fn_seller_ranking($1) AS r', [ctx.user.id]))[0].r));

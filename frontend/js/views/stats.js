@@ -1,5 +1,5 @@
 // Tableaux de bord (vendeur, administrateur), suivi de commande pour le client, parrainage.
-import { h, fmtGNF, fmtDate, liveView, table, empty, kv, toast, badge, trophy, TROPHY, CAUSE_LABEL } from '../ui.js';
+import { h, fmtGNF, fmtDate, liveView, table, empty, kv, toast, badge, trophy, TROPHY, CAUSE_LABEL, CHANNEL_LABEL } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PERIODS = [[7, '7 jours'], [30, '30 jours'], [90, '3 mois'], [365, '1 an']];
@@ -42,6 +42,8 @@ function sellerStatsBody() {
         tile('Échecs et retours', s.failed, `${s.cancelled} annulée(s)`),
         tile('Chiffre d\'affaires livré', fmtGNF(s.sales))),
       s.delivery_rate != null && s.delivery_rate < 60 && h('div', { class: 'notice warn mt' }, 'Moins de 6 commandes sur 10 sont livrées. Vérifiez les adresses et assurez-vous que vos clients veulent vraiment le produit : chaque refus coûte des frais.'),
+      s.by_channel && s.by_channel.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Mes commandes par canal'),
+        table(['Canal', 'Commandes', 'Livrées', 'Ventes livrées'], s.by_channel.map((c) => [CHANNEL_LABEL[c.channel] || c.channel, c.total, c.delivered, fmtGNF(c.sales)]))),
       h('div', { class: 'card' }, h('h2', {}, 'Mes gains par semaine'),
         s.weeks.length ? bars(s.weeks.map((w) => ({ label: weekLabel(w.week), value: Number(w.gain) })), fmtGNF) : h('p', { class: 'muted' }, 'Aucun gain encore : ils apparaissent après les livraisons.')),
       h('div', { class: 'card' }, h('h2', {}, 'Mes produits les plus rentables'),
