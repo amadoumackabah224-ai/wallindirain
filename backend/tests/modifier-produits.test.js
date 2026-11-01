@@ -140,7 +140,7 @@ test('vendeur : corrige son dépôt avant le comptage seulement', async () => {
 });
 
 test('retour arrière 041 : refusé s\'il existe des demandes, accepté sinon', async () => {
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-042.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-041.sql'), 'utf8');   // la 042 d\'abord
+  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-043.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-042.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-041.sql'), 'utf8');   // la 042 d\'abord
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
   await assert.rejects(run, /demandes de changement de nom/);
   await db.owner.query('DELETE FROM product_price_changes'); await db.owner.query('DELETE FROM product_name_changes');

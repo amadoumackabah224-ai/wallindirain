@@ -1,5 +1,6 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
 import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
+import { lowStockNotice } from './outils.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 
@@ -231,7 +232,7 @@ export function sellerDeposits() {
       if (!v) return;
       await post('/seller/deposits', { name: v.name, qty: Number(v.qty) });
     }, { ok: 'Dépôt annoncé : le magasinier va le compter', refresh });
-    return h('div', {}, h('h1', {}, 'Mon stock chez Wallindirain'),
+    return h('div', {}, h('h1', {}, 'Mon stock chez Wallindirain'), lowStockNotice(),
       h('div', { class: 'notice' }, 'Ce stock reste à vous. Wallindirain le garde, et les livreurs le récupèrent à l\'entrepôt quand vous créez une commande avec « Mon propre produit ». Vos gains ne changent pas.',
         storage_fee > 0 ? ' Des frais de stockage sont prévus : ils vous seront annoncés avant toute facturation.' : ' Le stockage est gratuit pour le moment.'),
       h('button', { class: 'btn btn-gold btn-block mt', type: 'button', onclick: announce }, 'Envoyer du stock'),

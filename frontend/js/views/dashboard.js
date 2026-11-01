@@ -1,6 +1,7 @@
 // Tableau de bord du vendeur : l'essentiel d'un coup d'œil. Aucun calcul métier n'est refait ici : les montants viennent
 // tels quels de l'API (portefeuille, commandes, statistiques) ; seules des additions d'affichage sont faites.
 import { h, fmtGNF, fmtDate, liveView, statusBadge, empty, pageHead, metric, alertRow } from '../ui.js';
+import { lowStockNotice } from './outils.js';
 import { get } from '../api.js';
 import { icon } from '../icons.js';
 import { columnChart, segmentBar } from '../charts.js';
@@ -118,6 +119,7 @@ export function sellerDashboard({ goTo, user }) {
     pageHead(first ? `Bonjour ${first}` : 'Bonjour', dayLabel(new Date()), h('button', { class: 'btn btn-gold hide-sm', type: 'button', onclick: () => goTo('new') }, icon('plus', 18), 'Nouvelle commande')),
     liveView(() => Promise.all([get('/wallet'), get(`/seller/orders?limit=${LIMIT}`), get('/seller/stats?days=30')]), ([w, { orders }, s], refresh) => h('div', {},
       alerts(w, goTo, refresh),
+      lowStockNotice(goTo),
       moneySection(w, orders, goTo),
       ordersSection(orders, s, goTo),
       h('div', { class: 'dash-cols' }, h('div', {}, latestOrders(orders, goTo)), h('div', {}, quickActions(goTo), startSlot(goTo), referralNudge(goTo, s.delivered)))), { poll: 30000, placeholder: skeleton() }),
