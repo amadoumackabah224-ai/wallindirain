@@ -98,7 +98,11 @@ export function adminUsers() {
 }
 
 export function adminProducts() {
-  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')), ...(await get('/admin/price-requests')) }), ({ products, counts, requests = [], categories = [] }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')), ...(await get('/admin/price-requests')), ...(await get('/admin/name-requests')) }), ({ products, counts, requests = [], name_requests = [], categories = [] }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+    name_requests.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Changements de nom à valider'),
+      name_requests.map((r) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, `${r.old_name} → ${r.new_name}`), h('div', { class: 'small muted' }, r.supplier_name)),
+        h('button', { class: 'btn btn-sm btn-ok', onclick: action(async () => { await post(`/admin/name-requests/${r.id}/review`, { approve: true }); }, { ok: 'Nom accepté', refresh }) }, 'Accepter'),
+        h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: 'Refuser le changement de nom ?', submit: 'Refuser', danger: true, fields: [{ name: 'note', label: 'Motif (facultatif)', required: false, maxlength: 300 }] }); if (v) await post(`/admin/name-requests/${r.id}/review`, { approve: false, note: v.note || undefined }); }, { ok: 'Demande refusée', refresh }) }, 'Refuser')))),
     requests.some((r) => r.status === 'pending') && h('div', { class: 'card' }, h('h2', {}, 'Changements de prix à valider'),
       h('p', { class: 'muted small' }, 'Le fournisseur demande un nouveau prix. L\'ancien reste actif tant que vous n\'avez pas accepté. La marge est recalculée comme à la validation d\'un produit.'),
       requests.filter((r) => r.status === 'pending').map((r) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, r.product_name), h('div', { class: 'small muted' }, `${r.supplier_name} · ${amount(r.old_price)} → ${amount(r.new_price)}`), r.locked && h('div', { class: 'small' }, badge('Verrouillé : stock prépayé ou commandes en cours', 'warn'))),
