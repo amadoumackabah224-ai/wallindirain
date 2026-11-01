@@ -735,6 +735,113 @@ export function registerRoutes(app, { db, cfg }) {
     return { days, ...t, by_channel: byChannel, delivery_rate: done ? Math.round((t.delivered * 1000) / done) / 10 : null, weeks, products, failed_by_cause: failedByCause };
   }));
 
+  // ===== Outils du vendeur : carnet de clients, bénéfice, export, retours, stock bas =====
+  const FAILED = `('failed','return_pending','returned','refused')`;
+  const periodDays = (query, allowed = [7, 30, 90, 365]) => (allowed.includes(Number(query.days)) ? Number(query.days) : 30);
+
+  // clients du vendeur (regroupés par numéro) : commandes, livraisons, échecs, dernière commande, note, alerte « client à risque »
+  app.get('/api/seller/customers', guard(SEL, async (ctx) => {
+    const search = typeof ctx.query.q === 'string' ? ctx.query.q.trim().slice(0, 60) : '';
+    const like = `%${search.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    const rows = await q(`SELECT o.customer_phone AS phone, (array_agg(o.customer_name ORDER BY o.created_at DESC))[1] AS name,
+        (array_agg(o.commune ORDER BY o.created_at DESC))[1] AS commune,
+        count(*) FILTER (WHERE o.status <> 'cancelled')::int AS orders,
+        count(*) FILTER (WHERE o.status = 'delivered')::int AS delivered,
+        count(*) FILTER (WHERE o.status IN ${FAILED})::int AS failed,
+        count(*) FILTER (WHERE o.status IN ('new','in_call','confirmed','assigned','picked_up','on_the_way'))::int AS in_progress,
+        COALESCE(sum(o.sale_total) FILTER (WHERE o.status = 'delivered'), 0)::bigint AS spent,
+        max(o.created_at) AS last_order_at, n.note,
+        (SELECT r.incidents FROM risky_customers r WHERE r.customer_phone = o.customer_phone) AS risk_incidents
+      FROM orders o LEFT JOIN seller_customer_notes n ON n.seller_id = o.seller_id AND n.customer_phone = o.customer_phone
+      WHERE o.seller_id = $1 AND ($2 = '' OR o.customer_name ILIKE $3 OR o.customer_phone LIKE $3)
+      GROUP BY o.customer_phone, n.note ORDER BY max(o.created_at) DESC LIMIT 300`, [ctx.user.id, search, like]);
+    return { customers: rows, repeat_buyers: rows.filter((c) => c.delivered >= 2).length };
+  }));
+  app.get('/api/seller/customers/:phone', guard(SEL, async (ctx) => {
+    const phone = v.phone(ctx.params.phone, 'Numéro du client');
+    const orders = await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total, o.commune,
+        o.created_at, o.delivered_at, o.failure_reason, o.return_cause
+      FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.seller_id = $1 AND o.customer_phone = $2 ORDER BY o.created_at DESC LIMIT 100`, [ctx.user.id, phone]);
+    if (!orders.length) throw new HttpError(404, 'not_found', 'Client introuvable');
+    const [n] = await q('SELECT note, updated_at FROM seller_customer_notes WHERE seller_id = $1 AND customer_phone = $2', [ctx.user.id, phone]);
+    const [r] = await q('SELECT incidents FROM risky_customers WHERE customer_phone = $1', [phone]);
+    return { phone, orders, note: n?.note ?? null, risk_incidents: r?.incidents ?? null };
+  }));
+  app.post('/api/seller/customers/:phone/note', guard(SEL, async (ctx) => {
+    limit(`cnote:${ctx.user.id}`, 120, 3600_000);
+    await fn('fn_seller_set_customer_note', ctx.user.id, v.phone(ctx.params.phone, 'Numéro du client'), typeof ctx.body.note === 'string' ? ctx.body.note.slice(0, 600) : '');
+    return { ok: true };
+  }));
+
+  // vrai bénéfice : gains réellement crédités (portefeuille) moins les dépenses saisies par le vendeur
+  app.get('/api/seller/profit', guard(SEL, async (ctx) => {
+    const days = periodDays(ctx.query);
+    const [g] = await q(`SELECT COALESCE(sum(amount), 0)::bigint AS gains, count(DISTINCT order_id)::int AS delivered FROM wallet_entries
+        WHERE user_id = $1 AND kind = 'seller_gain' AND created_at >= now() - make_interval(days => $2)`, [ctx.user.id, days]);
+    const byCat = await q(`SELECT category, sum(amount)::bigint AS total FROM seller_expenses
+        WHERE seller_id = $1 AND voided_at IS NULL AND spent_on >= current_date - $2::int GROUP BY 1 ORDER BY 2 DESC`, [ctx.user.id, days]);
+    const expenses = byCat.reduce((a, c) => a + Number(c.total), 0);
+    const ads = Number(byCat.find((c) => c.category === 'ads')?.total ?? 0);
+    const adsByChannel = await q(`SELECT e.channel, sum(e.amount)::bigint AS ads,
+        (SELECT count(*)::int FROM orders o WHERE o.seller_id = $1 AND o.channel = e.channel AND o.status = 'delivered' AND o.delivered_at >= now() - make_interval(days => $2)) AS delivered
+        FROM seller_expenses e WHERE e.seller_id = $1 AND e.voided_at IS NULL AND e.category = 'ads' AND e.channel IS NOT NULL AND e.spent_on >= current_date - $2::int GROUP BY e.channel ORDER BY 2 DESC`, [ctx.user.id, days]);
+    const recent = await q(`SELECT id, spent_on, category, channel, amount, note, voided_at FROM seller_expenses WHERE seller_id = $1 ORDER BY spent_on DESC, created_at DESC LIMIT 50`, [ctx.user.id]);
+    return { days, gains: Number(g.gains), delivered: g.delivered, expenses, ads, net: Number(g.gains) - expenses, by_category: byCat,
+      ads_per_delivery: g.delivered > 0 && ads > 0 ? Math.round(ads / g.delivered) : null, ads_by_channel: adsByChannel, recent };
+  }));
+  const EXPENSE_CATEGORIES = ['ads', 'goods', 'transport', 'other'];
+  app.post('/api/seller/expenses', guard(SEL, async (ctx) => {
+    limit(`expense:${ctx.user.id}`, 60, 3600_000);
+    const b = ctx.body;
+    const date = typeof b.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? b.date : null;
+    if (!date) throw new HttpError(400, 'invalid_input', 'Date invalide');
+    const category = v.oneOf(b.category, EXPENSE_CATEGORIES, 'Catégorie');
+    const channel = b.channel == null || b.channel === '' ? null : v.oneOf(b.channel, CHANNELS, 'Canal');
+    const id = await fn('fn_seller_add_expense', ctx.user.id, date, category, channel, v.int(b.amount, 'Montant', { min: 1, max: 100_000_000_000 }), v.optStr(b.note, 'Note', 200));
+    ctx.status = 201;
+    return { id };
+  }));
+  app.post('/api/seller/expenses/:id/void', guard(SEL, async (ctx) => { await fn('fn_seller_void_expense', ctx.user.id, v.uuid(ctx.params.id, 'Dépense')); return { ok: true }; }));
+
+  // export des ventes (le navigateur fabrique le fichier CSV à partir de ces lignes)
+  app.get('/api/seller/export', guard(SEL, async (ctx) => {
+    limit(`export:${ctx.user.id}`, 20, 3600_000);
+    const days = periodDays(ctx.query, [30, 90, 365, 3650]);
+    const orders = await q(`SELECT o.ref, o.created_at, o.delivered_at, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.customer_name, o.customer_phone, o.commune,
+        o.status, o.sale_total, o.delivery_fee, o.call_fee, o.channel, o.failure_reason, o.return_cause,
+        (o.sale_total - o.delivery_fee - o.call_fee - o.qty_from_catalog * o.seller_unit_price) AS expected_gain,
+        (SELECT sum(w.amount) FROM wallet_entries w WHERE w.order_id = o.id AND w.user_id = o.seller_id AND w.kind = 'seller_gain')::bigint AS real_gain
+      FROM orders o LEFT JOIN products p ON p.id = o.product_id
+      WHERE o.seller_id = $1 AND o.created_at >= now() - make_interval(days => $2) ORDER BY o.created_at DESC LIMIT 5000`, [ctx.user.id, days]);
+    const expenses = await q(`SELECT spent_on, category, channel, amount, note FROM seller_expenses WHERE seller_id = $1 AND voided_at IS NULL AND spent_on >= current_date - $2::int ORDER BY spent_on DESC LIMIT 5000`, [ctx.user.id, days]);
+    return { days, orders, expenses, truncated: orders.length >= 5000 };
+  }));
+
+  // retours détaillés : motif, cause, et sort du produit (remis en stock ou non)
+  app.get('/api/seller/returns', guard(SEL, async (ctx) => {
+    const days = periodDays(ctx.query);
+    const rows = await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.customer_name, o.customer_phone, o.commune,
+        o.failure_reason, o.return_cause, o.created_at, o.closed_at, o.deposit_id,
+        (o.status = 'returned' AND (o.return_cause = 'customer_refusal' OR (o.return_cause = 'defective' AND o.formula = 'C'))) AS restocked
+      FROM orders o LEFT JOIN products p ON p.id = o.product_id
+      WHERE o.seller_id = $1 AND o.status IN ${FAILED} AND o.created_at >= now() - make_interval(days => $2) ORDER BY o.created_at DESC LIMIT 200`, [ctx.user.id, days]);
+    const [t] = await q(`SELECT count(*)::int AS total,
+        count(*) FILTER (WHERE status IN ${FAILED})::int AS failed FROM orders WHERE seller_id = $1 AND status <> 'cancelled' AND created_at >= now() - make_interval(days => $2)`, [ctx.user.id, days]);
+    const tally = (key) => Object.entries(rows.reduce((m, r) => { const k = r[key] || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {})).map(([k, n]) => ({ key: k, n })).sort((a, b) => b.n - a.n);
+    return { days, rows, total_orders: t.total, failed: t.failed, failure_rate: t.total ? Math.round((t.failed * 1000) / t.total) / 10 : null,
+      awaiting: rows.filter((r) => r.status === 'return_pending').length, restocked: rows.filter((r) => r.restocked).length,
+      by_reason: tally('failure_reason'), by_cause: tally('return_cause'), by_commune: tally('commune').slice(0, 5), by_product: tally('product_name').slice(0, 5) };
+  }));
+
+  // stock bas : dépôts comptés et stock prépayé du vendeur dont le disponible est sous le seuil
+  const LOW_STOCK = 5;
+  app.get('/api/seller/low-stock', guard(SEL, async (ctx) => {
+    const deposits = await q(`SELECT id, name, (qty - reserved_qty)::int AS available FROM seller_deposits WHERE seller_id = $1 AND status = 'stored' AND qty - reserved_qty <= $2 ORDER BY qty - reserved_qty, name`, [ctx.user.id, LOW_STOCK]);
+    const prepaid = await q(`SELECT p.id, p.name, (s.qty - s.reserved_qty)::int AS available FROM seller_stock s JOIN products p ON p.id = s.product_id
+        WHERE s.seller_id = $1 AND s.qty > 0 AND s.qty - s.reserved_qty <= $2 ORDER BY s.qty - s.reserved_qty, p.name`, [ctx.user.id, LOW_STOCK]);
+    return { threshold: LOW_STOCK, deposits, prepaid, count: deposits.length + prepaid.length };
+  }));
+
   app.get('/api/seller/ranking', guard(SEL, async (ctx) => (await q('SELECT fn_seller_ranking($1) AS r', [ctx.user.id]))[0].r));
   app.post('/api/seller/ranking-visibility', guard(SEL, async (ctx) => { await fn('fn_set_ranking_visibility', ctx.user.id, ctx.body.hidden === true); }));
   // Liste « pour bien démarrer » du vendeur : ce qui est fait, ce qui reste à faire

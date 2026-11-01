@@ -195,7 +195,7 @@ export function ask({ title, text, fields = [], submit = 'Valider', danger = fal
           return h('label', { class: 'f' }, h('span', {}, f.label), el, status, preview, h('div', { class: 'hint' }, f.hint || 'Cachez les informations qui n\'ont rien à voir avec le transfert (autres contacts, soldes, messages privés) avant de prendre la capture.'));
         }
         if (f.type === 'select') el = h('select', {}, f.options.map(([v, l]) => h('option', { value: v, selected: v === f.value }, l)));
-        else if (f.type === 'textarea') el = h('textarea', { placeholder: f.placeholder, maxlength: f.maxlength });
+        else if (f.type === 'textarea') el = h('textarea', { placeholder: f.placeholder, maxlength: f.maxlength, rows: f.rows }, f.value || '');
         else if (f.type === 'checkbox') el = h('input', { type: 'checkbox', checked: !!f.value });
         else el = h('input', { type: f.type || 'text', value: f.value, placeholder: f.placeholder, inputmode: f.inputmode, maxlength: f.maxlength, required: f.required !== false, autocomplete: 'off', class: f.code ? 'code-input' : '' });
         inputs[f.name] = el;
