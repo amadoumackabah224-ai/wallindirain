@@ -50,7 +50,7 @@ export function answer(role, question) {
   }
   return {
     found: false, team: true,
-    text: 'Je n\'ai pas trouvé de réponse précise à cette question. Essayez avec d\'autres mots, choisissez un sujet ci-dessous, ou écrivez à l\'équipe : un administrateur vous répondra.',
+    text: 'Je ne connais pas la réponse à cette question. Essayez avec d\'autres mots, ou écrivez à l\'équipe : un administrateur vous répondra dans l\'application.',
     related: ranked.slice(0, 3).map(([e]) => brief(e))
   };
 }
