@@ -3,6 +3,7 @@ import { h, ask, fmtGNF, fmtDate, fmtPhone, payoutText, liveView, table, badge, 
 import { get, post } from '../api.js';
 import { startIdentityFlow } from './kyc.js';
 import { receiptButton } from './invoices.js';
+import { sellerFinances } from './finances.js';
 
 const WD_STATUS = { pending_code: ['Expiré', 'grey'], requested: ['En attente de validation', 'warn'], paid: ['Payé', 'ok'], rejected: ['Refusé', 'bad'], expired: ['Expiré', 'grey'] };
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
@@ -35,6 +36,7 @@ export function walletView() {
       toast('Demande envoyée : l\'administration va la vérifier puis vous payer.', 'ok'); await refresh();
     });
     return h('div', {}, h('h1', {}, 'Portefeuille'),
+      w.role === 'seller' && sellerFinances(),
       h('div', { class: 'balance mb' }, h('div', { class: 'sub' }, 'Disponible pour retrait'), h('div', { class: 'big' }, fmtGNF(free)),
         w.reserved > 0 && h('div', { class: 'sub' }, `${fmtGNF(w.reserved)} réservés pour vos demandes de retrait en attente (débités quand l'argent est envoyé)`),
         w.pending > 0 && h('div', { class: 'sub' }, `+ ${fmtGNF(w.pending)} bientôt disponibles (délai de sécurité après livraison)`),
