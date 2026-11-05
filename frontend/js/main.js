@@ -7,6 +7,7 @@ import { helpButton } from './views/support.js';
 import { walletView } from './views/wallet.js';
 import { sellerStats, adminStats, trackView } from './views/stats.js';
 import { sellerCustomers, sellerProfit, sellerReturns } from './views/outils.js';
+import { sellerRelances } from './views/relances.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
@@ -27,7 +28,7 @@ let contact = '624390707';
 // Onglets par rôle : [clé, icône, libellé, fonction de vue, groupe du menu latéral]
 const TABS = {
   seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c) => sellerOrders(c), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', () => sellerCatalog(), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
-    ['stats', 'chart', 'Mes chiffres', () => sellerStats(), 'Mon activité'], ['customers', 'users', 'Mes clients', () => sellerCustomers(), 'Mon activité'], ['profit', 'trend', 'Mon bénéfice', () => sellerProfit(), 'Mon activité'], ['returns', 'alert', 'Mes retours', () => sellerReturns(), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', () => walletView(), 'Mon activité'], ['invoices', 'receipt', 'Factures', () => myInvoices('seller'), 'Mon activité']],
+    ['stats', 'chart', 'Mes chiffres', () => sellerStats(), 'Mon activité'], ['customers', 'users', 'Mes clients', () => sellerCustomers(), 'Mon activité'], ['relances', 'message', 'Relances', () => sellerRelances(), 'Mon activité'], ['profit', 'trend', 'Mon bénéfice', () => sellerProfit(), 'Mon activité'], ['returns', 'alert', 'Mes retours', () => sellerReturns(), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', () => walletView(), 'Mon activité'], ['invoices', 'receipt', 'Factures', () => myInvoices('seller'), 'Mon activité']],
   supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],

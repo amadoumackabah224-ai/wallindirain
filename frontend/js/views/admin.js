@@ -211,7 +211,18 @@ export function adminDeposit() {
 }
 
 export function adminSettings() {
-  return h('div', {}, adminSettingsMain(), adminSubscriptions());
+  return h('div', {}, adminSettingsMain(), adminRelanceOptouts(), adminSubscriptions());
+}
+
+// Relances des vendeurs : clients qui ont demandé à ne plus être contactés ; seul l'administrateur peut les réactiver
+function adminRelanceOptouts() {
+  return liveView(() => get('/admin/relances/optouts'), ({ optouts }, refresh) => h('div', { class: 'card' }, h('h2', {}, 'Relances : clients désinscrits'),
+    h('p', { class: 'small muted' }, 'Ces clients ont demandé à un vendeur de ne plus les contacter. Ne les réactivez que si le client le demande.'),
+    optouts.length ? table(['Date', 'Vendeur', 'Client', ''], optouts.map((o) => [fmtDate(o.created_at), o.seller_name, fmtPhone(o.customer_phone),
+      h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: action(async () => {
+        if (!(await confirmBox('Réactiver ce client ?', `${fmtPhone(o.customer_phone)} pourra de nouveau être contacté par ${o.seller_name}.`, 'Réactiver'))) return;
+        await post('/admin/relances/reactivate', { seller_id: o.seller_id, phone: o.customer_phone });
+      }, { ok: 'Client réactivé', refresh }) }, 'Réactiver')])) : h('p', { class: 'small muted' }, 'Aucun client désinscrit.')));
 }
 
 function adminSettingsMain() {
