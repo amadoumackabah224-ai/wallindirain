@@ -139,6 +139,8 @@ test('vente par un autre vendeur : le proposant est payé comme un fournisseur, 
   assert.ok(await gain(w.seller2, 'seller_gain') > 0, 'le vendeur qui a vendu est payé');
   assert.equal(await gain(w.seller, 'seller_gain'), 0);
   assert.equal((await rows('SELECT count(*)::int AS n FROM fn_ledger_check()'))[0].n, 0, 'les comptes de la plateforme restent exacts');
+  // la marge de Wallindirain reste cachée au proposant, comme pour un fournisseur
+  assert.ok(!/margin|vendor_price/i.test(JSON.stringify((await s.get('/api/supplier/products')).json)), 'aucune marge dans ce que voit le proposant');
   // le proposant voit les colis à préparer (stock chez lui) sans connaître l'acheteur
   const o2 = await call(db.app, 'fn_seller_create_order', w.seller2, pB, null, null, 1, 'Client Trois', '622333333', 'Kaloum', 'Rue 3', null, false).catch(() => null);
   const mine = (await s.get('/api/supplier/orders')).json.orders;
