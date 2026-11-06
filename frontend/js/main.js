@@ -14,7 +14,7 @@ import { notificationsView, adminAnnounce, bellCount } from './views/notificatio
 import { adminCouriers } from './views/couriers.js';
 import { icon } from './icons.js';
 import { startPwa, offlineScreen } from './pwa.js';
-import { supplierProducts, supplierOrders } from './views/supplier.js';
+import { supplierProducts, supplierOrders, sellerProposals } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
 import { warehouseTab } from './views/warehouse.js';
@@ -27,7 +27,7 @@ let contact = '624390707';
 
 // Onglets par rôle : [clé, icône, libellé, fonction de vue, groupe du menu latéral]
 const TABS = {
-  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c) => sellerOrders(c), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', () => sellerCatalog(), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
+  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c) => sellerOrders(c), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', () => sellerCatalog(), 'Ventes'], ['proposals', 'plus', 'Proposer un produit', () => sellerProposals(), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
     ['stats', 'chart', 'Mes chiffres', () => sellerStats(), 'Mon activité'], ['customers', 'users', 'Mes clients', () => sellerCustomers(), 'Mon activité'], ['relances', 'message', 'Relances', () => sellerRelances(), 'Mon activité'], ['profit', 'trend', 'Mon bénéfice', () => sellerProfit(), 'Mon activité'], ['returns', 'alert', 'Mes retours', () => sellerReturns(), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', () => walletView(), 'Mon activité'], ['invoices', 'receipt', 'Factures', () => myInvoices('seller'), 'Mon activité']],
   supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
