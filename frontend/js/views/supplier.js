@@ -4,7 +4,7 @@ import { get, post } from '../api.js';
 
 const PSTATUS = { pending: ['En attente de validation', 'warn'], approved: ['Validé', 'ok'], rejected: ['Refusé', 'bad'], archived: ['Archivé', 'grey'] };
 
-export function supplierProducts() {
+export function supplierProducts({ seller = false } = {}) {
   return liveView(() => get('/supplier/products'), ({ products, arrivals, categories = [] }, refresh) => {
     const add = action(async () => {
       const v = await ask({ title: 'Proposer un produit', submit: 'Envoyer pour validation', fields: [
@@ -20,7 +20,8 @@ export function supplierProducts() {
       if (v.photo) { try { await post(`/supplier/products/${created.id}/images`, { image: v.photo }); } catch (ex) { photoNote = ` La photo n'a pas pu être ajoutée (${ex.message}) : ajoutez-la depuis la fiche du produit.`; } }
       toast(created.message + photoNote, photoNote ? 'warn' : 'ok');
     }, { refresh });
-    return h('div', {}, h('div', { class: 'gap mb' }, h('h1', { class: 'grow' }, 'Mes produits'), h('button', { class: 'btn btn-gold', onclick: add }, '+ Proposer un produit')),
+    return h('div', {}, h('div', { class: 'gap mb' }, h('h1', { class: 'grow' }, seller ? 'Mes produits proposés' : 'Mes produits'), h('button', { class: 'btn btn-gold', onclick: add }, '+ Proposer un produit')),
+      seller && h('div', { class: 'notice' }, 'Proposez vos produits aux autres vendeurs. Vous fixez votre prix ; l\'administrateur valide le produit et ajoute la marge de Wallindirain avant qu\'il apparaisse dans le catalogue. Quand un autre vendeur le livre, votre prix est crédité sur votre portefeuille. Vous ne pouvez pas vendre ce produit vous-même depuis le catalogue.'),
       products.length ? h('div', { class: 'grid g2' }, products.map((p) => {
         const arrive = action(async () => { const v = await ask({ title: `Annoncer un arrivage : ${p.name}`, text: 'Le magasinier comptera les produits reçus. Seuls les produits comptés deviennent vendables.', submit: 'Annoncer', fields: [{ name: 'qty', label: 'Quantité envoyée', type: 'number', inputmode: 'numeric' }] }); if (v) await post(`/supplier/products/${p.id}/arrival`, { qty: Number(v.qty) }); }, { ok: 'Arrivage annoncé', refresh });
         const setStock = action(async () => { const v = await ask({ title: `Mon stock : ${p.name}`, text: `Déjà réservées : ${p.reserved_qty}`, submit: 'Enregistrer', fields: [{ name: 'qty', label: 'Quantité disponible chez moi', type: 'number', value: p.stock_qty }] }); if (v) await post(`/supplier/products/${p.id}/stock`, { qty: Number(v.qty) }); }, { ok: 'Stock mis à jour', refresh });
@@ -46,4 +47,14 @@ export function supplierOrders() {
   return liveView(() => get('/supplier/orders'), ({ orders }) => h('div', {}, h('h1', {}, 'Colis'),
     h('div', { class: 'notice' }, 'Les colis sont identifiés uniquement par leur référence WLD. Préparez ceux marqués « à préparer » (stock chez vous).'),
     h('div', { class: 'card' }, table(['Référence', 'Produit', 'Quantité', 'À préparer', 'Statut', 'Date'], orders.map((o) => [h('b', {}, o.ref), o.product_name, o.qty, o.qty_to_prepare || '', statusBadge(o.status), fmtDate(o.created_at)]), { empty: empty('📭', 'Aucun colis pour le moment') }))), { poll: 30000 });
+}
+
+/** Espace vendeur : ses produits proposés au catalogue, puis les colis à préparer quand le stock est chez lui. */
+export function sellerProposals() {
+  const parcels = liveView(() => get('/supplier/orders'), ({ orders }) => (orders.length ? h('div', { class: 'card' }, h('h2', {}, 'Colis de mes produits'),
+    h('div', { class: 'small muted mb' }, 'Identifiés uniquement par leur référence WLD. Préparez ceux marqués « à préparer » (stock chez vous).'),
+    table(['Référence', 'Produit', 'Quantité', 'À préparer', 'Statut', 'Date'], orders.map((o) => [h('b', {}, o.ref), o.product_name, o.qty, o.qty_to_prepare || '', statusBadge(o.status), fmtDate(o.created_at)]))) : h('div')), { poll: 30000 });
+  // la fonction peut être éteinte par l'administrateur : on le demande d'abord, sans afficher d'erreur
+  return liveView(() => get('/seller/proposals/status'), ({ enabled }) => (enabled ? h('div', {}, supplierProducts({ seller: true }), parcels)
+    : h('div', {}, h('h1', {}, 'Proposer un produit'), h('div', { class: 'notice' }, 'Cette fonction n\'est pas encore disponible. Vous serez prévenu dès qu\'elle sera ouverte.'))));
 }

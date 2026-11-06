@@ -465,8 +465,16 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   // FOURNISSEUR : ne voit jamais le vendeur, le client ni les prix de vente
   // =========================================================================
-  const SUP = ['supplier'];
-  app.get('/api/supplier/products', guard(SUP, async (ctx) => ({
+  // les vendeurs y accèdent aussi pour leurs propres produits proposés (migration 046) ; la base vérifie le rôle, le réglage et la propriété du produit
+  const SUP = ['supplier', 'seller'];
+  const proposalsOn = async () => Number((await q(`SELECT value FROM settings WHERE key = 'feature_vendeur_produits'`))[0]?.value ?? 0) >= 1;
+  // fonction éteinte : un vendeur est refusé ici exactement comme avant la migration 046
+  const guardSup = (h) => guard(SUP, async (ctx) => {
+    if (ctx.user.role === 'seller' && !(await proposalsOn())) throw new HttpError(403, 'forbidden', 'Action non autorisée pour votre rôle');
+    return h(ctx);
+  });
+  app.get('/api/seller/proposals/status', guard(['seller'], async () => ({ enabled: await proposalsOn() })));
+  app.get('/api/supplier/products', guardSup(async (ctx) => ({
     categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
     products: await q(`SELECT id, name, description, category_id, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = products.id) AS image_ids
@@ -477,7 +485,7 @@ export function registerRoutes(app, { db, cfg }) {
         FROM arrivals a JOIN products p ON p.id = a.product_id WHERE p.supplier_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [ctx.user.id])
   })));
 
-  app.post('/api/supplier/products', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products', guardSup(async (ctx) => {
     const b = ctx.body;
     const id = await fn('fn_supplier_add_product', ctx.user.id, v.str(b.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(b.description, 'Description', 1000),
       v.int(b.supplier_price, 'Prix fournisseur', { min: 1, max: 1e9 }), v.oneOf(b.storage, ['wallindirain', 'supplier'], 'Stockage'),
@@ -487,25 +495,25 @@ export function registerRoutes(app, { db, cfg }) {
     return { id, message: 'Produit proposé. Il sera visible des vendeurs après validation.' };
   }));
 
-  app.post('/api/supplier/products/:id/edit', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products/:id/edit', guardSup(async (ctx) => {
     const r = await fn('fn_supplier_edit_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.str(ctx.body.name, 'Nom du produit', { min: 2, max: 120 }), v.optStr(ctx.body.description, 'Description', 1000));
     return { result: r, message: r === 'pending' ? 'Description enregistrée. Le nouveau nom attend la validation de l\'administrateur : l\'ancien nom reste affiché en attendant' : 'Produit modifié' };
   }));
-  app.post('/api/supplier/products/:id/price', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products/:id/price', guardSup(async (ctx) => {
     const r = await fn('fn_supplier_set_price', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.price, 'Prix', { min: 1, max: 1e9 }));
     return { result: r, message: r === 'pending' ? 'Demande envoyée : l\'ancien prix reste actif jusqu\'à la validation de l\'administrateur' : 'Prix enregistré' };
   }));
-  app.post('/api/supplier/products/:id/category', guard(SUP, async (ctx) => { await fn('fn_set_product_category', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.category_id, 'Rayon')); }));
+  app.post('/api/supplier/products/:id/category', guardSup(async (ctx) => { await fn('fn_set_product_category', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.category_id, 'Rayon')); }));
 
   // Photos du produit (jusqu'à 4) : ajout, suppression ; lecture contrôlée par rôle
-  app.post('/api/supplier/products/:id/images', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products/:id/images', guardSup(async (ctx) => {
     limit(`prodimg:${ctx.user.id}`, 60, 3600_000);
     const { mime, buf } = parseImage(ctx.body.image);
     if (buf.length > 450_000) throw new HttpError(413, 'too_large', 'Photo trop lourde : choisissez une photo plus petite');
     ctx.status = 201;
     return { id: await fn('fn_supplier_add_product_image', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), mime, buf) };
   }), { maxBody: MAX_PROOF_BODY });
-  app.post('/api/supplier/images/:id/delete', guard(SUP, async (ctx) => { await fn('fn_supplier_delete_product_image', ctx.user.id, v.uuid(ctx.params.id, 'Photo')); return { ok: true }; }));
+  app.post('/api/supplier/images/:id/delete', guardSup(async (ctx) => { await fn('fn_supplier_delete_product_image', ctx.user.id, v.uuid(ctx.params.id, 'Photo')); return { ok: true }; }));
   app.get('/api/product-images/:id', guard(ANY_ROLE, async (ctx) => {
     const rows = await q('SELECT * FROM fn_product_image_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Photo')]);
     if (!rows.length) throw new HttpError(404, 'not_found', 'Photo introuvable');
@@ -515,24 +523,24 @@ export function registerRoutes(app, { db, cfg }) {
     return rows[0].data;
   }));
 
-  app.post('/api/supplier/products/:id/pickup', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products/:id/pickup', guardSup(async (ctx) => {
     const d = ctx.body.detail;
     await fn('fn_supplier_set_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), d == null || String(d).trim() === '' ? null : v.str(d, 'Adresse de récupération', { min: 3, max: 200 }));
     return { ok: true };
   }));
 
-  app.post('/api/supplier/products/:id/arrival', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products/:id/arrival', guardSup(async (ctx) => {
     const id = await fn('fn_supplier_announce_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }));
     ctx.status = 201;
     return { id };
   }));
 
-  app.post('/api/supplier/products/:id/stock', guard(SUP, async (ctx) => {
+  app.post('/api/supplier/products/:id/stock', guardSup(async (ctx) => {
     await fn('fn_supplier_set_stock', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 0, max: 1e6 }));
   }));
 
   // Colis à préparer : uniquement la référence WLD, le produit et la quantité
-  app.get('/api/supplier/orders', guard(SUP, async (ctx) => ({
+  app.get('/api/supplier/orders', guardSup(async (ctx) => ({
     orders: await q(`SELECT o.ref, p.name AS product_name, o.qty, o.status, o.created_at,
           CASE WHEN p.storage = 'supplier' THEN o.qty_from_catalog ELSE 0 END AS qty_to_prepare
         FROM orders o JOIN products p ON p.id = o.product_id
@@ -559,7 +567,7 @@ export function registerRoutes(app, { db, cfg }) {
           LEFT JOIN seller_prices sp ON sp.product_id = p.id AND sp.seller_id = $1
           LEFT JOIN seller_stock ss ON ss.product_id = p.id AND ss.seller_id = $1
           LEFT JOIN seller_links l ON l.product_id = p.id AND l.seller_id = $1
-          WHERE p.status = 'approved' AND p.deleted_at IS NULL ORDER BY p.name`, [ctx.user.id, call_fee, max_fee]),
+          WHERE p.status = 'approved' AND p.deleted_at IS NULL AND p.supplier_id <> $1 ORDER BY p.name`, [ctx.user.id, call_fee, max_fee]),
       call_fee, max_delivery_fee: max_fee
     };
   }));
@@ -1449,7 +1457,7 @@ export function registerRoutes(app, { db, cfg }) {
 
   app.get('/api/admin/products', guard(ADM, async (ctx) => ({
     categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
-    products: await q(`SELECT p.id, p.name, p.description, p.category_id, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name AS supplier_name,
+    products: await q(`SELECT p.id, p.name, p.description, p.category_id, p.supplier_price, p.margin_unit, p.storage, p.stock_qty, p.reserved_qty, p.status, p.created_at, u.full_name || CASE WHEN u.role = 'seller' THEN ' (vendeur)' ELSE '' END AS supplier_name,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids
         FROM products p JOIN users u ON u.id = p.supplier_id WHERE p.deleted_at IS NULL AND ($1::text IS NULL OR p.status::text = $1) ORDER BY p.created_at DESC LIMIT 300`, [ctx.query.status || null])
   })));
@@ -1485,7 +1493,7 @@ export function registerRoutes(app, { db, cfg }) {
     await fn('fn_admin_review_stock_count', ctx.user.id, v.uuid(ctx.params.id, 'Inventaire'), ctx.body.approve === true, v.optStr(ctx.body.note, 'Note', 300));
   }));
   app.get('/api/admin/price-requests', guard(ADM, async () => ({
-    requests: await q(`SELECT c.id, c.product_id, p.name AS product_name, u.full_name AS supplier_name, c.old_price, c.new_price, c.status, c.review_note, c.created_at, c.reviewed_at,
+    requests: await q(`SELECT c.id, c.product_id, p.name AS product_name, u.full_name || CASE WHEN u.role = 'seller' THEN ' (vendeur)' ELSE '' END AS supplier_name, c.old_price, c.new_price, c.status, c.review_note, c.created_at, c.reviewed_at,
           (SELECT value FROM settings WHERE key = 'margin_bps') AS default_margin_bps, (EXISTS (SELECT 1 FROM seller_stock ss WHERE ss.product_id = c.product_id AND ss.qty > 0) OR EXISTS (SELECT 1 FROM orders o WHERE o.product_id = c.product_id AND o.status NOT IN ('delivered','returned','refused','cancelled'))) AS locked
         FROM product_price_changes c JOIN products p ON p.id = c.product_id JOIN users u ON u.id = p.supplier_id
         ORDER BY (c.status = 'pending') DESC, c.created_at DESC LIMIT 100`)
@@ -1496,7 +1504,7 @@ export function registerRoutes(app, { db, cfg }) {
     return { ok: true };
   }));
   app.get('/api/admin/name-requests', guard(ADM, async () => ({
-    name_requests: await q(`SELECT n.id, n.old_name, n.new_name, u.full_name AS supplier_name, n.created_at
+    name_requests: await q(`SELECT n.id, n.old_name, n.new_name, u.full_name || CASE WHEN u.role = 'seller' THEN ' (vendeur)' ELSE '' END AS supplier_name, n.created_at
         FROM product_name_changes n JOIN products p ON p.id = n.product_id JOIN users u ON u.id = p.supplier_id WHERE n.status = 'pending' ORDER BY n.created_at`)
   })));
   app.post('/api/admin/name-requests/:id/review', guard(ADM, async (ctx) => {
