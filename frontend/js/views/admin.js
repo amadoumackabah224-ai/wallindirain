@@ -210,8 +210,92 @@ export function adminDeposit() {
   });
 }
 
+// Réglages : rangés par section (un seul bloc affiché à la fois) pour que chaque écran reste court et lisible
+let settingsTab = 'fonctions';
+const FEATURES = [
+  ['feature_vendeur_produits', 'Produits proposés par les vendeurs', 'Les vendeurs peuvent proposer leurs produits au catalogue des autres vendeurs, après votre validation et l\'ajout de votre marge.'],
+  ['feature_relances', 'Relances clients', 'Les vendeurs contactent leurs clients (SMS, WhatsApp, appel) depuis l\'onglet « Relances ».'],
+  ['feature_finances', 'Tableau argent', 'Prévision de trésorerie, dépenses récurrentes, budget et objectif, en haut du Portefeuille du vendeur.'],
+  ['feature_order_channel', 'Origine des commandes', 'Le vendeur indique d\'où vient chaque commande (réseau social, bouche à oreille…).'],
+  ['subscription_required', 'Abonnement obligatoire pour vendre', 'Un vendeur sans abonnement à jour ne peut plus créer de commande (après sa période d\'essai).'],
+  ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
+  ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
+  ['kyc_images_required', 'Photos de la pièce d\'identité obligatoires', 'Les photos de la pièce sont exigées avant de vérifier un compte.']
+];
+const FEATURE_KEYS = FEATURES.map((f) => f[0]);
+const NUMERIC_GROUPS = {
+  tarifs: [
+    ['Marge et frais de la plateforme', ['margin_bps', 'fee_order_bps', 'fee_unit', 'seller_storage_fee', 'call_fee']],
+    ['Rémunérations', ['agent_pay', 'courier_pay', 'courier_share_bps']],
+    ['Tournées groupées', ['tour_share_bps', 'tour_extra_share_bps', 'tour_bonus_per_extra_order']],
+    ['Retraits et gains', ['min_withdrawal', 'unlock_hours']],
+    ['Parrainage', ['referral_bonus', 'referral_orders_required']]
+  ],
+  regles: [
+    ['Livraison et appels', ['code_max_attempts', 'call_attempt_limit', 'courier_max_open', 'mission_max_offers', 'mission_offer_minutes']],
+    ['Alertes', ['pickup_alert_hours', 'alert_cash_hours', 'alert_low_stock_qty', 'alert_payout_days']]
+  ]
+};
+const SETTINGS_TABS = [['fonctions', 'Fonctions'], ['tarifs', 'Tarifs et frais'], ['regles', 'Règles et alertes'], ['abonnements', 'Abonnements'], ['zones', 'Zones'], ['rayons', 'Rayons'], ['trophees', 'Trophées'], ['relances', 'Relances']];
+
 export function adminSettings() {
-  return h('div', {}, adminSettingsMain(), adminRelanceOptouts(), adminSubscriptions());
+  const host = h('div');
+  const chips = h('div', { class: 'chips' });
+  const draw = () => {
+    chips.replaceChildren(...SETTINGS_TABS.map(([k, l]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(k === settingsTab), onclick: () => { settingsTab = k; draw(); } }, l)));
+    host.replaceChildren(settingsSection(settingsTab));
+  };
+  draw();
+  return h('div', {}, h('h1', {}, 'Réglages'), chips, host);
+}
+
+function settingRow(s, refresh) {
+  return [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)),
+    h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: action(async () => {
+      const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] });
+      if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) });
+    }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')];
+}
+
+function settingsSection(tab) {
+  if (tab === 'relances') return adminRelanceOptouts();
+  if (tab === 'abonnements') {
+    return h('div', {}, liveView(() => get('/admin/settings'), ({ settings }, refresh) => h('div', { class: 'card' }, h('h2', {}, 'Prix et période d\'essai'),
+      table(['Paramètre', 'Valeur', ''], settings.filter((s) => ['subscription_monthly', 'subscription_trial_days'].includes(s.key)).map((s) => settingRow(s, refresh))))), adminSubscriptions());
+  }
+  return liveView(() => get('/admin/settings'), ({ settings, rates, categories = [] }, refresh) => {
+    const by = Object.fromEntries(settings.map((s) => [s.key, s]));
+    if (tab === 'fonctions') {
+      return h('div', {}, h('div', { class: 'notice' }, 'Allumez ou éteignez une fonction pour toute la plateforme. Éteinte, elle disparaît ou se met en attente chez les utilisateurs, sans rien supprimer.'),
+        FEATURES.filter(([k]) => by[k]).map(([k, title, text]) => {
+          const on = by[k].value >= 1;
+          return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('div', { class: 'grow' }, h('b', {}, title), ' ', badge(on ? 'Activé' : 'Désactivé', on ? 'ok' : 'warn'), h('div', { class: 'small muted' }, text)),
+            h('button', { class: `btn btn-sm ${on ? 'btn-ghost' : 'btn-gold'}`, type: 'button', onclick: action(async () => {
+              if (!(await confirmBox(on ? `Désactiver « ${title} » ?` : `Activer « ${title} » ?`, text, on ? 'Désactiver' : 'Activer', on))) return;
+              await post('/admin/settings', { key: k, value: on ? 0 : 1 });
+            }, { ok: on ? 'Fonction désactivée' : 'Fonction activée', refresh }) }, on ? 'Désactiver' : 'Activer')));
+        }));
+    }
+    if (tab === 'tarifs' || tab === 'regles') {
+      const used = new Set();
+      const groups = NUMERIC_GROUPS[tab].map(([title, keys]) => {
+        const rows = keys.filter((k) => by[k]).map((k) => { used.add(k); return settingRow(by[k], refresh); });
+        return rows.length ? h('div', { class: 'card' }, h('h2', {}, title), table(['Paramètre', 'Valeur', ''], rows)) : null;
+      });
+      if (tab === 'tarifs') groups.unshift(h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'));
+      if (tab === 'regles') {
+        // tout réglage non classé ailleurs reste visible ici : rien n'est caché
+        const known = new Set([...FEATURE_KEYS, ...Object.values(NUMERIC_GROUPS).flat().flatMap(([, ks]) => ks), 'subscription_monthly', 'subscription_trial_days']);
+        const others = settings.filter((s) => !known.has(s.key) && !s.key.startsWith('trophy_'));
+        if (others.length) groups.push(h('div', { class: 'card' }, h('h2', {}, 'Autres'), table(['Paramètre', 'Valeur', ''], others.map((s) => settingRow(s, refresh)))));
+      }
+      return h('div', {}, groups);
+    }
+    if (tab === 'zones') return zonesCard(rates, settings, refresh);
+    if (tab === 'rayons') return categoriesCard(categories, refresh);
+    if (tab === 'trophees') return trophyCard(settings, refresh);
+    return h('div');
+  });
 }
 
 // Relances des vendeurs : clients qui ont demandé à ne plus être contactés ; seul l'administrateur peut les réactiver
@@ -223,15 +307,6 @@ function adminRelanceOptouts() {
         if (!(await confirmBox('Réactiver ce client ?', `${fmtPhone(o.customer_phone)} pourra de nouveau être contacté par ${o.seller_name}.`, 'Réactiver'))) return;
         await post('/admin/relances/reactivate', { seller_id: o.seller_id, phone: o.customer_phone });
       }, { ok: 'Client réactivé', refresh }) }, 'Réactiver')])) : h('p', { class: 'small muted' }, 'Aucun client désinscrit.')));
-}
-
-function adminSettingsMain() {
-  return liveView(() => get('/admin/settings'), ({ settings, rates, categories = [] }, refresh) => h('div', {}, h('h1', {}, 'Réglages'),
-    h('div', { class: 'notice warn' }, 'Un changement de tarif ne modifie jamais les commandes déjà créées : les prix sont figés à la création.'),
-    trophyCard(settings, refresh),
-    h('div', { class: 'card' }, h('h2', {}, 'Paramètres'), table(['Paramètre', 'Valeur', ''], settings.filter((s) => !s.key.startsWith('trophy_')).map((s) => [s.label, h('div', {}, h('b', {}, s.value.toLocaleString('fr-FR')), /_bps$/.test(s.key) && h('div', { class: 'small muted' }, `= ${(s.value / 100).toLocaleString('fr-FR')} %`)), h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: s.label, submit: 'Enregistrer', fields: [{ name: 'value', label: 'Nouvelle valeur', type: 'number', value: s.value }] }); if (v) await post('/admin/settings', { key: s.key, value: Number(v.value) }); }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')]))),
-    categoriesCard(categories, refresh),
-    zonesCard(rates, settings, refresh)));
 }
 
 export function adminAudit() {
