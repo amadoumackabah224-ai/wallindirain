@@ -94,7 +94,8 @@ test('arrivage compté par le magasinier (Wallindirain) et stock gardé chez le 
   assert.deepEqual(cat.map((p) => p.name).sort(), ['Ceinture', 'Sac en cuir']);
   const sac = cat.find((p) => p.name === 'Sac en cuir'); assert.equal(sac.vendor_price, 36000); assert.equal(sac.available, 10); assert.equal(sac.can_prepay, true);
   assert.equal(cat.find((p) => p.name === 'Ceinture').can_prepay, false);
-  assert.equal((await s.get('/api/seller/catalog')).json.products.filter((p) => ['Sac en cuir', 'Ceinture'].includes(p.name)).length, 0, 'le proposant ne voit pas ses propres produits dans son catalogue');
+  const mine = (await s.get('/api/seller/catalog')).json.products.filter((p) => ['Sac en cuir', 'Ceinture'].includes(p.name));
+  assert.ok(mine.length > 0 && mine.every((p) => p.mine === true), '047 : le proposant retrouve ses propres produits dans son catalogue, marqués « Mon produit »');
 });
 
 test('droits : seul le propriétaire modifie son produit (pas un autre vendeur, pas un fournisseur)', async () => {
@@ -117,17 +118,10 @@ test('droits : seul le propriétaire modifie son produit (pas un autre vendeur, 
   assert.equal((await rows('SELECT supplier_price FROM products WHERE id = $1', [pB]))[0].supplier_price, 12000, 'l\'ancien prix reste actif jusqu\'à la validation');
 });
 
-test('pas de vente à soi-même : le proposant ne peut ni commander, ni fixer un prix, ni acheter du stock, ni créer un lien sur son produit', async () => {
-  await expectErr(call(db.app, 'fn_seller_set_price', w.seller, pA, 80000), 'invalid_input');
-  // sans prix de vente (qu'il ne peut pas fixer), il ne peut ni créer de lien, ni acheter du stock, ni commander
-  await expectErr(call(db.app, 'fn_seller_create_link', w.seller, pA), 'price_required');
-  await assert.rejects(call(db.app, 'fn_seller_buy_stock', w.seller, pA, 1), /price_required|insufficient_funds|vendre vous-même/);
-  await expectErr(call(db.app, 'fn_seller_create_order', w.seller, pA, null, null, 1, 'Client', '622111111', 'Kaloum', 'Rue 1', null, false), 'price_required');
-  for (const t of ['seller_links', 'seller_stock', 'seller_prices']) assert.equal((await rows(`SELECT count(*)::int AS n FROM ${t} WHERE seller_id = $1 AND product_id = $2`, [w.seller, pA]))[0].n, 0, t);
-  // et même un prix inséré de force est refusé par la base pour la commande directe
-  await assert.rejects(db.owner.query(`INSERT INTO orders(seller_id, product_id, qty, ref) SELECT $1, $2, 1, 'WLD-TEST'`, [w.seller, pA]).catch((e) => { throw e; }), /vendre vous-même|null value|violates/);
-  await assert.rejects(db.owner.query(`INSERT INTO seller_prices(seller_id, product_id, sale_price) VALUES ($1, $2, 90000)`, [w.seller, pA]), /vendre vous-même/);
-  assert.equal((await rows(`SELECT count(*)::int AS n FROM orders WHERE seller_id = $1 AND product_id IS NOT NULL`, [w.seller]))[0].n, 0);
+test('047 : le proposant peut vendre lui-même ; seul l\'achat de stock prépayé de son propre produit reste interdit', async () => {
+  await call(db.app, 'fn_seller_set_price', w.seller, pA, 80000);
+  assert.equal((await rows(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname IN ('orders_no_self_dealing','seller_prices_no_self_dealing','seller_links_no_self_dealing')`))[0].n, 0);
+  await assert.rejects(db.owner.query(`INSERT INTO seller_stock(seller_id, product_id, qty) VALUES ($1, $2, 1)`, [w.seller, pA]), /vendre vous-même/);
 });
 
 test('vente par un autre vendeur : le proposant est payé comme un fournisseur, Wallindirain garde sa marge, les comptes restent justes', async () => {
@@ -158,12 +152,12 @@ test('anonymisation : un vendeur qui a encore des produits en vente ne peut pas 
 test('droits de la base : les fonctions fournisseur gardent leur contrôle de rôle', async () => {
   for (const r of ['courier', 'agent1', 'warehouse', 'chief']) await expectErr(call(db.app, 'fn_supplier_add_product', w[r], 'x y', 'z', 1000, 'wallindirain', 0), 'forbidden');
   await assert.rejects(db.app.query('SELECT _require_proposer($1, ARRAY[\'supplier\']::user_role[])', [w.seller]), /permission denied/);
-  assert.equal((await proposerDefs()).length, 9, '9 fonctions passent par _require_proposer ; 2 fonctions de lecture de photos acceptent aussi le propriétaire vendeur');
+  assert.equal((await proposerDefs()).length, 13, '13 fonctions passent par _require_proposer ; 2 fonctions de lecture de photos acceptent aussi le propriétaire vendeur');
   assert.equal((await rows(`SELECT count(*)::int AS n FROM pg_proc WHERE proname IN ('fn_product_image_get','fn_return_photo_get') AND pg_get_functiondef(oid) LIKE '%''supplier'',''seller''%'`))[0].n, 2);
 });
 
 test('retour arrière 046 : refusé s\'il existe des produits de vendeurs ou si la fonction est allumée, accepté sinon, fonctions remises comme avant', async () => {
-  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-046.sql'), 'utf8');
+  const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-047.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-046.sql'), 'utf8');
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
   await assert.rejects(run, /des produits proposés par des vendeurs existent/);
   await db.owner.query(`UPDATE products SET deleted_at = now() WHERE supplier_id = $1`, [w.seller]);   // retirés du catalogue mais toujours en base : le retour arrière doit quand même refuser
