@@ -220,6 +220,7 @@ let settingsTab = 'fonctions';
 const FEATURES = [
   ['feature_vendeur_produits', 'Produits proposés par les vendeurs', 'Les vendeurs peuvent proposer leurs produits au catalogue des autres vendeurs, après votre validation et l\'ajout de votre marge.'],
   ['feature_relances', 'Relances clients', 'Les vendeurs contactent leurs clients (SMS, WhatsApp, appel) depuis l\'onglet « Relances ».'],
+  ['feature_finances_perso', 'Mes finances (tous les rôles)', 'Outil de gestion financière personnelle : comptes, transactions, tableau de bord, formule gratuite et Pro. Réglages de prix dans l\'onglet « Mes finances ».'],
   ['feature_finances', 'Tableau argent', 'Prévision de trésorerie, dépenses récurrentes, budget et objectif, en haut du Portefeuille du vendeur.'],
   ['feature_order_channel', 'Origine des commandes', 'Le vendeur indique d\'où vient chaque commande (réseau social, bouche à oreille…).'],
   ['subscription_required', 'Abonnement obligatoire pour vendre', 'Un vendeur sans abonnement à jour ne peut plus créer de commande (après sa période d\'essai).'],
@@ -236,12 +237,16 @@ const NUMERIC_GROUPS = {
     ['Retraits et gains', ['min_withdrawal', 'unlock_hours']],
     ['Parrainage', ['referral_bonus', 'referral_orders_required']]
   ],
+  finances: [
+    ['Prix de la formule Pro', ['pf_price_monthly', 'pf_price_yearly', 'pf_trial_days']],
+    ['Limites de la formule gratuite', ['pf_free_accounts', 'pf_free_history_days']]
+  ],
   regles: [
     ['Livraison et appels', ['code_max_attempts', 'call_attempt_limit', 'courier_max_open', 'mission_max_offers', 'mission_offer_minutes']],
     ['Alertes', ['pickup_alert_hours', 'alert_cash_hours', 'alert_low_stock_qty', 'alert_payout_days']]
   ]
 };
-const SETTINGS_TABS = [['fonctions', 'Fonctions'], ['tarifs', 'Tarifs et frais'], ['regles', 'Règles et alertes'], ['abonnements', 'Abonnements'], ['zones', 'Zones'], ['rayons', 'Rayons'], ['trophees', 'Trophées'], ['relances', 'Relances']];
+const SETTINGS_TABS = [['fonctions', 'Fonctions'], ['tarifs', 'Tarifs et frais'], ['regles', 'Règles et alertes'], ['abonnements', 'Abonnements'], ['finances', 'Mes finances'], ['zones', 'Zones'], ['rayons', 'Rayons'], ['trophees', 'Trophées'], ['relances', 'Relances']];
 
 export function adminSettings() {
   const host = h('div');
@@ -262,8 +267,29 @@ function settingRow(s, refresh) {
     }, { ok: 'Réglage enregistré', refresh }) }, 'Modifier')];
 }
 
+function adminFinancesPerso() {
+  return liveView(() => get('/admin/pf'), ({ settings, users }, refresh) => {
+    const grant = (u) => action(async () => {
+      const v = await ask({ title: `Offrir ou encaisser Pro : ${u.full_name}`, text: 'Pour un paiement reçu hors plateforme (espèces, virement) ou un cadeau.', submit: 'Valider', fields: [
+        { name: 'months', label: 'Nombre de mois (1 à 24)', type: 'number', inputmode: 'numeric', value: 1 }, { name: 'note', label: 'Raison (paiement reçu, cadeau…)', maxlength: 200 }] });
+      if (!v) return;
+      await post('/admin/pf/grant', { user_id: u.id, months: Number(v.months), note: v.note });
+    }, { ok: 'Pro accordé', refresh });
+    return h('div', {}, h('div', { class: 'notice' }, settings.feature_finances_perso >= 1 ? 'Mes finances est ouvert. Tant que le prix mensuel est à 0, tout le monde a toutes les fonctions.' : 'Mes finances est éteint : allumez-le dans l\'onglet « Fonctions ».'),
+      h('div', { class: 'card' }, h('h2', {}, 'Personnes qui utilisent Mes finances'),
+        users.length === 0 ? h('p', { class: 'muted' }, 'Personne pour le moment.') : table(['Nom', 'Rôle', 'Formule', 'Comptes', 'Opérations', ''], users.map((u) => [u.full_name, ROLE_LABEL[u.role] || u.role, u.tier === 'pro' ? badge('Pro', 'ok') : badge('Gratuit', 'grey'), String(u.accounts), String(u.transactions),
+          h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: grant(u) }, 'Offrir / encaisser')]))));
+  });
+}
+
 function settingsSection(tab) {
   if (tab === 'relances') return adminRelanceOptouts();
+  if (tab === 'finances') {
+    return h('div', {}, liveView(() => get('/admin/settings'), ({ settings }, refresh) => {
+      const by = Object.fromEntries(settings.map((s) => [s.key, s]));
+      return h('div', {}, NUMERIC_GROUPS.finances.map(([title, keys]) => h('div', { class: 'card' }, h('h2', {}, title), table(['Paramètre', 'Valeur', ''], keys.filter((k) => by[k]).map((k) => settingRow(by[k], refresh))))));
+    }), adminFinancesPerso());
+  }
   if (tab === 'abonnements') {
     return h('div', {}, liveView(() => get('/admin/settings'), ({ settings }, refresh) => h('div', { class: 'card' }, h('h2', {}, 'Prix et période d\'essai'),
       table(['Paramètre', 'Valeur', ''], settings.filter((s) => ['subscription_monthly', 'subscription_trial_days'].includes(s.key)).map((s) => settingRow(s, refresh))))), adminSubscriptions());

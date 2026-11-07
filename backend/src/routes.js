@@ -10,6 +10,7 @@ import { parseSheetUrl, fetchSheetCsv, parseCsv, xlsxToRows, mapRows, phone9, is
 import { simulate as simulatePay } from './pay-sim.js';
 import { registerRelances } from './relances.js';
 import { registerFinances } from './finances.js';
+import { registerPf } from './pf.js';
 import { hashPassword, verifyPassword, DUMMY_HASH, passwordProblem, newToken, tokenHash, RateLimiter, parseCookies } from './security.js';
 
 const COOKIE = 'wld_session';
@@ -876,6 +877,7 @@ export function registerRoutes(app, { db, cfg }) {
   // Relances (044) : listes de clients, SMS / WhatsApp / appel un par un, étiquettes, rappels, fêtes (module à part)
   registerRelances(app, { q, fn, guard, limit });
   registerFinances(app, { q, fn, guard, limit });
+  registerPf(app, { q, fn, guard, limit });
 
   app.get('/api/seller/ranking', guard(SEL, async (ctx) => (await q('SELECT fn_seller_ranking($1) AS r', [ctx.user.id]))[0].r));
   app.post('/api/seller/ranking-visibility', guard(SEL, async (ctx) => { await fn('fn_set_ranking_visibility', ctx.user.id, ctx.body.hidden === true); }));

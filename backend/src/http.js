@@ -16,7 +16,9 @@ const STATUS_BY_CODE = {
   key_reused: 409, courier_pay_exceeds_fee: 409, zone_fee_below_courier_pay: 409, key_required: 400,
   offer_open: 409, already_offered: 409, max_offers_reached: 409, courier_unavailable: 409, courier_busy: 409, offer_expired: 409, offer_unavailable: 409, order_in_tour: 409, tour_not_accepted: 409, tour_bonus_exceeds_fee: 409,
   // relances (044)
-  feature_off: 403, consent_required: 403, opted_out: 409, risky_customer: 409, too_soon: 409, daily_limit: 409
+  feature_off: 403, consent_required: 403, opted_out: 409, risky_customer: 409, too_soon: 409, daily_limit: 409,
+  // mes finances (048)
+  pro_required: 403, duplicate: 409, limit: 409, note_required: 400
 };
 
 /** Transforme une erreur SQL métier ("code|Message") en erreur HTTP. */
