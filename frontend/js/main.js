@@ -8,6 +8,7 @@ import { walletView } from './views/wallet.js';
 import { sellerStats, adminStats, trackView } from './views/stats.js';
 import { sellerCustomers, sellerProfit, sellerReturns } from './views/outils.js';
 import { sellerRelances } from './views/relances.js';
+import { pfApp } from './views/pf.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
@@ -42,6 +43,8 @@ const TABS = {
 const MOBILE_PRIMARY = { seller: ['dash', 'orders', 'new', 'wallet'], admin: ['dash', 'orders', 'users', 'withdrawals'] };
 
 // Le profil n'est plus un onglet : on y accède en touchant la photo ou le nom, en haut de l'écran.
+/** Entrée « Mes finances » : ouvre l'écran plein écran (visible seulement quand l'administrateur a allumé la fonction). */
+const PF_TAB = ['pf', 'bank', 'Mes finances', () => { queueMicrotask(() => { location.hash = '#/pf/'; }); return spinner(); }, ''];
 const PROFILE_TAB = ['profile', 'user', 'Profil', (c) => profileView({ onChanged: () => { c.refreshUser(); } })];
 
 // Notifications : page ouverte par la cloche (pas un onglet du menu)
@@ -51,7 +54,7 @@ let bellTimer = null;
 function render(node) { app.replaceChildren(node); window.scrollTo(0, 0); }
 
 function appShell(tabKey) {
-  const tabs = TABS[user.role];
+  const tabs = user.pf ? [...TABS[user.role], PF_TAB] : TABS[user.role];
   const current = tabKey === 'profile' ? PROFILE_TAB : tabKey === 'notifications' ? NOTIF_TAB : (tabs.find((t) => t[0] === tabKey) || tabs[0]);
   const goTo = (k) => { location.hash = `#/app/${k}`; };
   const refreshUser = async () => { try { user = (await get('/auth/me')).user; } catch { /* inchangé */ } document.querySelectorAll('.who-name').forEach((w) => { w.textContent = user.name; }); document.querySelectorAll('.topbar .avatar').forEach((old) => old.replaceWith(avatar(user, 34, Date.now()))); };
@@ -118,6 +121,8 @@ async function route() {
     if (a === 'forgot') return pub(forgotView());
     return pub(loginView({ contact, onLogin: (u) => { user = u; location.hash = '#/app/'; } }));
   }
+  if (user.pf === undefined) { try { user.pf = (await get('/pf/status')).enabled === true; } catch { user.pf = false; } }
+  if (a === 'pf') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); return render(pfApp(user, b || '')); }
   if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); return; }
   location.hash = '#/app/';
 }
