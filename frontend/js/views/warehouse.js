@@ -1,6 +1,6 @@
 // Espace magasinier : aucune donnée financière, aucune donnée client (ni nom ni téléphone).
 // Trois onglets : « À faire » (colis à remettre, arrivages à compter, retours à réceptionner), « Stock », « Historique ».
-import { h, ask, fmtDate, liveView, action, kv, empty, FAIL_LABEL, CAUSE_LABEL, badge, pageHead, photoStrip, table, telLink, toast } from '../ui.js';
+import { h, ask, fmtDate, liveView, action, kv, empty, FAIL_LABEL, CAUSE_LABEL, badge, pageHead, photoStrip, table, telLink, toast, confirmBox } from '../ui.js';
 import { get, post } from '../api.js';
 
 const LOSS_LABEL = { damaged: 'Abîmé', lost: 'Perdu', expired: 'Périmé', other: 'Autre motif' };
@@ -30,7 +30,7 @@ function todoView() {
   return h('div', {}, h('label', { class: 'f' }, search), liveView(() => get('/warehouse/arrivals'), (data, refresh) => { cache = data; again = refresh; draw(); return box; }, { poll: 20000 }));
 }
 
-function buildTodo({ arrivals: allA, handovers: allH, returns: allR, deposits: allD = [] }, refresh, q) {
+function buildTodo({ arrivals: allA, handovers: allH, returns: allR, deposits: allD = [], stock_returns: allS = [] }, refresh, q) {
     const needle = q.trim().toLowerCase();
     const hit = (...vals) => !needle || vals.some((x) => String(x ?? '').toLowerCase().includes(needle));
     const arrivals = allA.filter((a) => hit(a.product_name, a.supplier_name));
@@ -101,6 +101,10 @@ function buildTodo({ arrivals: allA, handovers: allH, returns: allR, deposits: a
         deposits.map((d) => h('div', { class: 'card' }, h('h3', {}, d.product_name),
           kv([['Vendeur', d.seller_name], ['Annoncé', `${d.announced_qty} unité(s)`, 'key'], ['Date', fmtDate(d.created_at)]]),
           h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: countDeposit(d) }, 'Compter le dépôt'))))),
+      allS.length > 0 && section('Stock à rendre aux propriétaires', allS.length,
+        allS.map((r) => h('div', { class: 'card' }, h('h3', {}, r.product_name),
+          kv([['Propriétaire', r.owner_name], ['À remettre', `${r.qty} unité(s)`, 'key']]),
+          h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: action(async () => { if (await confirmBox('Stock remis ?', `${r.qty} × ${r.product_name} remis à ${r.owner_name}.`, 'Confirmer la remise')) { await post(`/warehouse/returns/${r.id}/handover`); return true; } }, { ok: (x) => (x ? 'Remise enregistrée' : ''), refresh }) }, 'Remettre au propriétaire'))))),
       section('Retours à réceptionner', returns.length,
         returns.length ? returns.map((r) => h('div', { class: 'card' },
           h('div', { class: 'order-head' }, h('span', { class: 'ref' }, r.ref), r.failure_reason && badge(FAIL_LABEL[r.failure_reason], 'warn')),

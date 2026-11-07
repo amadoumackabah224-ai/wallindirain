@@ -98,7 +98,12 @@ export function adminUsers() {
 }
 
 export function adminProducts() {
-  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')), ...(await get('/admin/price-requests')), ...(await get('/admin/name-requests')) }), ({ products, counts, requests = [], name_requests = [], categories = [] }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+  return liveView(async () => ({ ...(await get('/admin/products')), ...(await get('/admin/stock-counts')), ...(await get('/admin/price-requests')), ...(await get('/admin/name-requests')), ...(await get('/admin/stock-returns')) }), ({ products, counts, requests = [], name_requests = [], categories = [], returns = [] }, refresh) => h('div', {}, h('h1', {}, 'Produits'),
+    returns.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Restitutions de stock'),
+      h('p', { class: 'muted small' }, 'Un propriétaire demande à récupérer du stock gardé chez nous. En acceptant, les unités sont bloquées (plus vendables) puis le magasinier les remet.'),
+      returns.map((r) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, `${r.product_name} × ${r.qty}`), h('div', { class: 'small muted' }, `${r.owner_name} · disponible maintenant : ${r.available_now}`), r.status === 'approved' && badge('Acceptée : en attente de remise', 'ok')),
+        r.status === 'requested' && h('button', { class: 'btn btn-sm btn-ok', onclick: action(async () => { await post(`/admin/stock-returns/${r.id}/decide`, { approve: true }); }, { ok: 'Restitution acceptée', refresh }) }, 'Accepter'),
+        r.status === 'requested' && h('button', { class: 'btn btn-sm btn-ghost', onclick: action(async () => { const v = await ask({ title: 'Refuser la restitution ?', submit: 'Refuser', danger: true, fields: [{ name: 'note', label: 'Motif', maxlength: 300 }] }); if (v) await post(`/admin/stock-returns/${r.id}/decide`, { approve: false, note: v.note }); }, { ok: 'Restitution refusée', refresh }) }, 'Refuser')))),
     name_requests.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Changements de nom à valider'),
       name_requests.map((r) => h('div', { class: 'list-item' }, h('div', { class: 'grow' }, h('b', {}, `${r.old_name} → ${r.new_name}`), h('div', { class: 'small muted' }, r.supplier_name)),
         h('button', { class: 'btn btn-sm btn-ok', onclick: action(async () => { await post(`/admin/name-requests/${r.id}/review`, { approve: true }); }, { ok: 'Nom accepté', refresh }) }, 'Accepter'),

@@ -477,6 +477,12 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/supplier/products', guardSup(async (ctx) => ({
     categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
     products: await q(`SELECT id, name, description, category_id, supplier_price, storage, stock_qty, reserved_qty, status, created_at, pickup_detail,
+        paused_at, retired_at, availability_note,
+        COALESCE((SELECT sum(o.qty) FROM orders o WHERE o.product_id = products.id AND o.status = 'delivered'), 0)::int AS sold_qty,
+        COALESCE((SELECT sum(o.qty) FROM orders o WHERE o.product_id = products.id AND o.seller_id <> products.supplier_id AND o.status = 'delivered'), 0)::int AS sold_by_others,
+        COALESCE((SELECT sum(o.qty) FROM orders o WHERE o.product_id = products.id AND o.status IN ('new','in_call','confirmed','assigned','picked_up','on_the_way')), 0)::int AS in_progress_qty,
+        COALESCE((SELECT sum(o.qty * o.supplier_unit_price) FROM orders o WHERE o.product_id = products.id AND o.status IN ('new','in_call','confirmed','assigned','picked_up','on_the_way')), 0)::bigint AS due_on_delivery,
+        (SELECT jsonb_build_object('id', r.id, 'qty', r.qty, 'status', r.status, 'decision_note', r.decision_note, 'requested_at', r.requested_at) FROM stock_returns r WHERE r.product_id = products.id AND r.status IN ('requested','approved')) AS open_return,
         (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = products.id) AS image_ids
         , (SELECT jsonb_build_object('new_price', c.new_price, 'created_at', c.created_at) FROM product_price_changes c WHERE c.product_id = products.id AND c.status = 'pending') AS price_request,
         (SELECT n.new_name FROM product_name_changes n WHERE n.product_id = products.id AND n.status = 'pending') AS name_request
@@ -529,6 +535,18 @@ export function registerRoutes(app, { db, cfg }) {
     return { ok: true };
   }));
 
+  // Mes produits proposés (migration 047) : suspendre, reprendre, retirer, demander la restitution du stock gardé chez Wallindirain
+  app.post('/api/supplier/products/:id/pause', guardSup(async (ctx) => {
+    await fn('fn_supplier_set_pause', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), ctx.body.paused === true, ctx.body.paused === true ? v.optStr(ctx.body.note, 'Note', 200) : null);
+    return { ok: true };
+  }));
+  app.post('/api/supplier/products/:id/retire', guardSup(async (ctx) => { await fn('fn_supplier_retire_product', ctx.user.id, v.uuid(ctx.params.id, 'Produit')); return { ok: true }; }));
+  app.post('/api/supplier/products/:id/return', guardSup(async (ctx) => {
+    ctx.status = 201;
+    return { id: await fn('fn_supplier_request_return', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 1e6 })) };
+  }));
+  app.post('/api/supplier/returns/:id/cancel', guardSup(async (ctx) => { await fn('fn_supplier_cancel_return', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); return { ok: true }; }));
+
   app.post('/api/supplier/products/:id/arrival', guardSup(async (ctx) => {
     const id = await fn('fn_supplier_announce_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(ctx.body.qty, 'Quantité', { min: 1, max: 100000 }));
     ctx.status = 201;
@@ -557,17 +575,20 @@ export function registerRoutes(app, { db, cfg }) {
     return {
       categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
       products: await q(`SELECT p.id, p.name, p.description, p.category_id,
-            (p.supplier_price + p.margin_unit) AS vendor_price,
-            (p.supplier_price + p.margin_unit + $2 + $3 + (SELECT value FROM settings WHERE key = 'fee_unit')) AS min_price,
-            (p.storage = 'wallindirain') AS can_prepay,
-            GREATEST(p.stock_qty - p.reserved_qty, 0) AS available,
+            (p.supplier_price + CASE WHEN p.supplier_id = $1 THEN 0 ELSE p.margin_unit END) AS vendor_price,
+            (p.supplier_price + CASE WHEN p.supplier_id = $1 THEN 0 ELSE p.margin_unit END + $2 + $3 + (SELECT value FROM settings WHERE key = 'fee_unit')) AS min_price,
+            (p.storage = 'wallindirain' AND p.supplier_id <> $1 AND p.paused_at IS NULL AND p.retired_at IS NULL) AS can_prepay,
+            (p.supplier_id = $1) AS mine,
+            CASE WHEN p.retired_at IS NOT NULL OR (p.paused_at IS NOT NULL AND p.supplier_id <> $1) THEN 0 ELSE GREATEST(p.stock_qty - p.reserved_qty, 0) END AS available,
             (SELECT COALESCE(jsonb_agg(pi.id ORDER BY pi.position), '[]'::jsonb) FROM product_images pi WHERE pi.product_id = p.id) AS image_ids,
             sp.sale_price, COALESCE(ss.qty, 0) AS my_stock, COALESCE(ss.reserved_qty, 0) AS my_reserved, l.code AS link_code
           FROM products p
           LEFT JOIN seller_prices sp ON sp.product_id = p.id AND sp.seller_id = $1
           LEFT JOIN seller_stock ss ON ss.product_id = p.id AND ss.seller_id = $1
           LEFT JOIN seller_links l ON l.product_id = p.id AND l.seller_id = $1
-          WHERE p.status = 'approved' AND p.deleted_at IS NULL AND p.supplier_id <> $1 ORDER BY p.name`, [ctx.user.id, call_fee, max_fee]),
+          WHERE p.status = 'approved' AND p.deleted_at IS NULL
+            AND ((p.supplier_id <> $1 AND (p.paused_at IS NULL OR COALESCE(ss.qty, 0) > 0)) OR (p.supplier_id = $1 AND p.retired_at IS NULL))
+          ORDER BY p.name`, [ctx.user.id, call_fee, max_fee]),
       call_fee, max_delivery_fee: max_fee
     };
   }));
@@ -1058,6 +1079,7 @@ export function registerRoutes(app, { db, cfg }) {
     arrivals: await q(`SELECT a.id, p.name AS product_name, u.full_name AS supplier_name, a.announced_qty, a.created_at, ${IMG_IDS('p.id')} AS image_ids
         FROM arrivals a JOIN products p ON p.id = a.product_id JOIN users u ON u.id = p.supplier_id
         WHERE a.counted_qty IS NULL ORDER BY a.created_at`),
+    stock_returns: await q(`${RETURN_ROWS} WHERE r.status = 'approved' ORDER BY r.requested_at`),
     deposits: await q(`SELECT d.id, d.name AS product_name, u.full_name AS seller_name, d.announced_qty, d.created_at
         FROM seller_deposits d JOIN users u ON u.id = d.seller_id WHERE d.status = 'announced' ORDER BY d.created_at`),
     handovers: await q(`SELECT o.id, o.ref, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.commune, c.full_name AS courier_name, c.phone AS courier_phone,
@@ -1100,6 +1122,18 @@ export function registerRoutes(app, { db, cfg }) {
     losses: await q(`SELECT l.id, p.name AS product_name, l.qty, l.reason, l.note, l.created_at, w.full_name AS by_name
         FROM stock_losses l JOIN products p ON p.id = l.product_id LEFT JOIN users w ON w.id = l.declared_by ORDER BY l.created_at DESC LIMIT 60`)
   })));
+  // Restitution de stock au propriétaire (migration 047) : l'administrateur valide, le magasinier remet
+  const RETURN_ROWS = `SELECT r.id, r.qty, r.status, r.requested_at, r.decision_note, p.name AS product_name, p.id AS product_id,
+        u.full_name || CASE WHEN u.role = 'seller' THEN ' (vendeur)' ELSE '' END AS owner_name,
+        GREATEST(p.stock_qty - p.reserved_qty, 0) AS available_now
+      FROM stock_returns r JOIN products p ON p.id = r.product_id JOIN users u ON u.id = r.owner_id`;
+  app.post('/api/warehouse/returns/:id/handover', guard(WH, async (ctx) => { await fn('fn_warehouse_hand_over_return', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); return { ok: true }; }));
+  app.get('/api/admin/stock-returns', guard(['admin'], async () => ({ returns: await q(`${RETURN_ROWS} WHERE r.status IN ('requested','approved') ORDER BY r.requested_at`) })));
+  app.post('/api/admin/stock-returns/:id/decide', guard(['admin'], async (ctx) => {
+    await fn('fn_admin_decide_return', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), ctx.body.approve === true, v.optStr(ctx.body.note, 'Note', 300));
+    return { ok: true };
+  }));
+
   app.post('/api/warehouse/arrivals/:id/count', guard(WH, async (ctx) => {
     await fn('fn_warehouse_count_arrival', ctx.user.id, v.uuid(ctx.params.id, 'Arrivage'), v.int(ctx.body.counted, 'Quantité comptée', { min: 0, max: 1e6 }), v.optStr(ctx.body.note, 'Explication', 300));
   }));
