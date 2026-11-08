@@ -932,7 +932,7 @@ export function registerRoutes(app, { db, cfg }) {
 
   app.get('/api/calls/queue', guard(CALL, async (ctx) => ({
     orders: await q(`SELECT ${CALL_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
-        WHERE o.status = 'new' AND (NOT o.escalated OR $1 = 'call_chief') ORDER BY o.escalated DESC, o.created_at LIMIT 100`, [ctx.user.role])
+        WHERE o.status = 'new' AND (NOT o.escalated OR $1 = 'call_chief') ORDER BY o.escalated DESC, o.created_at DESC LIMIT 100`, [ctx.user.role])
   })));
 
   app.get('/api/calls/mine', guard(CALL, async (ctx) => {
@@ -955,7 +955,7 @@ export function registerRoutes(app, { db, cfg }) {
     pickup_alert_hours: await pickupHours(),
     orders: await q(`SELECT ${CALL_COLS}, o.delivery_fee, ${PAY_SHOWN} AS courier_pay, o.courier_kind, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing, o.courier_id, cu.full_name AS courier_name, o.failure_reason, o.confirmed_at, ${ASSIGNED_SINCE} AS assigned_since
         FROM orders o LEFT JOIN products p ON p.id = o.product_id LEFT JOIN users cu ON cu.id = o.courier_id
-        WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY o.created_at LIMIT 300`),
+        WHERE o.status IN ('confirmed','assigned','picked_up','on_the_way','failed','return_pending') ORDER BY COALESCE(o.confirmed_at, o.created_at) DESC, o.created_at DESC LIMIT 300`),
     couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders,
         COALESCE((SELECT k.kind FROM courier_kind_log k WHERE k.courier_id = u.id AND k.effective_from <= now() ORDER BY k.id DESC LIMIT 1), 'independent') AS kind,
         COALESCE(p.availability, 'available') AS availability, p.vehicle,

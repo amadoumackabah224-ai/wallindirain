@@ -1,7 +1,7 @@
 // « Mes finances » : outil de gestion financière personnelle pour tous les rôles (migration 048).
 // Écran plein écran, sombre, avec sa propre barre du bas : Tableau de bord · Plan financier · Contacts · Statistiques · Plus.
 // Ce sont des notes personnelles : le compte « Wallindirain » affiché est le vrai portefeuille, en lecture seule.
-import { h, fmtGNF, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
+import { h, fmtGNF, eyeToggle, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
@@ -37,7 +37,7 @@ export function pfApp(user, screen = '') {
 
 function backLink() { return h('a', { class: 'pf-link', href: '#/app/' }, '‹ Retour à Wallindirain'); }
 const head = (title, { back, right } = {}) => h('header', { class: 'pf-head' }, h('div', { class: 'pf-head-row' },
-  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain')), h('span', { class: 'grow' }), right),
+  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain')), h('span', { class: 'grow' }), right, eyeToggle()),
   h('h1', { class: 'pf-title' }, title));
 const card = (title, ...children) => h('section', { class: 'pf-card' }, title && h('div', { class: 'pf-card-head' }, h('h2', {}, title)), ...children);
 const proBadge = () => h('span', { class: 'pf-pro' }, 'PRO');
@@ -287,13 +287,156 @@ function recurringScreen({ go }) {
       h('p', { class: 'pf-note' }, 'Ces repères servent à la prévision et à votre budget. Rien n\'est débité ni noté tout seul : vous enregistrez la vraie transaction quand elle a lieu.')));
   });
 }
-function contactsScreen({ user, go }) {
-  const seller = user.role === 'seller';
-  return h('div', {}, head('Contacts'), h('div', { class: 'pf-pad' },
-    card('Mes contacts', h('p', { class: 'pf-note' }, seller ? 'Vos clients, leurs étiquettes, vos notes et vos relances sont dans votre espace vendeur. Une fiche contact complète arrive bientôt.' : 'Le carnet de contacts arrive bientôt.'),
-      seller && h('div', { class: 'pf-btns' }, h('a', { class: 'pf-btn', href: '#/app/customers' }, 'Mes clients'), h('a', { class: 'pf-btn', href: '#/app/relances' }, 'Relances'))),
-    h('button', { class: 'pf-link', type: 'button', onclick: () => go('') }, '‹ Tableau de bord')));
+// ---------- Contacts : carnet unique (clients, prospects), notes, étiquettes, import de fichier, appel / SMS / WhatsApp ----------
+const STAGE_LABEL = { prospect: 'Prospect', client: 'Client', other: 'Autre' };
+const LABEL_COLOR = { green: 'Vert', red: 'Rouge', gold: 'Or', blue: 'Bleu', grey: 'Gris' };
+const waNumber = (p) => (p.length === 9 ? `224${p}` : p);
+const firstName = (n) => String(n).trim().split(/\s+/)[0];
+const fmtDate = (d) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+const labelChip = (l) => h('span', { class: `pf-lab pf-lab-${l.color}` }, l.name);
+
+/** Lit un fichier de contacts (CSV, texte ou vCard) : renvoie [{name, phone, city}]. Rien n'est envoyé tant que la personne n'a pas confirmé. */
+export function parseContacts(text) {
+  const clean = String(text).replace(/^﻿/, '');
+  const rows = [];
+  if (/BEGIN:VCARD/i.test(clean)) {
+    for (const card of clean.split(/BEGIN:VCARD/i).slice(1)) {
+      const fn = /^FN[^:]*:(.+)$/im.exec(card)?.[1]?.trim(), tel = /^TEL[^:]*:(.+)$/im.exec(card)?.[1]?.trim();
+      if (fn && tel) rows.push({ name: fn, phone: tel, city: '' });
+    }
+    return rows;
+  }
+  const lines = clean.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return rows;
+  const delim = [';', '\t', ','].find((d) => lines[0].includes(d)) || ',';
+  const split = (l) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
+  const head = split(lines[0]).map((c) => c.toLowerCase());
+  const looksPhone = (c) => /^[+0-9][0-9 .\-()]{5,}$/.test(c);
+  const hasHeader = !head.some(looksPhone);
+  const find = (re) => head.findIndex((c) => re.test(c));
+  let iName = hasHeader ? find(/nom|name|contact/) : 0, iPhone = hasHeader ? find(/t[ée]l|phone|num|mobile|portable/) : 1, iCity = hasHeader ? find(/ville|city|commune|quartier/) : 2;
+  for (const l of lines.slice(hasHeader ? 1 : 0)) {
+    const c = split(l);
+    let phone = iPhone >= 0 ? c[iPhone] : '', name = iName >= 0 ? c[iName] : '';
+    if (!looksPhone(phone || '')) { const k = c.findIndex(looksPhone); phone = k >= 0 ? c[k] : ''; if (!name || name === phone) name = c.find((x, n) => n !== k && x && !looksPhone(x)) || ''; }
+    if (name && phone) rows.push({ name, phone, city: iCity >= 0 ? c[iCity] || '' : '' });
+  }
+  return rows;
 }
+
+async function askContact(existing, defaults = {}) {
+  const v = await ask({ title: existing ? 'Modifier le contact' : 'Nouveau contact', submit: 'Enregistrer', fields: [
+    { name: 'name', label: 'Nom', value: existing?.name || '', maxlength: 60 },
+    { name: 'phone', label: 'Téléphone', type: 'tel', inputmode: 'tel', value: existing?.phone || '' },
+    { name: 'city', label: 'Ville ou quartier (facultatif)', required: false, maxlength: 40, value: existing?.city || '' },
+    { name: 'stage', label: 'Statut', type: 'select', options: Object.entries(STAGE_LABEL), value: existing?.stage || defaults.stage || 'prospect' }] });
+  if (!v) return false;
+  await post('/pf/contacts', { id: existing?.id, name: v.name, phone: v.phone, city: v.city || undefined, stage: v.stage });
+  return true;
+}
+
+function pickLabels(labels, current, canCreate) {
+  return new Promise((resolve) => {
+    const chosen = new Set(current.map((l) => l.id));
+    const close = (val) => { overlay.remove(); resolve(val); };
+    const list = h('div', { class: 'more-list' });
+    const draw = () => list.replaceChildren(...labels.map((l) => h('button', { class: 'more-row', type: 'button', 'aria-pressed': String(chosen.has(l.id)), onclick: () => { chosen.has(l.id) ? chosen.delete(l.id) : chosen.add(l.id); draw(); } },
+      labelChip(l), h('span', { class: 'grow' }), chosen.has(l.id) ? icon('check', 20) : null)));
+    draw();
+    const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(null); } }, h('div', { class: 'modal sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Étiquettes' },
+      h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }), labels.length ? list : h('p', { class: 'pf-note' }, 'Aucune étiquette pour le moment.'),
+      canCreate && h('button', { class: 'btn btn-ghost btn-block mt', type: 'button', onclick: () => close('new') }, 'Nouvelle étiquette'),
+      h('button', { class: 'btn btn-primary btn-block mt', type: 'button', onclick: () => close([...chosen]) }, 'Valider')));
+    document.body.append(overlay);
+  });
+}
+async function askLabel() {
+  const v = await ask({ title: 'Nouvelle étiquette', submit: 'Créer', fields: [{ name: 'name', label: 'Nom (ex. Fidèle, À relancer)', maxlength: 30 }, { name: 'color', label: 'Couleur', type: 'select', options: Object.entries(LABEL_COLOR), value: 'blue' }] });
+  if (!v) return false;
+  await post('/pf/labels', { name: v.name, color: v.color });
+  return true;
+}
+
+function contactsScreen({ go, st }) {
+  let stage = '', text = '', label = '', openId = null;
+  const host = h('div', {});
+  const importFile = h('input', { type: 'file', accept: '.csv,.txt,.vcf,text/csv,text/plain,text/vcard', hidden: true });
+  const load = async () => { try { await (openId ? showDetail() : showList()); } catch (e) { errToast(e); } };
+
+  async function showList() {
+    const params = new URLSearchParams({ ...(stage ? { stage } : {}), ...(text ? { q: text } : {}), ...(label ? { label } : {}) });
+    const d = await get(`/pf/contacts?${params}`);
+    const pro = d.tier === 'pro';
+    const fromOrders = action(async () => { const r = await post('/pf/contacts-from-orders'); return r.added; }, { ok: (n) => (n > 0 ? `${n} client(s) ajouté(s)` : 'Aucun nouveau client'), refresh: load });
+    const add = action(async () => { await askContact(null); }, { ok: 'Contact ajouté', refresh: load });
+    importFile.onchange = async () => {
+      const f = importFile.files[0]; importFile.value = '';
+      if (!f) return;
+      if (!pro) { go('pro'); return; }
+      try {
+        const rows = parseContacts(await f.text());
+        if (!rows.length) { toast('Aucun contact lisible dans ce fichier (il faut au moins un nom et un numéro par ligne).', 'bad'); return; }
+        if (rows.length > 500) { toast('500 contacts au plus par import : découpez le fichier.', 'bad'); return; }
+        if (!(await confirmBox(`Importer ${rows.length} contact(s) ?`, 'Les numéros déjà dans votre carnet et les lignes invalides seront ignorés.', 'Importer'))) return;
+        const r = await post('/pf/contacts-import', { rows });
+        toast(`${r.added} ajouté(s), ${r.skipped} ignoré(s)`, 'ok'); load();
+      } catch (e) { errToast(e); }
+    };
+    host.replaceChildren(h('div', {}, head('Contacts'), h('div', { class: 'pf-pad' },
+      d.priced && !pro && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, `Formule gratuite : ${d.total} / ${d.free_contacts} contacts. Contacts illimités, étiquettes et import avec Pro.`), icon('chevronRight', 18)),
+      h('input', { class: 'pf-search', type: 'search', placeholder: 'Rechercher un nom, un numéro…', value: text, 'aria-label': 'Rechercher', onchange: (e) => { text = e.target.value.trim(); load(); } }),
+      h('div', { class: 'pf-chips' }, [['', 'Tous'], ['prospect', 'Prospects'], ['client', 'Clients'], ['other', 'Autres']].map(([k, l]) => h('button', { class: 'pf-chip', type: 'button', 'aria-pressed': String(stage === k), onclick: () => { stage = k; load(); } }, l))),
+      d.labels.length > 0 && h('div', { class: 'pf-chips' }, d.labels.map((l) => h('button', { class: 'pf-chip', type: 'button', 'aria-pressed': String(label === l.id), onclick: () => { label = label === l.id ? '' : l.id; load(); } }, l.name))),
+      d.contacts.length === 0 ? card(null, h('div', { class: 'pf-start' }, h('span', { class: 'pf-ico pf-c-blue' }, icon('users', 26)), h('div', {}, h('b', {}, text || stage || label ? 'Aucun contact trouvé' : 'Votre carnet est vide'),
+        h('p', {}, 'Ajoutez vos clients et prospects : un seul endroit pour les appeler, leur écrire sur WhatsApp et garder vos notes.')))) :
+        h('section', { class: 'pf-card flush' }, d.contacts.map((c) => h('button', { class: 'pf-row', type: 'button', onclick: () => { openId = c.id; load(); } },
+          h('span', { class: `pf-ico pf-c-${c.stage === 'client' ? 'green' : c.stage === 'prospect' ? 'orange' : 'grey'}` }, icon('users', 22)),
+          h('span', { class: 'pf-row-main' }, h('b', {}, c.name), h('small', {}, `${fmtPhone ? fmtPhone(c.phone) : c.phone}${c.city ? ` · ${c.city}` : ''}`), c.labels.length > 0 && h('span', { class: 'pf-labs' }, c.labels.map(labelChip))), icon('chevronRight', 18)))),
+      h('div', { class: 'pf-btns' }, h('button', { class: 'pf-btn', type: 'button', onclick: add }, 'Nouveau contact'),
+        d.seller && h('button', { class: 'pf-btn alt', type: 'button', onclick: fromOrders }, 'Ajouter mes clients'),
+        h('button', { class: 'pf-btn alt', type: 'button', onclick: () => (pro ? importFile.click() : go('pro')) }, pro ? 'Importer un fichier' : 'Importer un fichier 🔒')),
+      h('p', { class: 'pf-note' }, 'Fichier CSV ou vCard (.vcf) exporté depuis votre téléphone ou un tableur : une ligne par contact avec le nom et le numéro. WhatsApp s\'ouvre avec un message prêt à envoyer ; Wallindirain ne lit jamais vos conversations.'),
+      d.seller && h('a', { class: 'pf-link', href: '#/app/relances' }, 'Relances de mes clients ›'))), importFile);
+  }
+
+  async function showDetail() {
+    const [d, all] = await Promise.all([get(`/pf/contacts/${openId}`), get('/pf/contacts')]);
+    const c = d.contact, pro = all.tier === 'pro';
+    const back = () => { openId = null; load(); };
+    const msg = encodeURIComponent(`Bonjour ${firstName(c.name)}, `);
+    const act = (ico, label, href) => h('a', { class: 'pf-act', href, rel: 'noopener', target: href.startsWith('http') ? '_blank' : null }, icon(ico, 24), h('span', {}, label));
+    const edit = action(async () => { await askContact(c); }, { ok: 'Contact modifié', refresh: load });
+    const archive = action(async () => { if (await confirmBox(c.archived_at ? 'Rétablir ce contact ?' : 'Archiver ce contact ?', c.archived_at ? '' : 'Il disparaît de la liste ; ses notes sont conservées.', c.archived_at ? 'Rétablir' : 'Archiver')) { await post(`/pf/contacts/${c.id}/archive`, { archived: !c.archived_at }); return true; } },
+      { ok: (r) => (r ? (c.archived_at ? 'Contact rétabli' : 'Contact archivé') : ''), refresh: () => back() });
+    const note = action(async () => {
+      const v = await ask({ title: 'Nouvelle note', submit: 'Ajouter', fields: [{ name: 'body', label: 'Note', maxlength: 500 }] });
+      if (v) await post(`/pf/contacts/${c.id}/notes`, { body: v.body });
+    }, { ok: 'Note ajoutée', refresh: load });
+    const voidNote = (n) => action(async () => { if (await confirmBox('Retirer cette note ?', '', 'Retirer', true)) { await post(`/pf/contact-notes/${n.id}/void`); return true; } }, { ok: (r) => (r ? 'Note retirée' : ''), refresh: load });
+    const labels = action(async () => {
+      if (!pro) { go('pro'); return; }
+      let all2 = all.labels, cur = d.labels;
+      for (;;) {
+        const r = await pickLabels(all2, cur, true);
+        if (r === null) return;
+        if (r === 'new') { if (await askLabel()) { all2 = (await get('/pf/contacts')).labels; } continue; }
+        await post(`/pf/contacts/${c.id}/labels`, { labels: r }); return;
+      }
+    }, { ok: 'Étiquettes enregistrées', refresh: load });
+    host.replaceChildren(h('div', {}, head(c.name, { back: ['Contacts', back] }), h('div', { class: 'pf-pad' },
+      card(null, h('div', { class: 'pf-contact-top' }, h('b', {}, fmtPhone ? fmtPhone(c.phone) : c.phone), h('small', {}, `${STAGE_LABEL[c.stage]}${c.city ? ` · ${c.city}` : ''} · ajouté le ${fmtDate(c.created_at)}`)),
+        h('div', { class: 'pf-acts' }, act('phone', 'Appeler', `tel:${c.phone}`), act('message', 'SMS', `sms:${c.phone}?body=${msg}`), act('arrowUpRight', 'WhatsApp', `https://wa.me/${waNumber(c.phone)}?text=${msg}`)),
+        h('div', { class: 'pf-labs' }, d.labels.map(labelChip), h('button', { class: 'pf-mini inline', type: 'button', onclick: labels }, pro ? 'Étiquettes' : 'Étiquettes 🔒'))),
+      d.orders && card('Commandes passées', d.orders.length === 0 ? h('p', { class: 'pf-note' }, 'Aucune commande avec ce numéro.') : d.orders.slice(0, 8).map((o) => h('div', { class: 'pf-flow' }, h('div', { class: 'pf-flow-row' }, h('b', {}, `${o.product_name} × ${o.qty}`), h('span', {}, fmtGNF(o.sale_total))), h('small', { class: 'pf-sub' }, `${fmtDate(o.created_at)} · ${ORDER_STATUS[o.status] || o.status}`)))),
+      card('Notes', d.notes.length === 0 ? h('p', { class: 'pf-note' }, 'Aucune note.') : d.notes.map((n) => h('div', { class: 'pf-note-row' }, h('p', {}, n.body), h('small', {}, fmtDate(n.created_at)), h('button', { class: 'pf-mini inline', type: 'button', onclick: voidNote(n) }, 'Retirer'))),
+        h('button', { class: 'pf-btn', type: 'button', onclick: note }, 'Ajouter une note')),
+      h('div', { class: 'pf-btns' }, h('button', { class: 'pf-btn alt', type: 'button', onclick: edit }, 'Modifier'), h('button', { class: 'pf-btn alt', type: 'button', onclick: archive }, c.archived_at ? 'Rétablir' : 'Archiver')))));
+  }
+
+  load();
+  return host;
+}
+const ORDER_STATUS = { new: 'Nouvelle', in_call: 'En appel', confirmed: 'Confirmée', assigned: 'Assignée', picked_up: 'Récupérée', on_the_way: 'En route', delivered: 'Livrée', cancelled: 'Annulée', failed: 'Échec', return_pending: 'Retour en cours', returned: 'Retournée', refused: 'Refusée' };
 
 // ---------- Plus, Paramètres, Pro ----------
 function moreScreen({ go, st }) {
@@ -308,7 +451,7 @@ function settingsScreen({ go }) {
   const row = (ico, label, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-set', type: href ? null : 'button', href, onclick }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18));
   return h('div', {}, head('Paramètres', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' }, h('section', { class: 'pf-card flush' },
     row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Paramètres des jauges', () => go('gauges')), row('bank', 'Comptes', () => go('accounts')),
-    row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
+    row('users', 'Contacts et étiquettes', () => go('contacts')), row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
     row('shield', 'Sécurité', null, '#/app/profile')),
     h('p', { class: 'pf-note' }, 'Vos données financières personnelles ne sont visibles que par vous. Vous pouvez archiver un compte à tout moment ; rien n\'est partagé avec les autres utilisateurs.')));
 }
@@ -335,8 +478,8 @@ function proScreen({ go, st, reload }) {
   const until = st.paid_until ? new Date(st.paid_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null;
   return h('div', {}, head('Formule', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' },
     card(null, h('div', { class: 'pf-big' }, st.tier === 'pro' ? 'Pro' : 'Gratuite'), h('p', { class: 'pf-note' }, !st.priced ? 'Toutes les fonctions sont ouvertes pour le moment.' : st.tier === 'pro' ? (until && Date.parse(st.paid_until) > Date.now() ? `Abonnement actif jusqu'au ${until}.` : `Essai Pro jusqu'au ${new Date(st.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`) : 'Vous gardez vos données. Passez à Pro pour retrouver toutes les fonctions.')),
-    card('Gratuit', h('ul', { class: 'pf-list' }, h('li', {}, `${st.free_accounts} comptes personnels`), h('li', {}, 'Revenus, dépenses et virements'), h('li', {}, `Historique des ${st.free_history_days} derniers jours`), h('li', {}, 'Tableau de bord sur 30 jours'))),
-    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes illimités'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectif du mois, récurrents et prévision à 30 jours'), h('li', {}, 'Règles automatiques et export (bientôt)')),
+    card('Gratuit', h('ul', { class: 'pf-list' }, h('li', {}, `${st.free_accounts} comptes personnels`), h('li', {}, 'Carnet de contacts (nombre limité), notes, appel, SMS, WhatsApp'), h('li', {}, 'Revenus, dépenses et virements'), h('li', {}, `Historique des ${st.free_history_days} derniers jours`), h('li', {}, 'Tableau de bord sur 30 jours'))),
+    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes et contacts illimités'), h('li', {}, 'Étiquettes et import de fichier de contacts'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectif du mois, récurrents et prévision à 30 jours'), h('li', {}, 'Règles automatiques et export (bientôt)')),
       st.priced ? h('div', { class: 'pf-btns' }, st.prices.monthly > 0 && h('button', { class: 'pf-btn', type: 'button', onclick: sub('monthly') }, `${fmtGNF(st.prices.monthly)} / mois`), st.prices.yearly > 0 && h('button', { class: 'pf-btn alt', type: 'button', onclick: sub('yearly') }, `${fmtGNF(st.prices.yearly)} / an`))
         : h('p', { class: 'pf-note' }, 'Aucun prix n\'est fixé pour le moment.')),
     h('p', { class: 'pf-note' }, 'Le paiement est prélevé sur votre portefeuille Wallindirain. Un abonnement terminé ne supprime rien : vos données restent, avec les limites de la formule gratuite.')));

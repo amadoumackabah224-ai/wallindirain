@@ -1,5 +1,5 @@
 // Portefeuille et retraits : commun au vendeur, fournisseur, agent, chef et livreur.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, payoutText, liveView, table, badge, amount, action, WALLET_KIND, empty, toast, proofButton } from '../ui.js';
+import { h, ask, secret, eyeToggle, fmtGNF, fmtDate, fmtPhone, payoutText, liveView, table, badge, amount, action, WALLET_KIND, empty, toast, proofButton } from '../ui.js';
 import { get, post } from '../api.js';
 import { startIdentityFlow } from './kyc.js';
 import { receiptButton } from './invoices.js';
@@ -35,11 +35,23 @@ export function walletView() {
       await post('/withdrawals', { amount: Number(v.amount) });
       toast('Demande envoyée : l\'administration va la vérifier puis vous payer.', 'ok'); await refresh();
     });
+    let tab = 'moves';
+    const lists = h('div', {});
+    const paintLists = () => {
+      lists.replaceChildren(tab === 'moves'
+        ? h('div', { class: 'card' }, table(['Date', 'Opération', 'Montant', 'Disponible'], w.entries.map((e) => [
+          fmtDate(e.created_at), h('div', {}, WALLET_KIND[e.kind] || e.kind, e.description && h('div', { class: 'small muted' }, e.description)), secret(amount(e.amount, true)),
+          e.locked ? badge(`le ${fmtDate(e.available_at)}`, 'warn') : badge('Oui', 'ok')]), { empty: empty('📒', 'Aucun mouvement') }))
+        : h('div', { class: 'card' }, table(['Date', 'Montant', 'Via', 'Statut', 'Référence', ''], w.withdrawals.map((x) => [
+          fmtDate(x.created_at), secret(amount(x.amount)), payoutText(x.method, x.account_number), badge(...WD_STATUS[x.status]), x.payment_ref || '', h('div', { class: 'gap' }, proofButton(x.proof_id, 'Preuve du transfert'), x.status === 'paid' && receiptButton(x.id))]),
+          { empty: empty('💸', 'Aucun retrait pour le moment') })));
+    };
+    const tabBtn = (k, label) => h('button', { type: 'button', 'aria-pressed': String(tab === k), onclick: (e) => { tab = k; e.currentTarget.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === e.currentTarget))); paintLists(); } }, label);
+    paintLists();
     return h('div', {}, h('h1', {}, 'Portefeuille'),
-      w.role === 'seller' && sellerFinances(),
-      h('div', { class: 'balance mb' }, h('div', { class: 'sub' }, 'Disponible pour retrait'), h('div', { class: 'big' }, fmtGNF(free)),
-        w.reserved > 0 && h('div', { class: 'sub' }, `${fmtGNF(w.reserved)} réservés pour vos demandes de retrait en attente (débités quand l'argent est envoyé)`),
-        w.pending > 0 && h('div', { class: 'sub' }, `+ ${fmtGNF(w.pending)} bientôt disponibles (délai de sécurité après livraison)`),
+      h('div', { class: 'balance mb' }, h('div', { class: 'row-top' }, h('div', { class: 'sub' }, 'Disponible pour retrait'), eyeToggle()), h('div', { class: 'big' }, secret(fmtGNF(free))),
+        w.reserved > 0 && h('div', { class: 'sub' }, 'dont ', secret(fmtGNF(w.reserved)), ' réservés pour vos demandes de retrait en attente'),
+        w.pending > 0 && h('div', { class: 'sub' }, '+ ', secret(fmtGNF(w.pending)), ' bientôt disponibles (délai de sécurité après livraison)'),
         h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: withdraw }, 'Demander un retrait'))),
       w.subscription && w.subscription.monthly > 0 && h('div', { class: w.subscription.active ? 'notice' : 'notice bad' }, w.subscription.required
         ? (w.subscription.active ? `Abonnement : ${fmtGNF(w.subscription.monthly)} par mois. ${w.subscription.paid_until && new Date(w.subscription.paid_until) > new Date() ? `Payé jusqu'au ${new Date(w.subscription.paid_until).toLocaleDateString('fr-FR')}.` : `Période d'essai jusqu'au ${new Date(w.subscription.trial_until).toLocaleDateString('fr-FR')}.`}` : `Abonnement expiré : ${fmtGNF(w.subscription.monthly)} par mois. Contactez Wallindirain pour le renouveler, sinon vous ne pouvez plus créer de commandes.`)
@@ -52,11 +64,8 @@ export function walletView() {
       hasPayout
         ? h('div', { class: 'notice' }, `Versement : ${payoutText(w.payout.method, w.payout.phone)}. `, h('a', { href: '#/app/profile' }, 'Le modifier dans Profil'))
         : h('div', { class: 'notice warn' }, 'Aucun numéro de versement enregistré. ', h('button', { class: 'btn btn-sm btn-gold', onclick: setPayout }, 'Enregistrer mon numéro')),
-      h('div', { class: 'card' }, h('h2', {}, 'Mes retraits'), table(['Date', 'Montant', 'Via', 'Statut', 'Référence', ''], w.withdrawals.map((x) => [
-        fmtDate(x.created_at), amount(x.amount), payoutText(x.method, x.account_number), badge(...WD_STATUS[x.status]), x.payment_ref || '', h('div', { class: 'gap' }, proofButton(x.proof_id, 'Preuve du transfert'), x.status === 'paid' && receiptButton(x.id))]),
-        { empty: empty('💸', 'Aucun retrait pour le moment') })),
-      h('div', { class: 'card' }, h('h2', {}, 'Mouvements'), table(['Date', 'Opération', 'Montant', 'Disponible'], w.entries.map((e) => [
-        fmtDate(e.created_at), h('div', {}, WALLET_KIND[e.kind] || e.kind, e.description && h('div', { class: 'small muted' }, e.description)), amount(e.amount, true),
-        e.locked ? badge(`le ${fmtDate(e.available_at)}`, 'warn') : badge('Oui', 'ok')]), { empty: empty('📒', 'Aucun mouvement') })));
+      h('div', { class: 'wallet-tabs', role: 'group', 'aria-label': 'Historique' }, tabBtn('moves', 'Mouvements'), tabBtn('wd', 'Mes retraits')),
+      lists,
+      w.role === 'seller' && h('details', { class: 'wallet-details' }, h('summary', {}, 'Prévision et budget (Tableau argent)'), sellerFinances()));
   });
 }
