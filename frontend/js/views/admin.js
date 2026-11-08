@@ -239,7 +239,7 @@ const NUMERIC_GROUPS = {
   ],
   finances: [
     ['Prix de la formule Pro', ['pf_price_monthly', 'pf_price_yearly', 'pf_trial_days']],
-    ['Limites de la formule gratuite', ['pf_free_accounts', 'pf_free_history_days']]
+    ['Limites de la formule gratuite', ['pf_free_accounts', 'pf_free_history_days', 'pf_free_contacts']]
   ],
   regles: [
     ['Livraison et appels', ['code_max_attempts', 'call_attempt_limit', 'courier_max_open', 'mission_max_offers', 'mission_offer_minutes']],

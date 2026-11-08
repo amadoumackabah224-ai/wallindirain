@@ -229,6 +229,89 @@ export function registerPf(app, { q, fn, guard, limit }) {
     return { ok: true };
   }));
 
+  // ----- Contacts : carnet unique, notes, étiquettes (Pro), import (Pro) -----
+  const STAGES = ['prospect', 'client', 'other'], LABEL_COLORS = ['green', 'red', 'gold', 'blue', 'grey'];
+  app.get('/api/pf/contacts', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id, acc = await access(id);
+    const params = [id]; let where = 'c.owner_id = $1 AND c.archived_at IS NULL';
+    if (ctx.query.archived === '1') where = 'c.owner_id = $1 AND c.archived_at IS NOT NULL';
+    if (ctx.query.stage && STAGES.includes(ctx.query.stage)) { params.push(ctx.query.stage); where += ` AND c.stage = $${params.length}`; }
+    if (ctx.query.label) { params.push(v.uuid(ctx.query.label, 'Étiquette')); where += ` AND EXISTS (SELECT 1 FROM pf_contact_label_links k WHERE k.contact_id = c.id AND k.label_id = $${params.length})`; }
+    if (ctx.query.q) { const t = String(ctx.query.q).slice(0, 50).replace(/[\\%_]/g, '\\$&'); params.push(`%${t}%`); where += ` AND (c.name ILIKE $${params.length} OR c.phone LIKE $${params.length} OR c.city ILIKE $${params.length})`; }
+    const contacts = await q(`SELECT c.id, c.name, c.phone, c.city, c.stage, c.origin, c.created_at,
+        COALESCE((SELECT json_agg(json_build_object('id', l.id, 'name', l.name, 'color', l.color) ORDER BY l.name) FROM pf_contact_label_links k JOIN pf_contact_labels l ON l.id = k.label_id AND l.deleted_at IS NULL WHERE k.contact_id = c.id), '[]'::json) AS labels,
+        (SELECT count(*)::int FROM pf_contact_notes n WHERE n.contact_id = c.id AND n.voided_at IS NULL) AS notes
+      FROM pf_contacts c WHERE ${where} ORDER BY lower(c.name) LIMIT 500`, params);
+    const labels = await q('SELECT id, name, color FROM pf_contact_labels WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY name', [id]);
+    const [n] = await q('SELECT count(*)::int AS n FROM pf_contacts WHERE owner_id = $1 AND archived_at IS NULL', [id]);
+    return { enabled: true, ...acc, contacts, labels, total: n.n, free_contacts: await setting('pf_free_contacts'), seller: ctx.user.role === 'seller' };
+  }));
+  app.get('/api/pf/contacts/:id', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id, cid = v.uuid(ctx.params.id, 'Contact');
+    const [c] = await q('SELECT id, name, phone, city, stage, origin, created_at, archived_at FROM pf_contacts WHERE id = $1 AND owner_id = $2', [cid, id]);
+    if (!c) throw new HttpError(404, 'not_found', 'Contact introuvable');
+    const notes = await q('SELECT id, body, created_at FROM pf_contact_notes WHERE contact_id = $1 AND voided_at IS NULL ORDER BY created_at DESC LIMIT 100', [cid]);
+    const labels = await q(`SELECT l.id, l.name, l.color FROM pf_contact_label_links k JOIN pf_contact_labels l ON l.id = k.label_id AND l.deleted_at IS NULL WHERE k.contact_id = $1 ORDER BY l.name`, [cid]);
+    // historique de commandes : uniquement pour un vendeur, uniquement ses propres commandes avec ce numéro
+    let orders = null;
+    if (ctx.user.role === 'seller') {
+      orders = await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total::bigint AS sale_total, o.created_at
+        FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.seller_id = $1 AND o.customer_phone = $2 ORDER BY o.created_at DESC LIMIT 20`, [id, c.phone]);
+    }
+    return { enabled: true, contact: c, notes, labels, orders };
+  }));
+  app.post('/api/pf/contacts', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const cid = await fn('fn_pf_contact_save', ctx.user.id, b.id ? v.uuid(b.id, 'Contact') : null, v.str(b.name, 'Nom', { max: 60 }), v.str(b.phone, 'Téléphone', { max: 30 }), v.optStr(b.city, 'Ville', 40), v.oneOf(b.stage || 'prospect', STAGES, 'Statut'));
+    ctx.status = b.id ? 200 : 201;
+    return { id: cid };
+  }));
+  app.post('/api/pf/contacts/:id/archive', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_contact_archive', ctx.user.id, v.uuid(ctx.params.id, 'Contact'), ctx.body.archived !== false);
+    return { ok: true };
+  }));
+  app.post('/api/pf/contacts/:id/notes', guard(ALL, async (ctx) => {
+    writing(ctx);
+    ctx.status = 201;
+    return { id: await fn('fn_pf_contact_note_add', ctx.user.id, v.uuid(ctx.params.id, 'Contact'), v.str(ctx.body.body, 'Note', { max: 500 })) };
+  }));
+  app.post('/api/pf/contact-notes/:id/void', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_contact_note_void', ctx.user.id, v.uuid(ctx.params.id, 'Note'));
+    return { ok: true };
+  }));
+  app.post('/api/pf/contacts/:id/labels', guard(ALL, async (ctx) => {
+    writing(ctx);
+    const ids = Array.isArray(ctx.body.labels) ? ctx.body.labels.slice(0, 10).map((x) => v.uuid(x, 'Étiquette')) : [];
+    await fn('fn_pf_contact_labels_set', ctx.user.id, v.uuid(ctx.params.id, 'Contact'), ids);
+    return { ok: true };
+  }));
+  app.post('/api/pf/labels', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const lid = await fn('fn_pf_label_save', ctx.user.id, b.id ? v.uuid(b.id, 'Étiquette') : null, v.str(b.name, 'Nom', { max: 30 }), v.oneOf(b.color || 'blue', LABEL_COLORS, 'Couleur'));
+    ctx.status = b.id ? 200 : 201;
+    return { id: lid };
+  }));
+  app.post('/api/pf/labels/:id/delete', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_label_delete', ctx.user.id, v.uuid(ctx.params.id, 'Étiquette'));
+    return { ok: true };
+  }));
+  app.post('/api/pf/contacts-import', guard(ALL, async (ctx) => {
+    limit(`pf-import:${ctx.user.id}`, 20, 3600_000);
+    const rows = Array.isArray(ctx.body.rows) ? ctx.body.rows : null;
+    if (!rows || rows.length > 500) throw new HttpError(400, 'invalid_input', '500 lignes au plus par import');
+    const clean = rows.map((r) => ({ name: String(r?.name ?? '').slice(0, 80), phone: String(r?.phone ?? '').slice(0, 30), city: String(r?.city ?? '').slice(0, 60) }));
+    return fn('fn_pf_contact_import', ctx.user.id, JSON.stringify(clean));
+  }));
+  app.post('/api/pf/contacts-from-orders', guard(['seller'], async (ctx) => {
+    limit(`pf-fromord:${ctx.user.id}`, 20, 3600_000);
+    return { added: await fn('fn_pf_contacts_from_orders', ctx.user.id) };
+  }));
+
   app.post('/api/pf/subscribe', guard(ALL, async (ctx) => {
     limit(`pf-sub:${ctx.user.id}`, 10, 3600_000);
     return { paid_until: await fn('fn_pf_subscribe', ctx.user.id, v.oneOf(ctx.body.plan, ['monthly', 'yearly'], 'Formule')) };
