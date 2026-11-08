@@ -26,10 +26,26 @@ const app = document.getElementById('app');
 let user = null;
 let contact = '624390707';
 
+// Anciennes adresses (liens, notifications) : elles ouvrent l'onglet regroupé, sur la bonne vue.
+const ALIAS = { customers: ['contacts', 0], relances: ['contacts', 1], profit: ['stats', 1], returns: ['orders', 1], proposals: ['catalog', 1], invoices: ['wallet', 1] };
+
+/** Un onglet qui regroupe plusieurs vues existantes sous un sélecteur (rien n'est retiré, juste moins d'entrées dans le menu). */
+function combo(c, start, parts) {
+  const body = h('div', { class: 'combo-body' });
+  const bar = h('div', { class: 'wallet-tabs combo-tabs', role: 'group' });
+  const show = (i) => {
+    [...bar.children].forEach((b, j) => b.setAttribute('aria-pressed', String(i === j)));
+    body.replaceChildren(parts[i][1](c));
+  };
+  parts.forEach((p, i) => bar.append(h('button', { type: 'button', 'aria-pressed': 'false', onclick: () => show(i) }, p[0])));
+  show(start || 0);
+  return h('div', {}, bar, body);
+}
+
 // Onglets par rôle : [clé, icône, libellé, fonction de vue, groupe du menu latéral]
 const TABS = {
-  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c) => sellerOrders(c), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', () => sellerCatalog(), 'Ventes'], ['proposals', 'plus', 'Proposer un produit', () => sellerProposals(), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
-    ['stats', 'chart', 'Mes chiffres', () => sellerStats(), 'Mon activité'], ['customers', 'users', 'Mes clients', () => sellerCustomers(), 'Mon activité'], ['relances', 'message', 'Relances', () => sellerRelances(), 'Mon activité'], ['profit', 'trend', 'Mon bénéfice', () => sellerProfit(), 'Mon activité'], ['returns', 'alert', 'Mes retours', () => sellerReturns(), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', () => walletView(), 'Mon activité'], ['invoices', 'receipt', 'Factures', () => myInvoices('seller'), 'Mon activité']],
+  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c, i) => combo(c, i, [['Commandes', sellerOrders], ['Retours', sellerReturns]]), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', (c, i) => combo(c, i, [['Catalogue', sellerCatalog], ['Proposer un produit', sellerProposals]]), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
+    ['contacts', 'users', 'Contacts', (c, i) => combo(c, i, [['Mes clients', sellerCustomers], ['Relances', sellerRelances]]), 'Mon activité'], ['stats', 'chart', 'Statistiques', (c, i) => combo(c, i, [['Mes chiffres', sellerStats], ['Mon bénéfice', sellerProfit]]), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', (c, i) => combo(c, i, [['Portefeuille', walletView], ['Factures', () => myInvoices('seller')]]), 'Mon activité']],
   supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
@@ -56,11 +72,13 @@ function render(node) { app.replaceChildren(node); window.scrollTo(0, 0); }
 
 function appShell(tabKey) {
   const tabs = user.pf ? [...TABS[user.role], PF_TAB] : TABS[user.role];
+  const al = user.role === 'seller' && ALIAS[tabKey];
+  const sub = al ? al[1] : 0; if (al) tabKey = al[0];
   const current = tabKey === 'profile' ? PROFILE_TAB : tabKey === 'notifications' ? NOTIF_TAB : (tabs.find((t) => t[0] === tabKey) || tabs[0]);
   const goTo = (k) => { location.hash = `#/app/${k}`; };
   const refreshUser = async () => { try { user = (await get('/auth/me')).user; } catch { /* inchangé */ } document.querySelectorAll('.who-name').forEach((w) => { w.textContent = user.name; }); document.querySelectorAll('.topbar .avatar').forEach((old) => old.replaceWith(avatar(user, 34, Date.now()))); };
   document.title = `${current[2]} · Wallindirain`;
-  const main = h('main', { class: 'shell', id: 'contenu' }, current[3]({ goTo, refreshUser, user }));
+  const main = h('main', { class: 'shell', id: 'contenu' }, current[3]({ goTo, refreshUser, user }, sub));
 
   const navItem = (t, cls) => h('button', { class: `${cls}${t[0] === current[0] ? ' on' : ''}`, type: 'button', 'aria-current': t[0] === current[0] ? 'page' : null, onclick: () => goTo(t[0]) }, icon(t[1], 22), h('span', { class: 'nav-label' }, t[2]));
   // menu latéral (ordinateur et tablette) : groupes

@@ -562,3 +562,4 @@ div.notif { cursor: default; }
 .pf-head-row .eye-btn { margin-left: 8px; }
 .money-hero { position: relative; } .money-hero .eye-corner { position: absolute; top: 14px; right: 14px; }
 .secret.block { display: inline-block; }
+.combo-tabs { margin-top: 4px; }
