@@ -22,9 +22,9 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 /** Point d'entrée : `#/pf/<écran>`. */
 export function pfApp(user, screen = '') {
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen };
   const key = SCREENS[screen] ? screen : '';
-  const tabOf = ({ '': 'home', home: 'home', plan: 'plan', contacts: 'contacts', stats: 'stats' })[key] || 'more';
+  const tabOf = ({ '': 'home', home: 'home', plan: 'plan', recurring: 'plan', contacts: 'contacts', stats: 'stats' })[key] || 'more';
   document.title = 'Mes finances · Wallindirain';
   const body = h('div', { class: 'pf-body' }, liveView(() => get('/pf/status'), (st, refresh) => {
     if (!st.enabled) return h('div', { class: 'pf-pad' }, empty('bank', 'Mes finances n\'est pas encore disponible. Vous serez prévenu dès son ouverture.'), backLink());
@@ -202,13 +202,90 @@ function statsScreen({ go }) {
   });
 }
 
-// ---------- Plan financier et Contacts (reliés aux outils existants ; refonte dans les étapes suivantes) ----------
-function planScreen({ user, go }) {
-  const seller = user.role === 'seller';
-  return h('div', {}, head('Plan financier'), h('div', { class: 'pf-pad' },
-    card('Budgets, objectifs et prévisions', h('p', { class: 'pf-note' }, seller ? 'Votre prévision d\'argent à venir, vos dépenses récurrentes, votre budget et votre objectif du mois se trouvent déjà dans votre portefeuille.' : 'Cet espace accueillera bientôt vos budgets, objectifs et dépenses récurrentes.'),
-      seller && h('a', { class: 'pf-btn', href: '#/app/wallet' }, 'Ouvrir mon tableau argent')),
-    h('button', { class: 'pf-link', type: 'button', onclick: () => go('') }, '‹ Tableau de bord')));
+// ---------- Plan financier (budgets, objectif du mois, récurrents, prévision) ----------
+const FREQ_LABEL = { daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois' };
+const lock = (go) => h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'Le plan financier fait partie de la formule Pro. Vos données restent visibles.'), icon('chevronRight', 18));
+const needPro = (d, go) => { if (d.tier === 'pro') return false; go('pro'); return true; };
+
+async function askRecurring(existing) {
+  const v = await ask({ title: existing ? 'Modifier le récurrent' : 'Nouveau récurrent', text: 'Un revenu ou une dépense qui revient. Il sert à la prévision : rien n\'est enregistré automatiquement.', submit: 'Enregistrer', fields: [
+    { name: 'label', label: 'Nom (ex. Loyer, Salaire)', value: existing?.label || '', maxlength: 40 },
+    { name: 'kind', label: 'Type', type: 'select', options: [['expense', 'Dépense'], ['income', 'Revenu']], value: existing?.kind || 'expense' },
+    { name: 'amount', label: 'Montant (GNF)', type: 'number', inputmode: 'numeric', value: existing?.amount ?? '' },
+    { name: 'frequency', label: 'Fréquence', type: 'select', options: Object.entries(FREQ_LABEL), value: existing?.frequency || 'monthly' },
+    { name: 'anchor_on', label: 'Prochaine date (mensuel : jour 1 à 28)', type: 'date', value: existing?.anchor_on || today() }] });
+  if (!v) return false;
+  const cat = v.kind === 'income' ? 'other_in' : 'other_out';
+  const category = existing && existing.kind === v.kind ? existing.category : cat;
+  await post('/pf/recurring', { id: existing?.id, label: v.label, kind: v.kind, category, amount: Number(v.amount), frequency: v.frequency, anchor_on: v.anchor_on });
+  return true;
+}
+async function askBudget(category, current) {
+  const v = await ask({ title: `Budget · ${EXPENSE_LABEL[category]}`, text: 'Combien voulez-vous dépenser au plus chaque mois dans cette catégorie ? Laissez vide pour retirer le budget.', submit: 'Enregistrer', fields: [
+    { name: 'amount', label: 'Budget mensuel (GNF)', type: 'number', inputmode: 'numeric', value: current ?? '', required: false }] });
+  if (!v) return false;
+  await post('/pf/budgets', { category, amount: v.amount === '' ? null : Number(v.amount) });
+  return true;
+}
+
+function planScreen({ go }) {
+  return liveView(() => get('/pf/plan'), (d, refresh) => {
+    const pro = d.tier === 'pro';
+    const pick = async () => {
+      const used = new Set(d.budgets.map((b) => b.category));
+      const left = Object.entries(EXPENSE_LABEL).filter(([k]) => !used.has(k));
+      if (!left.length) return false;
+      const v = await ask({ title: 'Nouveau budget', submit: 'Suivant', fields: [{ name: 'category', label: 'Catégorie', type: 'select', options: left, value: left[0][0] }] });
+      return v ? askBudget(v.category) : false;
+    };
+    const goal = d.goal;
+    const bar = (value, max, over) => { const f = h('span', { class: `pf-bar-fill ${over ? 'neg' : 'pos'}` }); f.style.width = `${max > 0 ? Math.min(100, Math.max(2, Math.round((value * 100) / max))) : 0}%`; return h('span', { class: 'pf-bar-track' }, f); };
+    const goalSet = action(async () => {
+      const v = await ask({ title: 'Objectif du mois', text: 'Combien voulez-vous mettre de côté ce mois-ci (revenus moins dépenses) ? Laissez vide pour le retirer.', submit: 'Enregistrer', fields: [
+        { name: 'target', label: 'Objectif (GNF)', type: 'number', inputmode: 'numeric', value: goal?.target ?? '', required: false }] });
+      if (!v) return;
+      await post('/pf/goal', { target: v.target === '' ? null : Number(v.target) });
+    }, { ok: 'Objectif enregistré', refresh });
+    const f = d.forecast;
+    return h('div', {}, head('Plan financier'), h('div', { class: 'pf-pad' },
+      !pro && lock(go),
+      card('Prévision à 30 jours',
+        h('div', { class: 'pf-sub' }, 'SOLDE PRÉVU'), h('div', { class: 'pf-big' }, fmtGNF(f.projected)),
+        h('dl', { class: 'pf-kv' }, h('dt', {}, 'Solde actuel'), h('dd', {}, fmtGNF(f.balance)), h('dt', {}, 'Revenus attendus'), h('dd', { class: 'pos' }, fmtGNF(f.income)), h('dt', {}, 'Dépenses prévues'), h('dd', { class: 'neg' }, fmtGNF(f.expense))),
+        f.upcoming.length === 0 ? h('p', { class: 'pf-note' }, 'Ajoutez vos revenus et dépenses qui reviennent pour voir ce qui vous attend.')
+          : f.upcoming.slice(0, 5).map((u) => h('div', { class: 'pf-flow' }, h('div', { class: 'pf-flow-row' }, h('b', {}, `${dayLabel(u.day)} · ${u.label}`), h('span', { class: u.kind === 'income' ? 'pos' : 'neg' }, money(u.kind === 'income' ? u.amount : -u.amount, true))))),
+        moreLink('Gérer mes récurrents', () => go('recurring'))),
+      card('Objectif du mois',
+        goal ? [h('div', { class: 'pf-flow-row' }, h('b', {}, 'Mis de côté'), h('span', {}, `${fmtGNF(Math.max(0, goal.saved))} / ${fmtGNF(goal.target)}`)), bar(Math.max(0, goal.saved), goal.target, false)]
+          : h('p', { class: 'pf-note' }, 'Fixez ce que vous voulez mettre de côté ce mois-ci.'),
+        h('button', { class: 'pf-btn', type: 'button', onclick: () => (needPro(d, go) ? null : goalSet()) }, goal ? 'Modifier' : 'Fixer un objectif')),
+      card('Budgets du mois',
+        d.budgets.length === 0 ? h('p', { class: 'pf-note' }, 'Aucun budget. Limitez vos dépenses par catégorie : alimentation, transport, téléphone…')
+          : d.budgets.map((b) => h('button', { class: 'pf-flow pf-plain', type: 'button', onclick: () => (needPro(d, go) ? null : action(async () => { await askBudget(b.category, b.amount); }, { ok: 'Budget enregistré', refresh })()) },
+            h('div', { class: 'pf-flow-row' }, h('b', {}, EXPENSE_LABEL[b.category]), h('span', { class: b.spent > b.amount ? 'neg' : '' }, `${fmtGNF(b.spent)} / ${fmtGNF(b.amount)}`)), bar(b.spent, b.amount, b.spent > b.amount))),
+        h('button', { class: 'pf-btn', type: 'button', onclick: () => (needPro(d, go) ? null : action(async () => { await pick(); }, { ok: 'Budget enregistré', refresh })()) }, 'Ajouter un budget')),
+      h('button', { class: 'pf-link', type: 'button', onclick: () => go('') }, '‹ Tableau de bord')));
+  });
+}
+function recurringScreen({ go }) {
+  return liveView(() => get('/pf/plan'), (d, refresh) => {
+    const open = (r) => async () => {
+      const v = await ask({ title: r.label, text: `${r.kind === 'income' ? 'Revenu' : 'Dépense'} · ${fmtGNF(r.amount)} · ${FREQ_LABEL[r.frequency]}`, submit: 'Modifier', fields: [] });
+      if (!v) return;
+      if (d.tier !== 'pro') { go('pro'); return; }
+      try { if (await askRecurring(r)) { toast('Récurrent modifié', 'ok'); refresh(); } } catch (e) { errToast(e); }
+    };
+    const stop = (r) => action(async () => { if (await confirmBox('Arrêter ce récurrent ?', 'Il ne comptera plus dans la prévision. Vos transactions déjà notées ne changent pas.', 'Arrêter', true)) { await post(`/pf/recurring/${r.id}/stop`); return true; } }, { ok: (x) => (x ? 'Récurrent arrêté' : ''), refresh });
+    const add = action(async () => { if (needPro(d, go)) return; await askRecurring(); }, { ok: 'Récurrent ajouté', refresh });
+    return h('div', {}, head('Récurrents', { back: ['Plan', () => go('plan')] }), h('div', { class: 'pf-pad' },
+      d.tier !== 'pro' && lock(go),
+      d.recurring.length === 0 ? empty('clock', 'Aucun revenu ni dépense récurrente.') : h('section', { class: 'pf-card flush' }, d.recurring.map((r) => h('div', { class: 'pf-acc' },
+        h('button', { class: 'pf-row', type: 'button', onclick: open(r) }, h('span', { class: `pf-ico pf-c-${r.kind === 'income' ? 'green' : 'orange'}` }, icon(r.kind === 'income' ? 'plus' : 'arrowUpRight', 22)),
+          h('span', { class: 'pf-row-main' }, h('b', {}, r.label), h('span', { class: `pf-amt ${r.kind === 'income' ? 'pos' : 'neg'}` }, money(r.kind === 'income' ? r.amount : -r.amount, true)), h('small', {}, `${FREQ_LABEL[r.frequency]} · depuis le ${dayLabel(r.anchor_on)}`))),
+        h('button', { class: 'pf-mini', type: 'button', onclick: stop(r) }, 'Arrêter')))),
+      h('button', { class: 'pf-btn', type: 'button', onclick: add }, 'Ajouter un récurrent'),
+      h('p', { class: 'pf-note' }, 'Ces repères servent à la prévision et à votre budget. Rien n\'est débité ni noté tout seul : vous enregistrez la vraie transaction quand elle a lieu.')));
+  });
 }
 function contactsScreen({ user, go }) {
   const seller = user.role === 'seller';
@@ -230,7 +307,8 @@ function moreScreen({ go, st }) {
 function settingsScreen({ go }) {
   const row = (ico, label, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-set', type: href ? null : 'button', href, onclick }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18));
   return h('div', {}, head('Paramètres', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' }, h('section', { class: 'pf-card flush' },
-    row('sliders', 'Général', () => go('pro')), row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Paramètres des jauges', () => go('gauges')), row('bank', 'Comptes', () => go('accounts')),
+    row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Paramètres des jauges', () => go('gauges')), row('bank', 'Comptes', () => go('accounts')),
+    row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
     row('shield', 'Sécurité', null, '#/app/profile')),
     h('p', { class: 'pf-note' }, 'Vos données financières personnelles ne sont visibles que par vous. Vous pouvez archiver un compte à tout moment ; rien n\'est partagé avec les autres utilisateurs.')));
 }
@@ -258,7 +336,7 @@ function proScreen({ go, st, reload }) {
   return h('div', {}, head('Formule', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' },
     card(null, h('div', { class: 'pf-big' }, st.tier === 'pro' ? 'Pro' : 'Gratuite'), h('p', { class: 'pf-note' }, !st.priced ? 'Toutes les fonctions sont ouvertes pour le moment.' : st.tier === 'pro' ? (until && Date.parse(st.paid_until) > Date.now() ? `Abonnement actif jusqu'au ${until}.` : `Essai Pro jusqu'au ${new Date(st.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`) : 'Vous gardez vos données. Passez à Pro pour retrouver toutes les fonctions.')),
     card('Gratuit', h('ul', { class: 'pf-list' }, h('li', {}, `${st.free_accounts} comptes personnels`), h('li', {}, 'Revenus, dépenses et virements'), h('li', {}, `Historique des ${st.free_history_days} derniers jours`), h('li', {}, 'Tableau de bord sur 30 jours'))),
-    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes illimités'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectifs et prévisions (bientôt)'), h('li', {}, 'Règles automatiques et export (bientôt)')),
+    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes illimités'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectif du mois, récurrents et prévision à 30 jours'), h('li', {}, 'Règles automatiques et export (bientôt)')),
       st.priced ? h('div', { class: 'pf-btns' }, st.prices.monthly > 0 && h('button', { class: 'pf-btn', type: 'button', onclick: sub('monthly') }, `${fmtGNF(st.prices.monthly)} / mois`), st.prices.yearly > 0 && h('button', { class: 'pf-btn alt', type: 'button', onclick: sub('yearly') }, `${fmtGNF(st.prices.yearly)} / an`))
         : h('p', { class: 'pf-note' }, 'Aucun prix n\'est fixé pour le moment.')),
     h('p', { class: 'pf-note' }, 'Le paiement est prélevé sur votre portefeuille Wallindirain. Un abonnement terminé ne supprime rien : vos données restent, avec les limites de la formule gratuite.')));

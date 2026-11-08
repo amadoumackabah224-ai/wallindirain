@@ -35,6 +35,23 @@ export function gauges({ income, expense, balance, prevIncome, incomeTarget, bal
   };
 }
 
+/** Dates où un récurrent tombe entre `from` et `to` inclus (chaînes AAAA-MM-JJ). */
+export function occurrences(r, from, to) {
+  const out = [];
+  const a = new Date(`${r.anchor_on}T00:00:00Z`), f = new Date(`${from}T00:00:00Z`), t = new Date(`${to}T00:00:00Z`);
+  if (r.frequency === 'monthly') {
+    for (let y = f.getUTCFullYear(), m = f.getUTCMonth(); Date.UTC(y, m, 1) <= t.getTime(); m++) {
+      const d = new Date(Date.UTC(y, m, a.getUTCDate()));
+      if (d >= a && d >= f && d <= t) out.push(d.toISOString().slice(0, 10));
+    }
+    return out;
+  }
+  const step = r.frequency === 'daily' ? 1 : 7;
+  let d = a < f ? new Date(a.getTime() + Math.ceil((f - a) / (step * DAY)) * step * DAY) : a;
+  for (; d <= t; d = new Date(d.getTime() + step * DAY)) out.push(d.toISOString().slice(0, 10));
+  return out;
+}
+
 export function registerPf(app, { q, fn, guard, limit }) {
   const ALL = ROLES;
   const featureOn = async () => Number((await q(`SELECT value FROM settings WHERE key = 'feature_finances_perso'`))[0]?.value ?? 0) >= 1;
@@ -169,6 +186,49 @@ export function registerPf(app, { q, fn, guard, limit }) {
     await fn('fn_pf_prefs_set', ctx.user.id, optInt(ctx.body.income_target, 'Objectif de revenus'), optInt(ctx.body.balance_target, 'Objectif de solde'));
     return { ok: true };
   }));
+  // ----- Plan financier (Pro) : budgets, objectif du mois, récurrents, prévision à 30 jours -----
+  app.get('/api/pf/plan', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id, acc = await access(id);
+    const month = dayStr(Date.now()).slice(0, 8) + '01';
+    const spent = await q(`SELECT category, sum(amount)::bigint AS total FROM pf_transactions WHERE owner_id = $1 AND kind = 'expense' AND voided_at IS NULL AND occurred_on >= $2::date AND occurred_on <= current_date GROUP BY 1`, [id, month]);
+    const spentBy = Object.fromEntries(spent.map((r) => [r.category, Number(r.total)]));
+    const budgets = (await q('SELECT category, amount::bigint AS amount FROM pf_budgets WHERE owner_id = $1 ORDER BY category', [id])).map((b) => ({ category: b.category, amount: Number(b.amount), spent: spentBy[b.category] || 0 }));
+    const [m] = await q(`SELECT COALESCE(sum(CASE WHEN kind = 'income' THEN amount WHEN kind = 'expense' THEN -amount ELSE 0 END), 0)::bigint AS net FROM pf_transactions WHERE owner_id = $1 AND voided_at IS NULL AND occurred_on >= $2::date AND occurred_on <= current_date`, [id, month]);
+    const [g] = await q('SELECT target::bigint AS target FROM pf_goals WHERE owner_id = $1 AND month = $2::date', [id, month]);
+    const recurring = (await q(`SELECT id, label, kind, category, amount::bigint AS amount, frequency, anchor_on::text AS anchor_on FROM pf_recurring WHERE owner_id = $1 AND stopped_at IS NULL ORDER BY kind, label`, [id])).map((r) => ({ ...r, amount: Number(r.amount) }));
+    const accounts = await accountsOf(id, acc);
+    const balance = accounts.filter((a) => !a.archived_at).reduce((t, a) => t + Number(a.balance), 0);
+    const from = dayStr(Date.now() + DAY), to = dayStr(Date.now() + 30 * DAY);
+    const upcoming = recurring.flatMap((r) => occurrences(r, from, to).map((day) => ({ day, label: r.label, kind: r.kind, category: r.category, amount: r.amount }))).sort((a, b) => a.day.localeCompare(b.day));
+    const inc = upcoming.filter((u) => u.kind === 'income').reduce((t, u) => t + u.amount, 0), exp = upcoming.filter((u) => u.kind === 'expense').reduce((t, u) => t + u.amount, 0);
+    return { enabled: true, ...acc, month, budgets, goal: g ? { target: Number(g.target), saved: Number(m.net) } : null, month_net: Number(m.net), recurring,
+      forecast: { balance, income: inc, expense: exp, projected: balance + inc - exp, upcoming: upcoming.slice(0, 12) } };
+  }));
+  app.post('/api/pf/budgets', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    await fn('fn_pf_budget_set', ctx.user.id, v.oneOf(b.category, EXPENSE_CATEGORIES, 'Catégorie'), optInt(b.amount, 'Budget'));
+    return { ok: true };
+  }));
+  app.post('/api/pf/goal', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_goal_set', ctx.user.id, optInt(ctx.body.target, 'Objectif'));
+    return { ok: true };
+  }));
+  app.post('/api/pf/recurring', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const kind = v.oneOf(b.kind, ['income', 'expense'], 'Type');
+    const id = await fn('fn_pf_recurring_save', ctx.user.id, b.id ? v.uuid(b.id, 'Récurrent') : null, v.str(b.label, 'Nom', { max: 40 }), kind, v.oneOf(b.category, kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES, 'Catégorie'),
+      v.int(b.amount, 'Montant', { min: 1, max: 1e11 }), v.oneOf(b.frequency, ['daily', 'weekly', 'monthly'], 'Fréquence'), ymd(b.anchor_on));
+    ctx.status = b.id ? 200 : 201;
+    return { id };
+  }));
+  app.post('/api/pf/recurring/:id/stop', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_recurring_stop', ctx.user.id, v.uuid(ctx.params.id, 'Récurrent'));
+    return { ok: true };
+  }));
+
   app.post('/api/pf/subscribe', guard(ALL, async (ctx) => {
     limit(`pf-sub:${ctx.user.id}`, 10, 3600_000);
     return { paid_until: await fn('fn_pf_subscribe', ctx.user.id, v.oneOf(ctx.body.plan, ['monthly', 'yearly'], 'Formule')) };
