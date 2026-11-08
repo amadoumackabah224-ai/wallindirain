@@ -430,6 +430,14 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   // Numéro de versement : à définir une seule fois (mot de passe demandé) ; ensuite seule l'administration le modifie
+  // Vérifie le mot de passe de la personne connectée (pour afficher les montants masqués) : ne change rien, limité à 6 essais par 10 minutes
+  app.post('/api/me/verify-password', guard(ANY_ROLE, async (ctx) => {
+    limit(`verifypw:${ctx.user.id}`, 6, 600_000);
+    const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
+    const pw = typeof ctx.body.password === 'string' ? ctx.body.password.slice(0, 128) : '';
+    if (!rows.length || !(await verifyPassword(pw, rows[0].password_hash))) throw new HttpError(403, 'bad_password', 'Mot de passe incorrect');
+    return { ok: true };
+  }));
   app.post('/api/me/payout', guard(WALLET_ROLES, async (ctx) => {
     limit(`payout:${ctx.user.id}`, 5, 3600_000);
     const b = ctx.body;

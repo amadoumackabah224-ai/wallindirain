@@ -560,3 +560,5 @@ div.notif { cursor: default; }
 .pf-root { --secret-bar: rgba(255,255,255,.22); }
 .money-hidden .pf-amt, .money-hidden .pf-big, .money-hidden .pf-kv dd, .money-hidden .pf-flow-row span, .money-hidden .pf-g b, .money-hidden .pf-row-main small .pf-money { color: transparent !important; background: var(--secret-bar, rgba(150,160,185,.45)); border-radius: 8px; user-select: none; }
 .pf-head-row .eye-btn { margin-left: 8px; }
+.money-hero { position: relative; } .money-hero .eye-corner { position: absolute; top: 14px; right: 14px; }
+.secret.block { display: inline-block; }

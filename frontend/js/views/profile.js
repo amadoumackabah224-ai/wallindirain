@@ -1,5 +1,5 @@
 // Profil : nom, photo, mot de passe, numéro de versement, accès à mes droits sur mes données.
-import { h, ask, fmtPhone, payoutText, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, showLegal, getTheme, setTheme } from '../ui.js';
+import { h, ask, fmtPhone, payoutText, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, showLegal, getTheme, setTheme, moneyLock, setMoneyLock } from '../ui.js';
 import { icon } from '../icons.js';
 import { get, post } from '../api.js';
 import { kycCard } from './kyc.js';
@@ -94,7 +94,9 @@ export function profileView({ onChanged }) {
         row('theme', getTheme() === 'dark' ? 'moon' : 'sun', 'Apparence', { auto: 'Selon mon téléphone', light: 'Clair', dark: 'Sombre' }[getTheme()], themePicker(() => refresh())),
         row('security', 'shield', 'Sécurité', 'Mot de passe',
           h('p', { class: 'muted small' }, 'Changer votre mot de passe déconnecte vos autres appareils.'),
-          h('button', { class: 'btn btn-sm btn-ghost', onclick: changePw }, 'Changer mon mot de passe')),
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: changePw }, 'Changer mon mot de passe'),
+          h('p', { class: 'muted small mt' }, 'Montants masqués : à chaque ouverture, vos montants restent cachés et ne s\'affichent qu\'après votre mot de passe (sur cet appareil).'),
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: async () => { if (await setMoneyLock(!moneyLock())) { toast(moneyLock() ? 'Protection activée sur cet appareil' : 'Protection retirée', 'ok'); refresh(); } } }, moneyLock() ? 'Retirer la protection des montants' : 'Protéger mes montants par mot de passe')),
         row('legal', 'scroll', 'Confidentialité et conditions', 'Mes documents · exercer mes droits',
           documentsBody(),
           h('p', { class: 'small' }, 'Vous pouvez demander l\'accès à vos données, leur correction ou la suppression de votre compte.'),
