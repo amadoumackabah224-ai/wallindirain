@@ -535,3 +535,7 @@ div.notif { cursor: default; }
 .pf-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 32; display: grid; grid-template-columns: repeat(5, 1fr); background: rgba(28,28,30,.96); backdrop-filter: blur(14px); border-top: 1px solid var(--pf-line); padding: 6px 2px calc(8px + env(safe-area-inset-bottom)); }
 .pf-tab { display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: 0; color: var(--pf-mute); font-size: 10.5px; font-weight: 600; padding: 4px 0; cursor: pointer; min-height: 52px; }
 .pf-tab.on { color: var(--pf-blue); }
+/* Plan financier */
+.pf-plain { display: block; width: 100%; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pf-flow-row .pos { color: var(--pf-green); } .pf-flow-row .neg { color: #ff6b63; }
+.pf-card .pf-btn { margin-top: 12px; }
