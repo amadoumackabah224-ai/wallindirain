@@ -230,6 +230,22 @@ export function table(headers, rows, { empty: emptyNode } = {}) {
 }
 /** Liste libellé / valeur. Un 3ᵉ élément 'key' met la ligne en évidence (montant important). */
 export const kv = (pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v, key]) => [h('dt', { class: key ? 'key' : null }, k), h('dd', { class: key ? 'key' : null }, v)]));
+// Masquer / afficher l'argent : un seul réglage par appareil. Les montants marqués « secret » deviennent une barre quand c'est masqué.
+const HIDE_KEY = 'wld-hide-money';
+export const moneyHidden = () => { try { return localStorage.getItem(HIDE_KEY) === '1'; } catch { return false; } };
+const applyHidden = () => document.documentElement.classList.toggle('money-hidden', moneyHidden());
+applyHidden();
+/** Rend un nœud ou un texte « masquable » (barre quand l'œil est fermé). */
+export const secret = (content, cls = '') => h('span', { class: `secret ${cls}`.trim() }, content);
+/** Bouton œil : masque ou affiche tous les montants masquables de l'écran. */
+export function eyeToggle(cls = '') {
+  const btn = h('button', { class: `eye-btn ${cls}`.trim(), type: 'button' });
+  const paint = () => { const hid = moneyHidden(); btn.replaceChildren(icon(hid ? 'eyeOff' : 'eye', 22)); btn.setAttribute('aria-label', hid ? 'Afficher les montants' : 'Masquer les montants'); btn.setAttribute('aria-pressed', String(hid)); };
+  btn.onclick = () => { try { localStorage.setItem(HIDE_KEY, moneyHidden() ? '0' : '1'); } catch { /* réglage non conservé */ } applyHidden(); document.dispatchEvent(new Event('wld-money')); };
+  document.addEventListener('wld-money', () => { if (btn.isConnected) paint(); });
+  paint();
+  return btn;
+}
 export const amount = (n, signed = false) => h('span', { class: `amount mono ${signed ? (n < 0 ? 'neg' : 'pos') : ''}` }, (signed && n > 0 ? '+' : '') + fmtGNF(n));
 /** Bouton « Appeler » : grande zone à toucher, pour le livreur et le call center. */
 export const telBtn = (phone, label = 'Appeler') => h('a', { href: `tel:+224${phone}`, class: 'btn btn-sm btn-ghost' }, icon('phone', 16), label);

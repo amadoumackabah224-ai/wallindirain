@@ -548,3 +548,15 @@ div.notif { cursor: default; }
 .pf-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
 .pf-act { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 6px; background: #2c2c2e; border-radius: 14px; color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; }
 .pf-note-row { padding: 10px 0; border-top: 1px solid #2c2c2e; } .pf-note-row p { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; } .pf-note-row small { color: var(--pf-mute); margin-right: 10px; }
+/* Montants masquables : une barre à la place du chiffre */
+.money-hidden .secret { color: transparent !important; background: var(--secret-bar, rgba(150,160,185,.45)); border-radius: 8px; user-select: none; text-shadow: none; }
+.money-hidden .secret * { color: transparent !important; }
+.eye-btn { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255,255,255,.12); color: inherit; cursor: pointer; flex: none; }
+.eye-btn:focus-visible { outline: 2px solid var(--gold-2); outline-offset: 2px; }
+.balance .row-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wallet-tabs { display: flex; gap: 8px; margin: 16px 0 12px; } .wallet-tabs button { flex: 1; padding: 10px; border-radius: 999px; border: 1px solid var(--line, #d5dbe8); background: transparent; font: inherit; font-weight: 600; cursor: pointer; color: inherit; }
+.wallet-tabs button[aria-pressed="true"] { background: var(--navy); color: #fff; border-color: var(--navy); }
+.wallet-details { margin-top: 14px; } .wallet-details > summary { cursor: pointer; font-weight: 700; padding: 12px 4px; }
+.pf-root { --secret-bar: rgba(255,255,255,.22); }
+.money-hidden .pf-amt, .money-hidden .pf-big, .money-hidden .pf-kv dd, .money-hidden .pf-flow-row span, .money-hidden .pf-g b, .money-hidden .pf-row-main small .pf-money { color: transparent !important; background: var(--secret-bar, rgba(150,160,185,.45)); border-radius: 8px; user-select: none; }
+.pf-head-row .eye-btn { margin-left: 8px; }

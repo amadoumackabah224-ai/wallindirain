@@ -1,7 +1,7 @@
 // « Mes finances » : outil de gestion financière personnelle pour tous les rôles (migration 048).
 // Écran plein écran, sombre, avec sa propre barre du bas : Tableau de bord · Plan financier · Contacts · Statistiques · Plus.
 // Ce sont des notes personnelles : le compte « Wallindirain » affiché est le vrai portefeuille, en lecture seule.
-import { h, fmtGNF, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
+import { h, fmtGNF, eyeToggle, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
@@ -37,7 +37,7 @@ export function pfApp(user, screen = '') {
 
 function backLink() { return h('a', { class: 'pf-link', href: '#/app/' }, '‹ Retour à Wallindirain'); }
 const head = (title, { back, right } = {}) => h('header', { class: 'pf-head' }, h('div', { class: 'pf-head-row' },
-  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain')), h('span', { class: 'grow' }), right),
+  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain')), h('span', { class: 'grow' }), right, eyeToggle()),
   h('h1', { class: 'pf-title' }, title));
 const card = (title, ...children) => h('section', { class: 'pf-card' }, title && h('div', { class: 'pf-card-head' }, h('h2', {}, title)), ...children);
 const proBadge = () => h('span', { class: 'pf-pro' }, 'PRO');
