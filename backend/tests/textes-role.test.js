@@ -49,7 +49,7 @@ test('chaque rôle ne voit que ses textes', async () => {
   assert.equal((await courier.c.get('/api/public/legal/conditions-livreur')).status, 200);
   assert.equal((await agent.c.get('/api/public/legal/confidentialite-equipe')).status, 200);
   assert.equal((await new Client().get('/api/public/legal/conditions-livreur')).status, 404);
-  const all = slugs(await admin.c.get('/api/public/legal')); assert.equal(all.length, 13);
+  const all = slugs(await admin.c.get('/api/public/legal')); assert.equal(all.length, 15);
   assert.deepEqual(slugs(await admin.c.get('/api/public/legal?audience=courier')), ['mentions-legales', 'cookies', 'conditions-livreur', 'confidentialite-livreur']);
 });
 
@@ -92,7 +92,7 @@ test('accord à la première connexion, puis une nouvelle version le redemande',
 test('l\'administrateur n\'a pas d\'accord à donner, personne sans connexion ne peut accepter, la preuve ne peut pas être modifiée', async () => {
   const admin = await login(w.admin);
   assert.equal(admin.user.legal_pending, false);
-  const me = (await admin.c.get('/api/me/legal')).json; assert.equal(me.pending, false); assert.equal(me.pages.length, 13);
+  const me = (await admin.c.get('/api/me/legal')).json; assert.equal(me.pending, false); assert.equal(me.pages.length, 15);
   assert.equal((await new Client().post('/api/me/legal/accept', { accept: true })).status, 401);
   await assert.rejects(db.owner.query(`UPDATE consents SET version = 'x' WHERE kind = 'accept'`));
 });

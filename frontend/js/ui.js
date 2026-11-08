@@ -49,7 +49,7 @@ export const ORDER_STATUS = {
 };
 export const statusBadge = (s) => { const [t, c] = ORDER_STATUS[s] || [s, 'grey']; return h('span', { class: `badge ${c}` }, t); };
 export const badge = (text, kind = '') => h('span', { class: `badge ${kind}` }, text);
-export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier' };
+export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier', member: 'Membre Mes finances' };
 /** Photos d'un produit (identifiants renvoyés par l'API) ; onDelete ajoute une croix de suppression (fournisseur). */
 export const photoStrip = (ids = [], { size = 88, onDelete } = {}) => ids.length ? h('div', { class: 'photo-strip' }, ids.map((id) => h('span', { class: 'photo-wrap' },
   h('img', { class: 'photo-thumb', src: `/api/product-images/${id}`, alt: 'Photo du produit', loading: 'lazy', width: size, height: size }),
@@ -73,9 +73,9 @@ export function avatar(user, size = 40, ver = '') {
 
 /** Ouvre un texte légal DANS l'application (fenêtre de lecture) : chargé à la demande. */
 // Public dont on lit les textes : sert à résoudre « confidentialite » et « conditions » vers le texte du bon rôle.
-const LEGAL_DOC = { client: ['conditions-client', 'confidentialite-client'], seller: ['conditions-vendeur', 'confidentialite-vendeur'], supplier: ['conditions-fournisseur', 'confidentialite-fournisseur'],
+const LEGAL_DOC = { client: ['conditions-client', 'confidentialite-client'], seller: ['conditions-vendeur', 'confidentialite-vendeur'], supplier: ['conditions-fournisseur', 'confidentialite-fournisseur'], member: ['conditions-membre', 'confidentialite-membre'],
   courier: ['conditions-livreur', 'confidentialite-livreur'], team: ['regles-equipe', 'confidentialite-equipe'] };
-export const AUDIENCE_OF_ROLE = { seller: 'seller', supplier: 'supplier', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team', admin: 'client' };
+export const AUDIENCE_OF_ROLE = { seller: 'seller', supplier: 'supplier', member: 'member', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team', admin: 'client' };
 let legalAudience = 'client';
 export const setLegalAudience = (a) => { if (LEGAL_DOC[a]) legalAudience = a; };
 /** « conditions » / « confidentialite » deviennent le texte du public concerné ; les autres adresses restent telles quelles. */

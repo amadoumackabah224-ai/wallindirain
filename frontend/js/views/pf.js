@@ -21,6 +21,7 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 
 /** Point d'entrée : `#/pf/<écran>`. */
 export function pfApp(user, screen = '') {
+  memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
   const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen };
   const key = SCREENS[screen] ? screen : '';
@@ -36,8 +37,9 @@ export function pfApp(user, screen = '') {
 }
 
 function backLink() { return h('a', { class: 'pf-link', href: '#/app/' }, '‹ Retour à Wallindirain'); }
+let memberOnly = false;   // compte membre : Mes finances est toute l'application, pas de retour vers Wallindirain
 const head = (title, { back, right } = {}) => h('header', { class: 'pf-head' }, h('div', { class: 'pf-head-row' },
-  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain')), h('span', { class: 'grow' }), right, eyeToggle()),
+  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : (memberOnly ? null : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain'))), h('span', { class: 'grow' }), right, eyeToggle()),
   h('h1', { class: 'pf-title' }, title));
 const card = (title, ...children) => h('section', { class: 'pf-card' }, title && h('div', { class: 'pf-card-head' }, h('h2', {}, title)), ...children);
 const proBadge = () => h('span', { class: 'pf-pro' }, 'PRO');
@@ -442,13 +444,13 @@ function contactsScreen({ go, st }) {
 const ORDER_STATUS = { new: 'Nouvelle', in_call: 'En appel', confirmed: 'Confirmée', assigned: 'Assignée', picked_up: 'Récupérée', on_the_way: 'En route', delivered: 'Livrée', cancelled: 'Annulée', failed: 'Échec', return_pending: 'Retour en cours', returned: 'Retournée', refused: 'Refusée' };
 
 // ---------- Plus, Paramètres, Pro ----------
-function moreScreen({ go, st }) {
+function moreScreen({ go, st, user }) {
   const tile = (ico, label, sub, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-tile', type: href ? null : 'button', href, onclick }, h('span', { class: 'pf-tile-ico' }, icon(ico, 30)), h('span', {}, label), sub && h('small', {}, sub));
   return h('div', {}, head('Plus'), h('div', { class: 'pf-pad' }, h('div', { class: 'pf-tiles' },
     tile('bank', 'Comptes', null, () => go('accounts')), tile('receipt', 'Transactions', null, () => go('tx')),
     tile('star', 'Formule', st.tier === 'pro' ? 'Pro' : 'Gratuite', () => go('pro')), tile('settings', 'Paramètres', null, () => go('settings')),
-    tile('wallet', 'Portefeuille', 'Wallindirain', null, '#/app/wallet')),
-    backLink()));
+    st.wallet?.eligible && tile('wallet', 'Portefeuille', 'Wallindirain', null, '#/app/wallet'), tile('user', 'Mon profil', null, null, '#/app/profile')),
+    user.role !== 'member' && backLink()));
 }
 // ---------- Compte Wallindirain relié ----------
 const AUTO_LINES = [['Gains de vente et rémunérations', 'revenus'], ['Achats de stock, frais et abonnements', 'dépenses'], ['Dépôts et retraits', 'virements avec votre compte Mobile Money']];

@@ -8,7 +8,7 @@ export const INCOME_CATEGORIES = ['sales', 'salary', 'gift', 'other_in'];
 export const EXPENSE_CATEGORIES = ['food', 'transport', 'housing', 'telecom', 'health', 'family', 'business', 'shopping', 'savings', 'other_out'];
 const KINDS = ['cash', 'mobile_money', 'bank', 'savings', 'other'];
 const COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'brown', 'teal', 'grey'];
-const ROLES = ['admin', 'supplier', 'seller', 'agent', 'call_chief', 'courier', 'warehouse'];
+const ROLES = ['admin', 'supplier', 'seller', 'agent', 'call_chief', 'courier', 'warehouse', 'member'];
 export const FREE_MAX_DAYS = 30;
 
 const dayStr = (t) => new Date(t).toISOString().slice(0, 10);

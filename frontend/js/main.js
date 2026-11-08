@@ -34,6 +34,7 @@ const TABS = {
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
+  member: [],
   warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
   admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
     ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['invoices', 'receipt', 'Factures', () => adminInvoices(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
@@ -70,7 +71,9 @@ function appShell(tabKey) {
     h('div', { class: 'side-foot' }, h('button', { class: 'nav-item', type: 'button', onclick: logout }, icon('logout', 22), h('span', { class: 'nav-label' }, 'Quitter'))));
 
   // barre du bas (téléphone)
-  const primary = tabs.length <= 5 ? tabs : (MOBILE_PRIMARY[user.role] || []).map((k) => tabs.find((t) => t[0] === k)).filter(Boolean);
+  // « Mes finances » reste toujours dans le menu Plus : la barre du bas n'est pas encombrée
+  const base = TABS[user.role];
+  const primary = base.length <= 5 ? base : (MOBILE_PRIMARY[user.role] || []).map((k) => tabs.find((t) => t[0] === k)).filter(Boolean);
   const rest = tabs.filter((t) => !primary.includes(t));
   const openMore = () => {
     const close = () => overlay.remove();
@@ -123,6 +126,8 @@ async function route() {
   }
   if (user.pf === undefined) { try { user.pf = (await get('/pf/status')).enabled === true; } catch { user.pf = false; } }
   if (a === 'pf') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); return render(pfApp(user, b || '')); }
+  // un membre (finances seulement) n'a que Mes finances ; le profil et les notifications restent accessibles
+  if (a === 'app' && user.role === 'member' && user.pf && b !== 'profile' && b !== 'notifications') { location.replace('#/pf/'); return; }
   if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); return; }
   location.hash = '#/app/';
 }
@@ -131,4 +136,4 @@ setUnauthorizedHandler(() => { if (user) { user = null; toast('Session expirée 
 window.addEventListener('hashchange', route);
 startPwa();
 render(spinner());
-get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; }).catch(() => {}).finally(route);
+get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.memberSignup = !!i.features?.member_signup; }).catch(() => {}).finally(route);
