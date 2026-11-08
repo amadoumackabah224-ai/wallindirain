@@ -72,6 +72,7 @@ export function registerRoutes(app, { db, cfg }) {
   const pickupHours = async () => Number((await q(`SELECT value FROM settings WHERE key = 'pickup_alert_hours'`))[0]?.value ?? 0);
 
   const ANY_ROLE = ['admin', 'seller', 'supplier', 'agent', 'call_chief', 'courier', 'warehouse'];
+  const WITH_MEMBER = [...ANY_ROLE, 'member'];   // le membre (finances seulement) n'a que le compte, la légalité et les notifications
   // vérifie le mot de passe actuel de la personne connectée (actions sensibles)
   async function requirePassword(ctx, pw) {
     const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
@@ -94,27 +95,31 @@ export function registerRoutes(app, { db, cfg }) {
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
-    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1 }
+    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen() }
   }));
 
   // =========================================================================
   // Authentification
   // =========================================================================
+  const memberSignupOpen = async () => (await q(`SELECT count(*)::int AS n FROM settings WHERE (key = 'pf_open_signup' OR key = 'feature_finances_perso') AND value >= 1`))[0].n === 2;
   app.post('/api/auth/register', async (ctx) => {
     limit(`reg:${clientIp(ctx.req)}`, 5, 3600_000);
     const b = ctx.body;
     const pwErr = passwordProblem(b.password);
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
     if (b.accept_terms !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter les conditions d\'utilisation et la politique de confidentialité');
-    const role = v.oneOf(b.role, ['seller', 'supplier'], 'Rôle');
+    const role = v.oneOf(b.role, ['seller', 'supplier', 'member'], 'Rôle');
+    if (role === 'member' && !(await memberSignupOpen())) throw new HttpError(403, 'forbidden', 'L\'inscription « Mes finances » n\'est pas ouverte pour le moment');
     const phone = v.account(b.phone);
     const foreign = phone.startsWith('+');
+    if (foreign && role === 'member') throw new HttpError(400, 'foreign_seller_only', 'Les numéros étrangers sont acceptés pour les vendeurs seulement');
     if (foreign && role !== 'seller') throw new HttpError(400, 'foreign_seller_only', 'Les numéros étrangers sont acceptés pour les vendeurs seulement');
     if (b.email) v.email(b.email);   // validé avant la création du compte
     // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut ; un vendeur de l'étranger écrit ses coordonnées (versement manuel)
-    const payMethod = v.oneOf(b.payout_method, foreign ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur de versement');
-    if (payMethod === 'other' && !foreign) throw new HttpError(400, 'invalid_input', 'Opérateur de versement invalide');
-    const payPhone = payMethod === 'other' ? v.payoutTarget('other', b.payout_phone) : (b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : (foreign ? v.phone(b.payout_phone, 'Numéro de versement') : phone));
+    const noPayout = role === 'member';   // un membre ne reçoit aucun versement
+    const payMethod = noPayout ? null : v.oneOf(b.payout_method, foreign ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur de versement');
+    if (!noPayout && payMethod === 'other' && !foreign) throw new HttpError(400, 'invalid_input', 'Opérateur de versement invalide');
+    const payPhone = noPayout ? null : payMethod === 'other' ? v.payoutTarget('other', b.payout_phone) : (b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : (foreign ? v.phone(b.payout_phone, 'Numéro de versement') : phone));
     const id = await fn('fn_register', phone, v.str(b.name, 'Nom', { min: 2, max: 100 }), role,
       await hashPassword(b.password),
       v.optStr(b.identity_doc, 'Pièce d\'identité', 60),   // aucune pièce à l'inscription : demandée au premier retrait
@@ -180,18 +185,18 @@ export function registerRoutes(app, { db, cfg }) {
   });
 
   // ---------- Adresse e-mail du compte (confirmée par un code reçu dans la boîte) ----------
-  app.post('/api/me/email', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/email', guard(WITH_MEMBER, async (ctx) => {
     limit(`email-set:${ctx.user.id}`, 5, 3600_000);
     await requirePassword(ctx, ctx.body.password);
     await fn('fn_email_set', ctx.user.id, v.email(ctx.body.email));
     return { ok: true };
   }));
-  app.post('/api/me/email/resend', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/email/resend', guard(WITH_MEMBER, async (ctx) => {
     limit(`email-resend:${ctx.user.id}`, 5, 3600_000);
     await fn('fn_email_resend', ctx.user.id);
     return { ok: true };
   }));
-  app.post('/api/me/email/verify', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/email/verify', guard(WITH_MEMBER, async (ctx) => {
     limit(`email-verify:${ctx.user.id}`, 10, 900_000);
     const r = await fn('fn_email_verify', ctx.user.id, v.str(ctx.body.code, 'Code', { min: 6, max: 6 }));
     if (!r.ok) throw new HttpError(400, r.reason === 'taken' ? 'email_taken' : 'invalid_code',
@@ -282,17 +287,17 @@ export function registerRoutes(app, { db, cfg }) {
   // =========================================================================
   // Profil (tous les rôles) : nom, photo, mot de passe, numéro de versement
   // =========================================================================
-  app.get('/api/me/profile', guard(ANY_ROLE, async (ctx) => {
+  app.get('/api/me/profile', guard(WITH_MEMBER, async (ctx) => {
     const [u] = await q(`SELECT full_name, phone, email, (email_verified_at IS NOT NULL) AS email_verified, role, team, payout_method, payout_phone, identity_verified, created_at,
         EXISTS (SELECT 1 FROM avatars a WHERE a.user_id = users.id) AS has_avatar FROM users WHERE id = $1`, [ctx.user.id]);
     return { id: ctx.user.id, name: u.full_name, phone: u.phone, email: u.email, email_verified: u.email_verified, email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated', role: u.role, team: u.team, has_avatar: u.has_avatar,
       identity_verified: u.identity_verified, created_at: u.created_at,
       payout: u.payout_phone ? { method: u.payout_method, phone: u.payout_phone } : null };
   }));
-  app.post('/api/me/profile', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/profile', guard(WITH_MEMBER, async (ctx) => {
     await fn('fn_update_profile', ctx.user.id, v.str(ctx.body.name, 'Nom', { min: 2, max: 100 }));
   }));
-  app.post('/api/me/password', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/password', guard(WITH_MEMBER, async (ctx) => {
     limit(`pwchg:${ctx.user.id}`, 5, 900_000);
     const b = ctx.body;
     await requirePassword(ctx, b.current);
@@ -308,14 +313,14 @@ export function registerRoutes(app, { db, cfg }) {
     const m = v.oneOf(b.method, ctx.user.phone.startsWith('+') ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur');
     await fn('fn_change_payout', ctx.user.id, m, v.payoutTarget(m, b.phone));
   }));
-  app.post('/api/me/avatar', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/avatar', guard(WITH_MEMBER, async (ctx) => {
     limit(`avatar:${ctx.user.id}`, 20, 3600_000);
     const { mime, buf } = parseImage(ctx.body.image);
     if (buf.length > 140_000) throw new HttpError(413, 'too_large', 'Photo trop lourde');
     await fn('fn_avatar_set', ctx.user.id, mime, buf);
   }), { maxBody: 260_000 });
-  app.post('/api/me/avatar/delete', guard(ANY_ROLE, async (ctx) => { await fn('fn_avatar_delete', ctx.user.id); }));
-  app.get('/api/users/:id/avatar', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/avatar/delete', guard(WITH_MEMBER, async (ctx) => { await fn('fn_avatar_delete', ctx.user.id); }));
+  app.get('/api/users/:id/avatar', guard(WITH_MEMBER, async (ctx) => {
     const rows = await q('SELECT * FROM fn_avatar_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Utilisateur')]);
     if (!rows.length) throw new HttpError(404, 'not_found', 'Pas de photo');
     ctx.headers['Content-Type'] = rows[0].mime;
@@ -355,13 +360,13 @@ export function registerRoutes(app, { db, cfg }) {
     return page;
   });
   // Accord de la personne connectée sur les textes de son rôle (administrateur : pas d'accord demandé)
-  app.get('/api/me/legal', guard(ANY_ROLE, async (ctx) => {
+  app.get('/api/me/legal', guard(WITH_MEMBER, async (ctx) => {
     const aud = audienceOf(ctx.user.role);
     const st = (await q('SELECT fn_legal_status($1, $2) AS s', [ctx.user.id, cfg.legal.version]))[0].s;
     return { audience: aud, label: AUDIENCE_LABEL[aud] || 'Administrateur', summary: SUMMARY[aud] || null, version: cfg.legal.version, accepted_version: st.accepted_version, accepted_at: st.accepted_at,
       pending: ctx.user.role !== 'admin' && st.pending, pages: docsFor(aud).map(({ slug, title, audience }) => ({ slug, title, audience })) };
   }));
-  app.post('/api/me/legal/accept', guard(ANY_ROLE, async (ctx) => {
+  app.post('/api/me/legal/accept', guard(WITH_MEMBER, async (ctx) => {
     if (ctx.body.accept !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter pour continuer');
     await fn('fn_legal_accept', ctx.user.id, cfg.legal.version);
     return { ok: true };
@@ -430,6 +435,14 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   // Numéro de versement : à définir une seule fois (mot de passe demandé) ; ensuite seule l'administration le modifie
+  // Vérifie le mot de passe de la personne connectée (pour afficher les montants masqués) : ne change rien, limité à 6 essais par 10 minutes
+  app.post('/api/me/verify-password', guard(WITH_MEMBER, async (ctx) => {
+    limit(`verifypw:${ctx.user.id}`, 6, 600_000);
+    const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
+    const pw = typeof ctx.body.password === 'string' ? ctx.body.password.slice(0, 128) : '';
+    if (!rows.length || !(await verifyPassword(pw, rows[0].password_hash))) throw new HttpError(403, 'bad_password', 'Mot de passe incorrect');
+    return { ok: true };
+  }));
   app.post('/api/me/payout', guard(WALLET_ROLES, async (ctx) => {
     limit(`payout:${ctx.user.id}`, 5, 3600_000);
     const b = ctx.body;
@@ -893,9 +906,9 @@ export function registerRoutes(app, { db, cfg }) {
   }));
 
   // ----- Notifications (cloche) et annonces de l'administration -----
-  app.get('/api/notifications', guard(ANY_ROLE, async (ctx) => await fn('fn_my_notifications', ctx.user.id, Math.min(100, Math.max(1, Number(ctx.query.limit) || 50)))));
-  app.get('/api/notifications/unread', guard(ANY_ROLE, async (ctx) => ({ unread: await fn('fn_notifications_unread', ctx.user.id) })));
-  app.post('/api/notifications/read', guard(ANY_ROLE, async (ctx) => {
+  app.get('/api/notifications', guard(WITH_MEMBER, async (ctx) => await fn('fn_my_notifications', ctx.user.id, Math.min(100, Math.max(1, Number(ctx.query.limit) || 50)))));
+  app.get('/api/notifications/unread', guard(WITH_MEMBER, async (ctx) => ({ unread: await fn('fn_notifications_unread', ctx.user.id) })));
+  app.post('/api/notifications/read', guard(WITH_MEMBER, async (ctx) => {
     const ids = ctx.body.ids === undefined ? null : (Array.isArray(ctx.body.ids) && ctx.body.ids.length <= 100 ? ctx.body.ids.map((x) => v.int(x, 'Notification', { min: 1 })) : (() => { throw new HttpError(400, 'invalid_input', 'Notifications invalides'); })());
     return { marked: await fn('fn_notifications_read', ctx.user.id, ids) };
   }));

@@ -7,7 +7,7 @@ const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', 
 const shell = (...c) => h('main', { class: 'auth', id: 'contenu' }, h('div', { class: 'auth-card' }, logo(), ...c, h('div', { class: 'auth-foot' }, legalLinks())));
 const consentBox = (input, text) => h('label', { class: 'f check' }, input, h('span', {}, text));
 // L'option e-mail est masquée tant que l'envoi d'e-mails n'est pas activé sur le serveur (EMAIL_PROVIDER).
-export const flags = { email: false };
+export const flags = { email: false, memberSignup: false };
 /** Champ mot de passe avec bouton « afficher / masquer » (utile sur téléphone). */
 const pwField = (label, input, hint) => {
   const btn = h('button', { class: 'pw-toggle', type: 'button', 'aria-label': 'Afficher le mot de passe', 'aria-pressed': 'false' }, icon('eye', 20));
@@ -41,7 +41,7 @@ export function loginView({ onLogin, contact }) {
 }
 
 export function registerView({ ref } = {}) {
-  const role = h('select', {}, h('option', { value: 'seller' }, 'Vendeur : je vends des produits en ligne'), h('option', { value: 'supplier' }, 'Fournisseur : je propose des produits'));
+  const role = h('select', {}, h('option', { value: 'seller' }, 'Vendeur : je vends des produits en ligne'), h('option', { value: 'supplier' }, 'Fournisseur : je propose des produits'), flags.memberSignup && h('option', { value: 'member' }, 'Membre : je veux seulement gérer mon argent'));
   const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
   const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 24, placeholder: '6XX XX XX XX' });
   // vendeur de l'étranger : numéro international, coordonnées de versement écrites, compte activé après validation par l'administration
@@ -58,14 +58,15 @@ export function registerView({ ref } = {}) {
   };
   abroad.addEventListener('change', syncAbroad);
   const syncDoc = () => {
-    const sup = role.value === 'supplier';
-    abroadBox.classList.toggle('hidden', sup); if (sup) abroad.checked = false; syncAbroad();
-    refField.replaceChildren(sup ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
+    const sup = role.value === 'supplier', mem = role.value === 'member';
+    abroadBox.classList.toggle('hidden', sup || mem); if (sup || mem) abroad.checked = false; syncAbroad();
+    payBlock.classList.toggle('hidden', mem);
+    refField.replaceChildren(sup || mem ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
   };
   const accept = h('input', { type: 'checkbox', required: true });
   // les textes proposés sont ceux du rôle choisi (vendeur ou fournisseur)
   const consentText = h('span');
-  const syncConsent = () => { const aud = role.value; const suf = aud === 'supplier' ? 'fournisseur' : 'vendeur'; consentText.replaceChildren('J\'ai 18 ans ou plus et j\'accepte les ', legalLink(`conditions-${suf}`, aud === 'supplier' ? 'conditions du fournisseur' : 'conditions du vendeur', aud), ' et la ', legalLink(`confidentialite-${suf}`, 'politique de confidentialité', aud), '.'); };
+  const syncConsent = () => { const aud = role.value; const suf = aud === 'supplier' ? 'fournisseur' : aud === 'member' ? 'membre' : 'vendeur'; consentText.replaceChildren('J\'ai 18 ans ou plus et j\'accepte les ', legalLink(`conditions-${suf}`, aud === 'supplier' ? 'conditions du fournisseur' : aud === 'member' ? 'conditions du membre' : 'conditions du vendeur', aud), ' et la ', legalLink(`confidentialite-${suf}`, 'politique de confidentialité', aud), '.'); };
   role.addEventListener('change', () => { syncDoc(); syncConsent(); });
   const pw = h('input', { type: 'password', required: true, minlength: 8, maxlength: 128, autocomplete: 'new-password' });
   const payMethod = h('select', {}, h('option', { value: 'orange_money' }, 'Orange Money'), h('option', { value: 'mtn_momo' }, 'MTN MoMo'));
@@ -75,12 +76,13 @@ export function registerView({ ref } = {}) {
   const payNote = h('div', { class: 'hint' });
   const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 120, placeholder: 'Laisser vide = mon numéro de téléphone' });
   const out = h('div');
+  const payBlock = h('div', {}, field('Mon argent sera versé sur', payMethod), field('Numéro de versement', payPhone), payNote);
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(role.value === 'seller' && referral.value.trim() ? { referral_code: referral.value.trim() } : {}), ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}),
-        payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) });
+        ...(role.value === 'member' ? {} : { payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) }) });
       out.replaceChildren(h('div', { class: 'notice ok' }, r.message), r.referral_applied === false && h('div', { class: 'notice warn' }, 'Le code de parrainage n\'a pas été reconnu : votre compte est créé sans parrain.'), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
@@ -88,8 +90,7 @@ export function registerView({ ref } = {}) {
     h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), abroadBox, field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
     flags.email && field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
     refField,
-    field('Mon argent sera versé sur', payMethod),
-    field('Numéro de versement', payPhone), payNote,
+    payBlock,
     pwField('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
     h('label', { class: 'f check' }, accept, consentText),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));

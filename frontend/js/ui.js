@@ -49,7 +49,7 @@ export const ORDER_STATUS = {
 };
 export const statusBadge = (s) => { const [t, c] = ORDER_STATUS[s] || [s, 'grey']; return h('span', { class: `badge ${c}` }, t); };
 export const badge = (text, kind = '') => h('span', { class: `badge ${kind}` }, text);
-export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier' };
+export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier', member: 'Membre Mes finances' };
 /** Photos d'un produit (identifiants renvoyés par l'API) ; onDelete ajoute une croix de suppression (fournisseur). */
 export const photoStrip = (ids = [], { size = 88, onDelete } = {}) => ids.length ? h('div', { class: 'photo-strip' }, ids.map((id) => h('span', { class: 'photo-wrap' },
   h('img', { class: 'photo-thumb', src: `/api/product-images/${id}`, alt: 'Photo du produit', loading: 'lazy', width: size, height: size }),
@@ -73,9 +73,9 @@ export function avatar(user, size = 40, ver = '') {
 
 /** Ouvre un texte légal DANS l'application (fenêtre de lecture) : chargé à la demande. */
 // Public dont on lit les textes : sert à résoudre « confidentialite » et « conditions » vers le texte du bon rôle.
-const LEGAL_DOC = { client: ['conditions-client', 'confidentialite-client'], seller: ['conditions-vendeur', 'confidentialite-vendeur'], supplier: ['conditions-fournisseur', 'confidentialite-fournisseur'],
+const LEGAL_DOC = { client: ['conditions-client', 'confidentialite-client'], seller: ['conditions-vendeur', 'confidentialite-vendeur'], supplier: ['conditions-fournisseur', 'confidentialite-fournisseur'], member: ['conditions-membre', 'confidentialite-membre'],
   courier: ['conditions-livreur', 'confidentialite-livreur'], team: ['regles-equipe', 'confidentialite-equipe'] };
-export const AUDIENCE_OF_ROLE = { seller: 'seller', supplier: 'supplier', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team', admin: 'client' };
+export const AUDIENCE_OF_ROLE = { seller: 'seller', supplier: 'supplier', member: 'member', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team', admin: 'client' };
 let legalAudience = 'client';
 export const setLegalAudience = (a) => { if (LEGAL_DOC[a]) legalAudience = a; };
 /** « conditions » / « confidentialite » deviennent le texte du public concerné ; les autres adresses restent telles quelles. */
@@ -231,17 +231,45 @@ export function table(headers, rows, { empty: emptyNode } = {}) {
 /** Liste libellé / valeur. Un 3ᵉ élément 'key' met la ligne en évidence (montant important). */
 export const kv = (pairs) => h('dl', { class: 'kv' }, pairs.filter(Boolean).map(([k, v, key]) => [h('dt', { class: key ? 'key' : null }, k), h('dd', { class: key ? 'key' : null }, v)]));
 // Masquer / afficher l'argent : un seul réglage par appareil. Les montants marqués « secret » deviennent une barre quand c'est masqué.
-const HIDE_KEY = 'wld-hide-money';
-export const moneyHidden = () => { try { return localStorage.getItem(HIDE_KEY) === '1'; } catch { return false; } };
+// Option « mot de passe » : quand elle est active, les montants sont masqués à chaque ouverture et ne s'affichent qu'après saisie du mot de passe (valable 5 minutes, perdu si l'écran est quitté).
+const HIDE_KEY = 'wld-hide-money', LOCK_KEY = 'wld-lock-money', UNLOCK_MS = 5 * 60_000;
+let unlockedAt = 0;
+const store = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const save = (k, v) => { try { localStorage.setItem(k, v); } catch { /* réglage non conservé */ } };
+export const moneyLock = () => store(LOCK_KEY) === '1';
+const unlocked = () => Date.now() - unlockedAt < UNLOCK_MS;
+export const moneyHidden = () => (moneyLock() ? !unlocked() || store(HIDE_KEY) === '1' : store(HIDE_KEY) === '1');
 const applyHidden = () => document.documentElement.classList.toggle('money-hidden', moneyHidden());
+const changed = () => { applyHidden(); document.dispatchEvent(new Event('wld-money')); };
 applyHidden();
+document.addEventListener('visibilitychange', () => { if (document.hidden && moneyLock()) { unlockedAt = 0; changed(); } });
+setInterval(() => { if (moneyLock() && unlockedAt && !unlocked()) { unlockedAt = 0; changed(); } }, 15_000);
+async function checkPassword(title, text) {
+  const v = await ask({ title, text, submit: 'Valider', fields: [{ name: 'password', label: 'Votre mot de passe', type: 'password' }] });
+  if (!v) return false;
+  const { post } = await import('./api.js');
+  try { await post('/me/verify-password', { password: v.password }); return true; } catch (e) { toast(e.message || 'Mot de passe incorrect', 'bad'); return false; }
+}
+/** Active ou désactive la protection par mot de passe (la désactiver demande le mot de passe). */
+export async function setMoneyLock(on) {
+  if (on) { save(LOCK_KEY, '1'); save(HIDE_KEY, '1'); unlockedAt = 0; changed(); return true; }
+  if (!(await checkPassword('Retirer la protection', 'Entrez votre mot de passe pour que les montants puissent s\'afficher sans mot de passe.'))) return false;
+  save(LOCK_KEY, '0'); changed(); return true;
+}
 /** Rend un nœud ou un texte « masquable » (barre quand l'œil est fermé). */
 export const secret = (content, cls = '') => h('span', { class: `secret ${cls}`.trim() }, content);
 /** Bouton œil : masque ou affiche tous les montants masquables de l'écran. */
 export function eyeToggle(cls = '') {
   const btn = h('button', { class: `eye-btn ${cls}`.trim(), type: 'button' });
   const paint = () => { const hid = moneyHidden(); btn.replaceChildren(icon(hid ? 'eyeOff' : 'eye', 22)); btn.setAttribute('aria-label', hid ? 'Afficher les montants' : 'Masquer les montants'); btn.setAttribute('aria-pressed', String(hid)); };
-  btn.onclick = () => { try { localStorage.setItem(HIDE_KEY, moneyHidden() ? '0' : '1'); } catch { /* réglage non conservé */ } applyHidden(); document.dispatchEvent(new Event('wld-money')); };
+  btn.onclick = async () => {
+    if (moneyHidden()) {
+      if (moneyLock() && !unlocked() && !(await checkPassword('Afficher les montants', 'Pour votre sécurité, entrez votre mot de passe.'))) return;
+      if (moneyLock()) unlockedAt = Date.now();
+      save(HIDE_KEY, '0');
+    } else { save(HIDE_KEY, '1'); }
+    changed();
+  };
   document.addEventListener('wld-money', () => { if (btn.isConnected) paint(); });
   paint();
   return btn;

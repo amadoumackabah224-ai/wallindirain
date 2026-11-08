@@ -221,6 +221,7 @@ const FEATURES = [
   ['feature_vendeur_produits', 'Produits proposés par les vendeurs', 'Les vendeurs peuvent proposer leurs produits au catalogue des autres vendeurs, après votre validation et l\'ajout de votre marge.'],
   ['feature_relances', 'Relances clients', 'Les vendeurs contactent leurs clients (SMS, WhatsApp, appel) depuis l\'onglet « Relances ».'],
   ['feature_finances_perso', 'Mes finances (tous les rôles)', 'Outil de gestion financière personnelle : comptes, transactions, tableau de bord, formule gratuite et Pro. Réglages de prix dans l\'onglet « Mes finances ».'],
+  ['pf_open_signup', 'Inscription « finances seulement »', 'Permet à des personnes de créer un compte membre pour gérer seulement leur argent dans Mes finances (sans commandes ni livraisons). Demande que Mes finances soit allumé. Fermé par défaut.'],
   ['feature_finances', 'Tableau argent', 'Prévision de trésorerie, dépenses récurrentes, budget et objectif, en haut du Portefeuille du vendeur.'],
   ['feature_order_channel', 'Origine des commandes', 'Le vendeur indique d\'où vient chaque commande (réseau social, bouche à oreille…).'],
   ['subscription_required', 'Abonnement obligatoire pour vendre', 'Un vendeur sans abonnement à jour ne peut plus créer de commande (après sa période d\'essai).'],

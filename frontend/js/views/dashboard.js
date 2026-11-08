@@ -1,6 +1,6 @@
 // Tableau de bord du vendeur : l'essentiel d'un coup d'œil. Aucun calcul métier n'est refait ici : les montants viennent
 // tels quels de l'API (portefeuille, commandes, statistiques) ; seules des additions d'affichage sont faites.
-import { h, fmtGNF, fmtDate, liveView, statusBadge, empty, pageHead, metric, alertRow } from '../ui.js';
+import { h, fmtGNF, secret, eyeToggle, fmtDate, liveView, statusBadge, empty, pageHead, metric, alertRow } from '../ui.js';
 import { lowStockNotice } from './outils.js';
 import { get } from '../api.js';
 import { icon } from '../icons.js';
@@ -22,7 +22,7 @@ const dayLabel = (d) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'n
 const capped = (n, total) => (total >= LIMIT && n > 0 ? `${n}+` : String(n));
 
 function mchip(tone, label, value, hint) {
-  return h('div', { class: `mchip ${tone}` }, h('span', { class: 'mchip-l' }, h('i', { class: 'dot' }), label), h('b', { class: 'mchip-v' }, fmtGNF(value)), hint && h('span', { class: 'mchip-h' }, hint));
+  return h('div', { class: `mchip ${tone}` }, h('span', { class: 'mchip-l' }, h('i', { class: 'dot' }), label), h('b', { class: 'mchip-v' }, secret(fmtGNF(value))), hint && h('span', { class: 'mchip-h' }, hint));
 }
 function alerts(w, goTo, refresh) {
   const out = [];
@@ -46,7 +46,7 @@ function moneySection(w, orders, goTo) {
   return h('section', { class: 'money', 'aria-label': 'Mon argent' },
     h('div', { class: 'money-hero' },
       h('span', { class: 'money-lab' }, h('i', { class: 'dot' }), 'Disponible pour retrait'),
-      bigMoney(free),
+      eyeToggle('eye-corner'), secret(bigMoney(free), 'block'),
       h('p', { class: 'money-sub' }, op ? `Sera envoyé sur votre compte ${op}.` : 'Enregistrez un numéro de versement pour retirer.'),
       h('div', { class: 'gap' }, h('button', { class: 'btn btn-gold', type: 'button', onclick: () => goTo('wallet') }, icon('arrowUpRight', 18), 'Demander un retrait'), h('button', { class: 'btn btn-onnavy', type: 'button', onclick: () => goTo('wallet') }, 'Voir le détail'))),
     h('div', { class: 'mchips' },
@@ -74,7 +74,7 @@ function latestOrders(orders, goTo) {
     h('div', { class: 'panel-head' }, h('h2', {}, 'Dernières commandes'), h('button', { class: 'link-btn', type: 'button', onclick: () => goTo('orders') }, 'Tout voir', icon('chevronRight', 16))),
     rows.length ? h('ul', { class: 'o-list' }, rows.map((o) => h('li', {}, h('button', { class: 'o-row', type: 'button', onclick: () => goTo('orders'), 'aria-label': `Commande ${o.ref}, ${o.product_name}` },
       h('span', { class: 'o-main' }, h('b', {}, o.ref), h('span', { class: 'o-sub' }, `${o.product_name} × ${o.qty} · ${o.customer_name}`)),
-      h('span', { class: 'o-side' }, statusBadge(o.status), h('span', { class: 'o-gain' }, `${o.status === 'delivered' ? 'Gain ' : 'Gain attendu '}${fmtGNF(o.expected_gain)}`), h('span', { class: 'o-date' }, fmtDate(o.created_at))))))
+      h('span', { class: 'o-side' }, statusBadge(o.status), h('span', { class: 'o-gain' }, `${o.status === 'delivered' ? 'Gain ' : 'Gain attendu '}`, secret(fmtGNF(o.expected_gain))), h('span', { class: 'o-date' }, fmtDate(o.created_at))))))
     ) : empty('package', 'Aucune commande pour le moment', h('button', { class: 'btn btn-gold', type: 'button', onclick: () => goTo('new') }, icon('plus', 18), 'Saisir ma première commande')));
 }
 
@@ -103,7 +103,7 @@ function performance(orders) {
     const weekLabel = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
     const seg = [['Livrées', s.delivered, 'ok'], ['En cours', s.in_progress, 'info'], ['Échecs et retours', s.failed, 'bad'], ['Annulées', s.cancelled, 'grey']].map(([label, value, tone]) => ({ label, value, tone }));
     return h('div', {},
-      h('div', { class: 'perf-kpis' }, h('div', {}, h('span', { class: 'k-l' }, 'Commandes'), h('b', {}, s.total)), h('div', {}, h('span', { class: 'k-l' }, 'Chiffre d\'affaires livré'), h('b', {}, fmtGNF(s.sales)))),
+      h('div', { class: 'perf-kpis' }, h('div', {}, h('span', { class: 'k-l' }, 'Commandes'), h('b', {}, s.total)), h('div', {}, h('span', { class: 'k-l' }, 'Chiffre d\'affaires livré'), h('b', {}, secret(fmtGNF(s.sales))))),
       h('h3', { class: 'sub-h' }, 'Gains par semaine'),
       s.weeks.length ? columnChart(lastWeeks(s.weeks, 8).map((x) => ({ label: weekLabel(x.week), value: Number(x.gain) })), fmtGNF) : h('p', { class: 'muted small' }, 'Aucun gain encore : ils apparaissent après les livraisons.'),
       s.total ? [h('h3', { class: 'sub-h' }, 'Répartition des commandes'), segmentBar(seg, s.total)] : null);
