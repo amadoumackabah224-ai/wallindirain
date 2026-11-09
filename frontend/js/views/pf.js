@@ -1,7 +1,7 @@
 // « Mes finances » : outil de gestion financière personnelle pour tous les rôles (migration 048).
 // Écran plein écran, sombre, avec sa propre barre du bas : Tableau de bord · Plan financier · Contacts · Statistiques · Plus.
 // Ce sont des notes personnelles : le compte « Wallindirain » affiché est le vrai portefeuille, en lecture seule.
-import { h, fmtGNF, eyeToggle, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
+import { h, fmtGNF as baseFmt, eyeToggle, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
@@ -13,6 +13,11 @@ const CAT_LABEL = new Proxy({}, { get: (_, k) => (typeof k === 'string' ? catLab
 const KIND_LABEL = { wallindirain: 'Relié à Wallindirain', cash: 'Espèces', mobile_money: 'Mobile money', bank: 'Banque', savings: 'Épargne', other: 'Autre' };
 const KIND_ICON = { wallindirain: 'wallet', cash: 'banknote', mobile_money: 'phoneMoney', bank: 'bank', savings: 'wallet', other: 'wallet' };
 const COLOR_LABEL = { blue: 'Bleu', green: 'Vert', orange: 'Orange', red: 'Rouge', purple: 'Violet', brown: 'Marron', teal: 'Turquoise', grey: 'Gris' };
+let decimals = false;   // réglage « décimales » : montants affichés avec deux décimales
+const fmtGNF = (n) => (decimals ? `${(Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[\u202f\u00a0]/g, ' ')} GNF` : baseFmt(n));
+const PERIODS = [['today', 'Aujourd\'hui'], ['week', 'Cette semaine'], ['month', 'Ce mois-ci'], ['year', 'Cette année'], ['d7', '7 jours'], ['d30', '30 jours'], ['w12', '12 semaines'], ['m6', '6 mois'], ['y1', '1 an']];
+const PERIOD_DAYS = (p) => { const n = new Date(); return ({ today: 1, week: ((n.getUTCDay() + 6) % 7) + 1, month: n.getUTCDate(), year: Math.floor((Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()) - Date.UTC(n.getUTCFullYear(), 0, 1)) / 86400000) + 1, d7: 7, d30: 30, w12: 84, m6: 182, y1: 365 })[p] || 30; };
+const PERIOD_LABEL = Object.fromEntries(PERIODS);
 const today = () => new Date().toISOString().slice(0, 10);
 const dayLabel = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 const fmtShort = (n) => { const a = Math.abs(n); const s = n < 0 ? '-' : ''; return a >= 1e6 ? `${s}${(a / 1e6).toFixed(2).replace('.', ',')}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}k` : `${s}${a}`; };
@@ -24,11 +29,11 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, categories: (a) => categoriesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, categories: (a) => categoriesScreen({ ...a, head, card }) };
   const key = SCREENS[screen] ? screen : '';
   const tabOf = ({ '': 'home', home: 'home', plan: 'plan', recurring: 'plan', wallet: 'more', contacts: 'contacts', stats: 'stats' })[key] || 'more';
   document.title = 'Mes finances · Wallindirain';
-  const body = h('div', { class: 'pf-body' }, liveView(async () => { const [st] = await Promise.all([get('/pf/status'), loadCats().catch(() => null)]); return st; }, (st, refresh) => {
+  const body = h('div', { class: 'pf-body' }, liveView(async () => { const [st, set] = await Promise.all([get('/pf/status'), get('/pf/settings').catch(() => null), loadCats().catch(() => null)]); decimals = !!set?.decimals; return st; }, (st, refresh) => {
     if (!st.enabled) return h('div', { class: 'pf-pad' }, empty('bank', 'Mes finances n\'est pas encore disponible. Vous serez prévenu dès son ouverture.'), backLink());
     return SCREENS[key]({ user, go, st, reload: refresh });
   }));
@@ -123,30 +128,52 @@ const voidTx = (t, done) => action(async () => { if (await confirmBox('Supprimer
 
 // ---------- Tableau de bord ----------
 function homeScreen({ go, reload, st }) {
-  let days = 30;
-  return liveView(() => get(`/pf/home?days=${days}`), (d, refresh) => {
-    const chip = (n, label) => h('button', { class: 'pf-chip', type: 'button', 'aria-pressed': String(days === n), onclick: () => { if (n > 30 && d.tier !== 'pro') { go('pro'); return; } days = n; refresh(); } }, label, n > 30 && d.tier !== 'pro' ? ' 🔒' : '');
+  let period = null;
+  return liveView(async () => {
+    const d = await get(`/pf/home${period ? `?period=${period}` : ''}`);
+    const w = d.settings.widgets;
+    d.plan = d.tier === 'pro' && (w.planned_payments || w.cash_forecast || w.budget) ? await get('/pf/plan').catch(() => null) : null;
+    return d;
+  }, (d, refresh) => {
+    period ??= d.period;
+    const chip = (p, label) => { const locked = d.tier !== 'pro' && PERIOD_DAYS(p) > 30; return h('button', { class: 'pf-chip', type: 'button', 'aria-pressed': String(period === p), onclick: () => { if (locked) { go('pro'); return; } period = p; refresh(); } }, label, locked ? ' 🔒' : ''); };
     const active = d.accounts.filter((a) => !a.archived_at);
     const total = d.income + d.expense;
+    const w = d.settings.widgets;
+    const ratio = (r) => (r == null ? '–' : `×${r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}`);
+    const periodTitle = (PERIOD_LABEL[d.period] || '').toUpperCase();
+    const topExp = d.expense_by_category[0];
+    const proLock = (title) => card(title, h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'Disponible avec la formule Pro'), icon('chevronRight', 18)));
+    const proNeeded = d.tier !== 'pro';
     return h('div', {},
-      head('Tableau de bord'),
+      head('Tableau de bord', { right: h('button', { class: 'pf-gear', type: 'button', 'aria-label': 'Choisir les blocs affichés', onclick: () => go('general') }, icon('sliders', 20)) }),
       h('div', { class: 'pf-pad' },
         pfProfile() === null && profileChooser(reload),
-        h('div', { class: 'pf-chips' }, chip(30, '30 jours'), chip(90, '90 jours'), chip(365, '1 an')),
+        h('div', { class: 'pf-chips' }, PERIODS.map(([p, l]) => chip(p, l))),
         h('div', { class: 'pf-gauges' },
           h('div', { class: 'pf-g side' }, gaugeSvg(d.gauges.income, 96), h('span', { class: 'pf-g-l' }, 'Revenus'), h('b', {}, fmtShort(d.income))),
           h('div', { class: 'pf-g main' }, gaugeSvg(d.gauges.flow, 150), h('span', { class: 'pf-g-l' }, 'Flux de trésorerie'), h('b', {}, fmtShort(d.flow))),
           h('div', { class: 'pf-g side' }, gaugeSvg(d.gauges.balance, 96), h('span', { class: 'pf-g-l' }, 'Solde'), h('b', {}, fmtShort(d.balance)))),
+        h('p', { class: 'pf-note center' }, `Aiguilles : 30 derniers jours contre les 30 d'avant · revenus ${ratio(d.gauges.ratios.income)} · flux ${ratio(d.gauges.ratios.flow)} · solde ${ratio(d.gauges.ratios.balance)}`),
+        d.clamped && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'Formule gratuite : cette période est limitée à 30 jours'), icon('chevronRight', 18)),
         active.length === 0 && card(null, h('div', { class: 'pf-start' }, h('span', { class: 'pf-ico pf-c-blue' }, icon('bank', 26)), h('div', {}, h('b', {}, 'Comment commencer ?'), h('p', {}, 'Créez votre premier compte (espèces, Orange Money…) puis notez vos revenus et vos dépenses.'),
           h('button', { class: 'pf-btn', type: 'button', onclick: action(async () => { await askAccount(); }, { ok: 'Compte créé', refresh }) }, 'Créer un compte')))),
         d.priced && d.tier !== 'pro' && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'Formule gratuite · budgets, historique complet et statistiques avec Pro'), icon('chevronRight', 18)),
         d.on_trial && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, `Essai Pro jusqu'au ${new Date(d.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`), icon('chevronRight', 18)),
-        card('Évolution du solde', h('div', { class: 'pf-sub' }, 'AUJOURD\'HUI'), h('div', { class: 'pf-big' }, fmtGNF(d.balance)), areaChart(d.series.map((p) => p.balance), d.series.map((p) => p.day))),
-        card('Comptes', active.slice(0, 3).map((a) => accountRow(a, () => go(a.auto ? 'wallet' : 'accounts'))), !active.some((a) => a.auto) && wallindirainRow(d.wallindirain), moreLink('Afficher plus', () => go('accounts'))),
+        w.balance && card('Solde', h('div', { class: 'pf-big' }, fmtGNF(d.balance)), h('div', { class: 'pf-sub' }, `${active.length} compte${active.length > 1 ? 's' : ''}`)),
+        w.balance_evolution && card('Évolution du solde', h('div', { class: 'pf-sub' }, 'AUJOURD\'HUI'), h('div', { class: 'pf-big' }, fmtGNF(d.balance)), areaChart(d.series.map((p) => p.balance), d.series.map((p) => p.day))),
+        w.accounts && card('Comptes', active.slice(0, 3).map((a) => accountRow(a, () => go(a.auto ? 'wallet' : 'accounts'))), !active.some((a) => a.auto) && wallindirainRow(d.wallindirain), moreLink('Afficher plus', () => go('accounts'))),
         st.wallet?.eligible && !st.wallet.linked && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('wallet') }, icon('wallet', 22), h('span', {}, 'Reliez votre compte Wallindirain : gains, achats et retraits arrivent ici tout seuls.'), icon('chevronRight', 18)),
-        card('Flux de trésorerie', h('div', { class: 'pf-sub' }, `${days === 365 ? 'DERNIÈRE ANNÉE' : `${days} DERNIERS JOURS`}`), h('div', { class: 'pf-big' }, fmtGNF(d.flow)),
+        w.cash_flow && card('Flux de trésorerie', h('div', { class: 'pf-sub' }, periodTitle), h('div', { class: 'pf-big' }, fmtGNF(d.flow)),
           flowBar('Tous les revenus', d.income, total, 'pos'), flowBar('Toutes les dépenses', d.expense, total, 'neg'), moreLink('Afficher plus', () => go('stats'))),
-        d.recent.length > 0 && card('Dernières transactions', d.recent.map((t) => txRow(t, () => go('tx'))), moreLink('Tout voir', () => go('tx')))),
+        w.expenses && card('Dépenses', h('div', { class: 'pf-sub' }, periodTitle), h('div', { class: 'pf-big' }, fmtGNF(d.expense)),
+          d.expense_by_category.slice(0, 4).map((c) => flowBar(CAT_LABEL[c.category] || c.category, c.total, d.expense, 'neg')), moreLink('Afficher plus', () => go('stats'))),
+        w.top_expense && card('Dépense principale', topExp ? [h('div', { class: 'pf-sub' }, CAT_LABEL[topExp.category] || topExp.category), h('div', { class: 'pf-big' }, fmtGNF(topExp.total)), flowBar(`${Math.round((topExp.total * 100) / Math.max(d.expense, 1))} % des dépenses`, topExp.total, d.expense, 'neg')] : h('p', { class: 'pf-note' }, 'Aucune dépense sur cette période.')),
+        w.budget && (proNeeded ? proLock('Budget') : card('Budget du mois', !d.plan || d.plan.budgets.length === 0 ? h('p', { class: 'pf-note' }, 'Aucun budget. Créez-en dans le Plan financier.') : d.plan.budgets.slice(0, 4).map((b) => flowBar(CAT_LABEL[b.category] || b.category, b.spent, b.amount, b.spent > b.amount ? 'neg' : 'pos')), moreLink('Plan financier', () => go('plan')))),
+        w.cash_forecast && (proNeeded ? proLock('Prévision de trésorerie') : card('Prévision de trésorerie', h('div', { class: 'pf-sub' }, 'DANS 30 JOURS'), h('div', { class: 'pf-big' }, fmtGNF(d.plan?.forecast.projected ?? d.balance)),
+          h('dl', { class: 'pf-kv' }, h('dt', {}, 'Solde actuel'), h('dd', {}, fmtGNF(d.balance)), h('dt', {}, 'Revenus prévus'), h('dd', { class: 'pos' }, fmtGNF(d.plan?.forecast.income ?? 0)), h('dt', {}, 'Dépenses prévues'), h('dd', { class: 'neg' }, fmtGNF(d.plan?.forecast.expense ?? 0))), moreLink('Plan financier', () => go('plan')))),
+        w.planned_payments && (proNeeded ? proLock('Paiements planifiés') : card('Paiements planifiés', !d.plan || d.plan.forecast.upcoming.length === 0 ? h('p', { class: 'pf-note' }, 'Rien de prévu dans les 30 prochains jours.') : d.plan.forecast.upcoming.slice(0, 5).map((u) => h('div', { class: 'pf-flow' }, h('div', { class: 'pf-flow-row' }, h('b', {}, u.label), h('span', { class: u.kind === 'income' ? 'pos' : 'neg' }, money(u.kind === 'income' ? u.amount : -u.amount, true))), h('small', {}, dayLabel(u.day)))), moreLink('Gérer', () => go('recurring')))),
+        d.recent.length > 0 && w.recent_tx && card('Dernières transactions', d.recent.map((t) => txRow(t, () => go('tx'))), moreLink('Tout voir', () => go('tx')))),
       fab(d.accounts, () => { refresh(); }));
   });
 }
@@ -194,15 +221,16 @@ function txScreen({ go }) {
 
 // ---------- Statistiques ----------
 function statsScreen({ go }) {
-  let days = 30;
-  return liveView(() => get(`/pf/home?days=${days}`), (d, refresh) => {
-    const chip = (n, label) => h('button', { class: 'pf-chip', type: 'button', 'aria-pressed': String(days === n), onclick: () => { if (n > 30 && d.tier !== 'pro') { go('pro'); return; } days = n; refresh(); } }, label, n > 30 && d.tier !== 'pro' ? ' 🔒' : '');
+  let period = null;
+  return liveView(() => get(`/pf/home${period ? `?period=${period}` : ''}`), (d, refresh) => {
+    period ??= d.period;
+    const chip = (p, label) => { const locked = d.tier !== 'pro' && PERIOD_DAYS(p) > 30; return h('button', { class: 'pf-chip', type: 'button', 'aria-pressed': String(period === p), onclick: () => { if (locked) { go('pro'); return; } period = p; refresh(); } }, label, locked ? ' 🔒' : ''); };
     const cats = (list, labels, tone) => list.length === 0 ? h('p', { class: 'pf-note' }, 'Rien sur cette période.') : list.map((c) => {
       const max = list[0].total; const f = h('span', { class: `pf-bar-fill ${tone}` }); f.style.width = `${Math.max(4, Math.round((c.total * 100) / max))}%`;
       return h('div', { class: 'pf-flow' }, h('div', { class: 'pf-flow-row' }, h('b', {}, labels[c.category] || c.category), h('span', {}, fmtGNF(c.total))), h('span', { class: 'pf-bar-track' }, f));
     });
     return h('div', {}, head('Statistiques'), h('div', { class: 'pf-pad' },
-      h('div', { class: 'pf-chips' }, chip(30, '30 jours'), chip(90, '90 jours'), chip(365, '1 an')),
+      h('div', { class: 'pf-chips' }, PERIODS.map(([p, l]) => chip(p, l))),
       card('Résumé', h('dl', { class: 'pf-kv' }, h('dt', {}, 'Revenus'), h('dd', { class: 'pos' }, fmtGNF(d.income)), h('dt', {}, 'Dépenses'), h('dd', { class: 'neg' }, fmtGNF(d.expense)), h('dt', {}, 'Flux net'), h('dd', {}, fmtGNF(d.flow)), h('dt', {}, 'Solde actuel'), h('dd', {}, fmtGNF(d.balance)))),
       card('Dépenses par catégorie', cats(d.expense_by_category, CAT_LABEL, 'neg')),
       card('Revenus par catégorie', cats(d.income_by_category, CAT_LABEL, 'pos')),
@@ -490,11 +518,44 @@ function walletScreen({ go, st, reload }) {
 function settingsScreen({ go, st }) {
   const row = (ico, label, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-set', type: href ? null : 'button', href, onclick }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18));
   return h('div', {}, head('Paramètres', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' }, h('section', { class: 'pf-card flush' },
-    row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Paramètres des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
+    row('sliders', 'Général, tableau de bord et jauges', () => go('general')), row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Objectifs des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
     st.wallet?.eligible && row('wallet', 'Compte Wallindirain', () => go('wallet')),
     row('users', 'Contacts et étiquettes', () => go('contacts')), row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
     row('shield', 'Sécurité', null, '#/app/profile')),
     h('p', { class: 'pf-note' }, 'Vos données financières personnelles ne sont visibles que par vous. Vous pouvez archiver un compte à tout moment ; rien n\'est partagé avec les autres utilisateurs.')));
+}
+const WIDGET_INFO = [['balance_evolution', 'Évolution du solde'], ['accounts', 'Comptes'], ['cash_flow', 'Flux de trésorerie'], ['planned_payments', 'Paiements planifiés', true], ['cash_forecast', 'Prévision de trésorerie', true], ['balance', 'Solde'], ['expenses', 'Dépenses'], ['top_expense', 'Dépense principale'], ['budget', 'Budget', true], ['recent_tx', 'Dernières transactions'], ['exchange_rate', 'Taux de change', false, true]];
+const GAUGE_INFO = [['income', 'Revenus', 'Revenus d\'exploitation des 30 derniers jours ÷ ceux des 30 jours d\'avant (financements et remboursements de prêt exclus).'], ['flow', 'Flux de trésorerie', 'Flux net des 30 derniers jours ÷ celui des 30 jours d\'avant.'], ['balance', 'Solde', 'Solde actuel ÷ solde d\'il y a 30 jours.']];
+
+/** Paramètres → Général : décimales, période par défaut, blocs du tableau de bord, seuils des jauges. */
+function generalScreen({ go }) {
+  return liveView(() => get('/pf/settings'), (set, refresh) => {
+    const num = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+    const dec = h('input', { type: 'checkbox', checked: set.decimals });
+    const per = h('select', {}, PERIODS.map(([k, l]) => h('option', { value: k, selected: k === set.default_period }, l)));
+    const wid = Object.fromEntries(WIDGET_INFO.map(([k]) => [k, h('input', { type: 'checkbox', checked: !!set.widgets[k], disabled: k === 'exchange_rate' })]));
+    const gin = {}; for (const [g] of GAUGE_INFO) for (const side of ['low', 'high']) gin[`${g}_${side}`] = h('input', { type: 'number', step: '0.05', min: '0', max: '10', inputmode: 'decimal', value: set.gauges[`${g}_${side}`] ?? '', placeholder: String(set.defaults.gauges[g][side === 'low' ? 0 : 1]).replace('.', ',') });
+    const save = action(async () => {
+      const gauges = Object.fromEntries(Object.entries(gin).map(([k, el]) => [k, num(el.value)]).filter(([, v]) => v !== null));
+      await post('/pf/settings', { decimals: dec.checked, default_period: per.value, widgets: Object.fromEntries(WIDGET_INFO.filter(([k]) => k !== 'exchange_rate').map(([k]) => [k, wid[k].checked])), gauges });
+      decimals = dec.checked;
+    }, { ok: 'Paramètres enregistrés', refresh });
+    const reset = action(async () => { for (const el of Object.values(gin)) el.value = ''; }, {});
+    const line = (label, ctrl, hint) => h('label', { class: 'pf-opt' }, h('span', { class: 'grow' }, label, hint && h('small', {}, hint)), ctrl);
+    return h('div', {}, head('Général', { back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' },
+      card('Général',
+        line('Utiliser des décimales dans les montants', dec, 'Affiche deux décimales (1 000,00). Le franc guinéen n\'a pas de centimes : utile pour d\'autres devises.'),
+        line('Période par défaut des statistiques', per),
+        line('Devise de base', h('b', {}, 'GNF'), 'Les autres devises arrivent bientôt.')),
+      card('Tableau de bord', h('p', { class: 'pf-note' }, 'Choisissez les blocs à afficher. Les blocs Pro restent visibles mais verrouillés dans la formule gratuite.'),
+        WIDGET_INFO.map(([k, l, pro, soon]) => line(l, wid[k], soon ? 'Bientôt, avec les devises' : pro ? 'Pro' : undefined))),
+      card('Jauges', h('p', { class: 'pf-note' }, 'Réglez à partir de quel rapport l\'aiguille passe de « faible » (rouge) à « élevé » (vert). Exemple : 0,9 et 1,2. Vide = valeur par défaut.'),
+        GAUGE_INFO.map(([g, l, help]) => h('div', { class: 'pf-gset' }, h('b', {}, l), h('small', {}, help),
+          h('div', { class: 'pf-gset-row' }, h('label', {}, 'Faible en dessous de', gin[`${g}_low`]), h('label', {}, 'Élevé à partir de', gin[`${g}_high`])))),
+        h('button', { class: 'pf-btn ghost block', type: 'button', onclick: reset }, 'Remettre les valeurs par défaut')),
+      h('button', { class: 'pf-btn block', type: 'button', onclick: save }, 'Enregistrer'),
+      h('p', { class: 'pf-note' }, 'Ces réglages ne concernent que vous.')));
+  });
 }
 function gaugesScreen({ go }) {
   return liveView(() => get('/pf/home?days=30'), (d, refresh) => {
@@ -505,7 +566,7 @@ function gaugesScreen({ go }) {
       if (!v) return;
       await post('/pf/prefs', { income_target: v.income_target === '' ? null : Number(v.income_target), balance_target: v.balance_target === '' ? null : Number(v.balance_target) });
     }, { ok: 'Objectifs enregistrés', refresh });
-    return h('div', {}, head('Paramètres des jauges', { back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' }, card(null,
+    return h('div', {}, head('Objectifs des jauges', { back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' }, card(null,
       h('dl', { class: 'pf-kv' }, h('dt', {}, 'Objectif de revenus'), h('dd', {}, d.targets.income ? fmtGNF(d.targets.income) : 'Automatique'), h('dt', {}, 'Objectif de solde'), h('dd', {}, d.targets.balance ? fmtGNF(d.targets.balance) : 'Automatique')),
       h('button', { class: 'pf-btn', type: 'button', onclick: set }, 'Modifier'))));
   });
