@@ -97,10 +97,12 @@ async function askAccount(existing) {
     { name: 'kind', label: 'Type', type: 'select', options: Object.entries(KIND_LABEL), value: existing?.kind || 'mobile_money' },
     { name: 'color', label: 'Couleur', type: 'select', options: Object.entries(COLOR_LABEL), value: existing?.color || 'blue' },
     ...(existing ? [] : [{ name: 'currency', label: 'Devise', type: 'select', options: curOptions, value: 'GNF', hint: 'Une autre devise s\'ajoute dans Paramètres → Devises. Elle ne change plus après la création.' }]),
-    { name: 'opening_balance', label: `Solde de départ (${cur === 'GNF' && !existing ? 'dans la devise choisie' : cur})`, type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.opening_balance, cur) : 0, required: false, hint: 'Ce que contient ce compte aujourd\'hui.' }] });
+    { name: 'opening_balance', label: `Solde actuel (${cur === 'GNF' && !existing ? 'dans la devise choisie' : cur})`, type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.balance, cur) : 0, required: false, hint: existing ? 'Le solde que ce compte doit afficher maintenant. Vos revenus et dépenses déjà notés sont conservés : seul le point de départ est ajusté.' : 'Ce que contient ce compte aujourd\'hui. Vos revenus et dépenses notés ensuite le feront varier.' }] });
   if (!v) return false;
   const code = existing ? cur : v.currency;
-  await post('/pf/accounts', { id: existing?.id, name: v.name, kind: v.kind, color: v.color, currency: code, opening_balance: toMinor(v.opening_balance || 0, code) });
+  // l'écran parle de « solde actuel » : le point de départ enregistré = solde voulu − mouvements déjà notés
+  const moves = existing ? Number(existing.balance) - Number(existing.opening_balance) : 0;
+  await post('/pf/accounts', { id: existing?.id, name: v.name, kind: v.kind, color: v.color, currency: code, opening_balance: toMinor(v.opening_balance || 0, code) - moves });
   return true;
 }
 /** Menu « + » : dépense, revenu, virement, compte. */
