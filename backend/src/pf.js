@@ -110,10 +110,13 @@ export function registerPf(app, { q, fn, guard, limit }) {
   }
 
   async function accountsOf(id, acc) {
-    const rows = await q(`SELECT a.id, a.name, a.kind, a.color, a.opening_balance::bigint AS opening_balance, a.created_at, a.archived_at,
-        (a.opening_balance + COALESCE((SELECT sum(CASE WHEN t.kind IN ('income','transfer_in') THEN t.amount ELSE -t.amount END) FROM pf_all_tx t WHERE t.account_id = a.id AND t.voided_at IS NULL), 0))::bigint AS balance,
+    const rows = await q(`SELECT a.id, a.name, a.kind, a.color, a.currency, COALESCE(c.decimals, 0)::int AS decimals, c.rate::float8 AS rate, a.opening_balance::bigint AS opening_balance, a.created_at, a.archived_at,
+        (a.opening_balance + COALESCE((SELECT sum(CASE WHEN t.kind IN ('income','transfer_in') THEN t.amount_orig ELSE -t.amount_orig END) FROM pf_all_tx t WHERE t.account_id = a.id AND t.voided_at IS NULL), 0))::bigint AS balance,
         a.archived_at IS NULL AS open
-      FROM pf_accounts a WHERE a.owner_id = $1 ORDER BY a.archived_at NULLS FIRST, a.created_at, a.id`, [id]);
+      FROM pf_accounts a LEFT JOIN pf_currencies c ON c.owner_id = a.owner_id AND c.code = a.currency WHERE a.owner_id = $1 ORDER BY a.archived_at NULLS FIRST, a.created_at, a.id`, [id]);
+    // solde converti en GNF au taux enregistré (les comptes en GNF restent tels quels)
+    for (const a of rows) { a.rate = a.rate == null ? null : Number(a.rate); a.decimals = Number(a.decimals); }
+    for (const a of rows) a.balance_base = a.currency === 'GNF' || !a.rate ? Number(a.balance) : Math.round((Number(a.balance) / 10 ** a.decimals) * a.rate);
     // formule gratuite : seuls les plus anciens comptes actifs reçoivent des transactions (même règle que la base)
     let rank = 0;
     const list = rows.map((a) => ({ ...a, writable: a.open && (acc.tier === 'pro' || ++rank <= acc.free_accounts) }));
@@ -121,7 +124,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const [link] = await q('SELECT wallet_linked, wallet_account FROM pf_prefs WHERE owner_id = $1', [id]);
     if (link?.wallet_linked) {
       const [w] = await q('SELECT COALESCE(sum(amount), 0)::bigint AS bal FROM wallet_entries WHERE user_id = $1 AND available_at <= now()', [id]);
-      list.push({ id: 'wallindirain', name: 'Wallindirain', kind: 'wallindirain', color: 'teal', opening_balance: 0, created_at: null, archived_at: null, balance: Number(w.bal), open: true, writable: false, auto: true, receives: link.wallet_account });
+      list.push({ id: 'wallindirain', name: 'Wallindirain', kind: 'wallindirain', color: 'teal', opening_balance: 0, created_at: null, archived_at: null, balance: Number(w.bal), balance_base: Number(w.bal), currency: 'GNF', decimals: 0, rate: null, open: true, writable: false, auto: true, receives: link.wallet_account });
     }
     return list;
   }
@@ -177,7 +180,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const days = Math.min(acc.tier === 'pro' ? 365 : FREE_MAX_DAYS, wanted);
     const accounts = await accountsOf(id, acc);
     const active = accounts.filter((a) => !a.archived_at);
-    const balance = active.reduce((a, x) => a + Number(x.balance), 0);
+    const balance = active.reduce((a, x) => a + x.balance_base, 0);
     const seriesDays = Math.max(days, 7), span = Math.max(2 * days, 60, seriesDays);
     const since = dayStr(Date.now() - (days - 1) * DAY), from = dayStr(Date.now() - (span - 1) * DAY);
     const w30 = dayStr(Date.now() - 29 * DAY);   // les 30 derniers jours des jauges ; les 30 d'avant vont de -59 à -30
@@ -203,13 +206,14 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const byCategory = (kinds) => Object.entries(inRange.filter((f) => kinds.includes(f.kind)).reduce((m, f) => { m[f.category] = (m[f.category] || 0) + Number(f.total); return m; }, {}))
       .map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total);
     const [w] = await q(`SELECT COALESCE(sum(amount) FILTER (WHERE available_at <= now()), 0)::bigint AS available, COALESCE(sum(amount) FILTER (WHERE available_at > now()), 0)::bigint AS pending FROM wallet_entries WHERE user_id = $1`, [id]);
-    const recent = await q(`SELECT t.id, t.kind, t.amount::bigint AS amount, t.category, t.note, t.occurred_on::text AS occurred_on, COALESCE(a.name, 'Wallindirain') AS account_name, COALESCE(a.color, 'teal') AS color, t.source
+    const recent = await q(`SELECT t.id, t.kind, t.amount_orig::bigint AS amount, t.currency, t.category, t.note, t.occurred_on::text AS occurred_on, COALESCE(a.name, 'Wallindirain') AS account_name, COALESCE(a.color, 'teal') AS color, t.source
         FROM pf_all_tx t LEFT JOIN pf_accounts a ON a.id = t.account_id WHERE t.owner_id = $1 AND t.voided_at IS NULL AND t.occurred_on >= current_date - $2::int
         ORDER BY t.occurred_on DESC, t.created_at DESC LIMIT 6`, [id, acc.tier === 'pro' ? 100000 : acc.free_history_days]);
     return {
       enabled: true, ...acc, period, days, clamped: days < wanted, settings, accounts, balance, income, expense, flow: income - expense, prev_income: opIncome(prev30),
       gauges: gaugeSet,
       targets: { income: pref?.income_target ? Number(pref.income_target) : null, balance: pref?.balance_target ? Number(pref.balance_target) : null },
+      currencies: (await q('SELECT code, name, decimals, rate::float8 AS rate, updated_at FROM pf_currencies WHERE owner_id = $1 ORDER BY code', [id])).map((c) => ({ ...c, rate: Number(c.rate) })),
       series, income_by_category: byCategory(['income']), expense_by_category: byCategory(['expense']), recent,
       wallindirain: { available: Number(w.available), pending: Number(w.pending) }
     };
@@ -224,7 +228,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   app.post('/api/pf/accounts', guard(ALL, async (ctx) => {
     writing(ctx); const b = ctx.body;
     const id = await fn('fn_pf_account_save', ctx.user.id, b.id ? v.uuid(b.id, 'Compte') : null, v.str(b.name, 'Nom', { max: 80 }), v.oneOf(b.kind, KINDS, 'Type'), v.oneOf(b.color || 'blue', COLORS, 'Couleur'),
-      v.int(b.opening_balance ?? 0, 'Solde de départ', { min: -1e11, max: 1e11 }));
+      v.int(b.opening_balance ?? 0, 'Solde de départ', { min: -1e11, max: 1e11 }), b.currency ? v.str(b.currency, 'Devise', { max: 3 }) : null);
     ctx.status = b.id ? 200 : 201;
     return { id };
   }));
@@ -244,7 +248,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     if (ctx.query.kind && ['income', 'expense', 'transfer'].includes(ctx.query.kind)) where += ctx.query.kind === 'transfer' ? ` AND t.kind IN ('transfer_in','transfer_out')` : ` AND t.kind = '${ctx.query.kind}'`;
     if (ctx.query.q) { params.push(`%${String(ctx.query.q).slice(0, 50).replace(/[\\%_]/g, '\\$&')}%`); where += ` AND (t.note ILIKE $${params.length} OR t.category ILIKE $${params.length})`; }
     if (ctx.query.before) { params.push(ymd(ctx.query.before)); where += ` AND t.occurred_on < $${params.length}::date`; }
-    const rows = await q(`SELECT t.id, t.kind, t.amount::bigint AS amount, t.category, t.note, t.occurred_on::text AS occurred_on, t.transfer_id, t.account_id, COALESCE(a.name, 'Wallindirain') AS account_name, COALESCE(a.color, 'teal') AS color, t.source
+    const rows = await q(`SELECT t.id, t.kind, t.amount_orig::bigint AS amount, t.currency, t.category, t.note, t.occurred_on::text AS occurred_on, t.transfer_id, t.account_id, COALESCE(a.name, 'Wallindirain') AS account_name, COALESCE(a.color, 'teal') AS color, t.source
         FROM pf_all_tx t LEFT JOIN pf_accounts a ON a.id = t.account_id WHERE ${where} ORDER BY t.occurred_on DESC, t.created_at DESC LIMIT 100`, params);
     return { enabled: true, transactions: rows, history_limited: acc.tier !== 'pro' ? acc.free_history_days : null };
   }));
@@ -325,7 +329,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const [g] = await q('SELECT target::bigint AS target FROM pf_goals WHERE owner_id = $1 AND month = $2::date', [id, month]);
     const recurring = (await q(`SELECT id, label, kind, category, amount::bigint AS amount, frequency, anchor_on::text AS anchor_on FROM pf_recurring WHERE owner_id = $1 AND stopped_at IS NULL ORDER BY kind, label`, [id])).map((r) => ({ ...r, amount: Number(r.amount) }));
     const accounts = await accountsOf(id, acc);
-    const balance = accounts.filter((a) => !a.archived_at).reduce((t, a) => t + Number(a.balance), 0);
+    const balance = accounts.filter((a) => !a.archived_at).reduce((t, a) => t + a.balance_base, 0);
     const from = dayStr(Date.now() + DAY), to = dayStr(Date.now() + 30 * DAY);
     const upcoming = recurring.flatMap((r) => occurrences(r, from, to).map((day) => ({ day, label: r.label, kind: r.kind, category: r.category, amount: r.amount }))).sort((a, b) => a.day.localeCompare(b.day));
     const inc = upcoming.filter((u) => u.kind === 'income').reduce((t, u) => t + u.amount, 0), exp = upcoming.filter((u) => u.kind === 'expense').reduce((t, u) => t + u.amount, 0);
@@ -440,9 +444,38 @@ export function registerPf(app, { q, fn, guard, limit }) {
   }));
 
   // Relier / délier le compte Wallindirain (Pro) : l'activité du portefeuille apparaît seule dans Mes finances
+
+  // ----- Devises (migration 056) : base GNF, autres devises avec un taux saisi à la main -----
+  app.get('/api/pf/currencies', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id;
+    const list = await q(`SELECT c.code, c.name, c.decimals, c.rate::float8 AS rate, c.updated_at, (SELECT count(*) FROM pf_accounts a WHERE a.owner_id = c.owner_id AND a.currency = c.code)::int AS accounts FROM pf_currencies c WHERE c.owner_id = $1 ORDER BY c.code`, [id]);
+    const [pref] = await q('SELECT rates_auto FROM pf_prefs WHERE owner_id = $1', [id]);
+    const acc = await access(id);
+    return { enabled: true, base: { code: 'GNF', name: 'Franc guinéen', decimals: 0 }, currencies: list.map((c) => ({ ...c, rate: Number(c.rate) })), rates_auto: !!pref?.rates_auto, tier: acc.tier, free_currencies: acc.tier === 'pro' ? null : await setting('pf_free_currencies') };
+  }));
+  app.post('/api/pf/currencies', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const rate = Number(String(b.rate).replace(',', '.'));
+    if (!Number.isFinite(rate)) throw new HttpError(400, 'invalid_input', 'Taux invalide');
+    await fn('fn_pf_currency_save', ctx.user.id, v.str(b.code, 'Code', { max: 3 }), v.str(b.name, 'Nom', { max: 40 }), v.int(b.decimals ?? 2, 'Décimales', { min: 0, max: 3 }), String(rate));
+    return { ok: true };
+  }));
+  app.post('/api/pf/currencies/:code/remove', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_currency_remove', ctx.user.id, v.str(ctx.params.code, 'Code', { max: 3 }));
+    return { ok: true };
+  }));
+  app.post('/api/pf/rates-auto', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_rates_auto_set', ctx.user.id, ctx.body.on === true);
+    return { ok: true };
+  }));
+
   app.post('/api/pf/wallet-link', guard(ALL, async (ctx) => {
     writing(ctx);
     const acct = ctx.body.account_id ? v.uuid(ctx.body.account_id, 'Compte') : null;
+    if (acct) { const [a] = await q('SELECT currency FROM pf_accounts WHERE id = $1 AND owner_id = $2', [acct, ctx.user.id]); if (a && a.currency !== 'GNF') throw new HttpError(400, 'invalid_input', 'Le compte qui reçoit les mouvements Wallindirain doit être en GNF'); }
     return { account_id: await fn('fn_pf_wallet_link', ctx.user.id, acct) };
   }));
   app.post('/api/pf/wallet-unlink', guard(ALL, async (ctx) => {
