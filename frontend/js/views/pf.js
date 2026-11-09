@@ -5,10 +5,11 @@ import { h, fmtGNF, eyeToggle, liveView, badge, ask, confirmBox, action, toast, 
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
+import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
 
 export const INCOME_LABEL = { sales: 'Ventes', salary: 'Salaire', gift: 'Cadeau', other_in: 'Autre revenu' };
 export const EXPENSE_LABEL = { food: 'Alimentation', transport: 'Transport', housing: 'Logement', telecom: 'Téléphone et internet', health: 'Santé', family: 'Famille', business: 'Activité', shopping: 'Achats', savings: 'Épargne', other_out: 'Autre dépense' };
-const CAT_LABEL = { ...INCOME_LABEL, ...EXPENSE_LABEL, transfer: 'Virement' };
+const CAT_LABEL = new Proxy({}, { get: (_, k) => (typeof k === 'string' ? catLabel(k) : undefined) });   // noms lus dans l'arbre des catégories (modifiable)
 const KIND_LABEL = { wallindirain: 'Relié à Wallindirain', cash: 'Espèces', mobile_money: 'Mobile money', bank: 'Banque', savings: 'Épargne', other: 'Autre' };
 const KIND_ICON = { wallindirain: 'wallet', cash: 'banknote', mobile_money: 'phoneMoney', bank: 'bank', savings: 'wallet', other: 'wallet' };
 const COLOR_LABEL = { blue: 'Bleu', green: 'Vert', orange: 'Orange', red: 'Rouge', purple: 'Violet', brown: 'Marron', teal: 'Turquoise', grey: 'Gris' };
@@ -23,11 +24,11 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, categories: (a) => categoriesScreen({ ...a, head, card }) };
   const key = SCREENS[screen] ? screen : '';
   const tabOf = ({ '': 'home', home: 'home', plan: 'plan', recurring: 'plan', wallet: 'more', contacts: 'contacts', stats: 'stats' })[key] || 'more';
   document.title = 'Mes finances · Wallindirain';
-  const body = h('div', { class: 'pf-body' }, liveView(() => get('/pf/status'), (st, refresh) => {
+  const body = h('div', { class: 'pf-body' }, liveView(async () => { const [st] = await Promise.all([get('/pf/status'), loadCats().catch(() => null)]); return st; }, (st, refresh) => {
     if (!st.enabled) return h('div', { class: 'pf-pad' }, empty('bank', 'Mes finances n\'est pas encore disponible. Vous serez prévenu dès son ouverture.'), backLink());
     return SCREENS[key]({ user, go, st, reload: refresh });
   }));
@@ -51,11 +52,12 @@ const accountOptions = (accounts, writableOnly = true) => accounts.filter((a) =>
 async function askTx(kind, accounts, existing) {
   const list = accountOptions(accounts);
   if (!list.length) { toast(accounts.some((a) => !a.archived_at) ? 'Aucun compte utilisable dans la formule gratuite : passez à Pro.' : 'Créez d\'abord un compte.', 'bad'); return false; }
-  const labels = kind === 'income' ? INCOME_LABEL : EXPENSE_LABEL;
+  await loadCats().catch(() => null);
+  const options = catOptions(kind, existing?.category);
   const v = await ask({ title: existing ? 'Modifier la transaction' : kind === 'income' ? 'Nouveau revenu' : 'Nouvelle dépense', submit: 'Enregistrer', fields: [
     { name: 'account_id', label: 'Compte', type: 'select', options: list, value: existing?.account_id || list[0][0] },
     { name: 'amount', label: 'Montant (GNF)', type: 'number', inputmode: 'numeric', value: existing?.amount ?? '' },
-    { name: 'category', label: 'Catégorie', type: 'select', options: Object.entries(labels), value: existing?.category || Object.keys(labels)[0] },
+    { name: 'category', label: 'Catégorie', type: 'select', options, value: existing?.category || options[0]?.[0] },
     { name: 'occurred_on', label: 'Date', type: 'date', value: existing?.occurred_on || today() },
     { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200, value: existing?.note || '' }] });
   if (!v) return false;
@@ -129,6 +131,7 @@ function homeScreen({ go, reload, st }) {
     return h('div', {},
       head('Tableau de bord'),
       h('div', { class: 'pf-pad' },
+        pfProfile() === null && profileChooser(reload),
         h('div', { class: 'pf-chips' }, chip(30, '30 jours'), chip(90, '90 jours'), chip(365, '1 an')),
         h('div', { class: 'pf-gauges' },
           h('div', { class: 'pf-g side' }, gaugeSvg(d.gauges.income, 96), h('span', { class: 'pf-g-l' }, 'Revenus'), h('b', {}, fmtShort(d.income))),
@@ -201,8 +204,8 @@ function statsScreen({ go }) {
     return h('div', {}, head('Statistiques'), h('div', { class: 'pf-pad' },
       h('div', { class: 'pf-chips' }, chip(30, '30 jours'), chip(90, '90 jours'), chip(365, '1 an')),
       card('Résumé', h('dl', { class: 'pf-kv' }, h('dt', {}, 'Revenus'), h('dd', { class: 'pos' }, fmtGNF(d.income)), h('dt', {}, 'Dépenses'), h('dd', { class: 'neg' }, fmtGNF(d.expense)), h('dt', {}, 'Flux net'), h('dd', {}, fmtGNF(d.flow)), h('dt', {}, 'Solde actuel'), h('dd', {}, fmtGNF(d.balance)))),
-      card('Dépenses par catégorie', cats(d.expense_by_category, EXPENSE_LABEL, 'neg')),
-      card('Revenus par catégorie', cats(d.income_by_category, INCOME_LABEL, 'pos')),
+      card('Dépenses par catégorie', cats(d.expense_by_category, CAT_LABEL, 'neg')),
+      card('Revenus par catégorie', cats(d.income_by_category, CAT_LABEL, 'pos')),
       card('Évolution du solde', areaChart(d.series.map((p) => p.balance), d.series.map((p) => p.day)))));
   });
 }
@@ -213,20 +216,22 @@ const lock = (go) => h('button', { class: 'pf-upsell', type: 'button', onclick: 
 const needPro = (d, go) => { if (d.tier === 'pro') return false; go('pro'); return true; };
 
 async function askRecurring(existing) {
-  const v = await ask({ title: existing ? 'Modifier le récurrent' : 'Nouveau récurrent', text: 'Un revenu ou une dépense qui revient. Il sert à la prévision : rien n\'est enregistré automatiquement.', submit: 'Enregistrer', fields: [
+  await loadCats().catch(() => null);
+  let kind = existing?.kind;
+  if (!kind) { const k = await ask({ title: 'Nouveau récurrent', text: 'Un revenu ou une dépense qui revient.', submit: 'Suivant', fields: [{ name: 'kind', label: 'Type', type: 'select', options: [['expense', 'Dépense'], ['income', 'Revenu']], value: 'expense' }] }); if (!k) return false; kind = k.kind; }
+  const options = catOptions(kind, existing?.category);
+  const v = await ask({ title: existing ? 'Modifier le récurrent' : (kind === 'income' ? 'Nouveau revenu récurrent' : 'Nouvelle dépense récurrente'), text: 'Il sert à la prévision : rien n\'est enregistré automatiquement.', submit: 'Enregistrer', fields: [
     { name: 'label', label: 'Nom (ex. Loyer, Salaire)', value: existing?.label || '', maxlength: 40 },
-    { name: 'kind', label: 'Type', type: 'select', options: [['expense', 'Dépense'], ['income', 'Revenu']], value: existing?.kind || 'expense' },
+    { name: 'category', label: 'Catégorie', type: 'select', options, value: existing?.category || options[0]?.[0] },
     { name: 'amount', label: 'Montant (GNF)', type: 'number', inputmode: 'numeric', value: existing?.amount ?? '' },
     { name: 'frequency', label: 'Fréquence', type: 'select', options: Object.entries(FREQ_LABEL), value: existing?.frequency || 'monthly' },
     { name: 'anchor_on', label: 'Prochaine date (mensuel : jour 1 à 28)', type: 'date', value: existing?.anchor_on || today() }] });
   if (!v) return false;
-  const cat = v.kind === 'income' ? 'other_in' : 'other_out';
-  const category = existing && existing.kind === v.kind ? existing.category : cat;
-  await post('/pf/recurring', { id: existing?.id, label: v.label, kind: v.kind, category, amount: Number(v.amount), frequency: v.frequency, anchor_on: v.anchor_on });
+  await post('/pf/recurring', { id: existing?.id, label: v.label, kind, category: v.category, amount: Number(v.amount), frequency: v.frequency, anchor_on: v.anchor_on });
   return true;
 }
 async function askBudget(category, current) {
-  const v = await ask({ title: `Budget · ${EXPENSE_LABEL[category]}`, text: 'Combien voulez-vous dépenser au plus chaque mois dans cette catégorie ? Laissez vide pour retirer le budget.', submit: 'Enregistrer', fields: [
+  const v = await ask({ title: `Budget · ${CAT_LABEL[category]}`, text: 'Combien voulez-vous dépenser au plus chaque mois dans cette catégorie ? Laissez vide pour retirer le budget.', submit: 'Enregistrer', fields: [
     { name: 'amount', label: 'Budget mensuel (GNF)', type: 'number', inputmode: 'numeric', value: current ?? '', required: false }] });
   if (!v) return false;
   await post('/pf/budgets', { category, amount: v.amount === '' ? null : Number(v.amount) });
@@ -238,7 +243,7 @@ function planScreen({ go }) {
     const pro = d.tier === 'pro';
     const pick = async () => {
       const used = new Set(d.budgets.map((b) => b.category));
-      const left = Object.entries(EXPENSE_LABEL).filter(([k]) => !used.has(k));
+      const left = catOptions('expense').filter(([k]) => !used.has(k));
       if (!left.length) return false;
       const v = await ask({ title: 'Nouveau budget', submit: 'Suivant', fields: [{ name: 'category', label: 'Catégorie', type: 'select', options: left, value: left[0][0] }] });
       return v ? askBudget(v.category) : false;
@@ -267,7 +272,7 @@ function planScreen({ go }) {
       card('Budgets du mois',
         d.budgets.length === 0 ? h('p', { class: 'pf-note' }, 'Aucun budget. Limitez vos dépenses par catégorie : alimentation, transport, téléphone…')
           : d.budgets.map((b) => h('button', { class: 'pf-flow pf-plain', type: 'button', onclick: () => (needPro(d, go) ? null : action(async () => { await askBudget(b.category, b.amount); }, { ok: 'Budget enregistré', refresh })()) },
-            h('div', { class: 'pf-flow-row' }, h('b', {}, EXPENSE_LABEL[b.category]), h('span', { class: b.spent > b.amount ? 'neg' : '' }, `${fmtGNF(b.spent)} / ${fmtGNF(b.amount)}`)), bar(b.spent, b.amount, b.spent > b.amount))),
+            h('div', { class: 'pf-flow-row' }, h('b', {}, CAT_LABEL[b.category]), h('span', { class: b.spent > b.amount ? 'neg' : '' }, `${fmtGNF(b.spent)} / ${fmtGNF(b.amount)}`)), bar(b.spent, b.amount, b.spent > b.amount))),
         h('button', { class: 'pf-btn', type: 'button', onclick: () => (needPro(d, go) ? null : action(async () => { await pick(); }, { ok: 'Budget enregistré', refresh })()) }, 'Ajouter un budget')),
       h('button', { class: 'pf-link', type: 'button', onclick: () => go('') }, '‹ Tableau de bord')));
   });
@@ -485,7 +490,7 @@ function walletScreen({ go, st, reload }) {
 function settingsScreen({ go, st }) {
   const row = (ico, label, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-set', type: href ? null : 'button', href, onclick }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18));
   return h('div', {}, head('Paramètres', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' }, h('section', { class: 'pf-card flush' },
-    row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Paramètres des jauges', () => go('gauges')), row('bank', 'Comptes', () => go('accounts')),
+    row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Paramètres des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
     st.wallet?.eligible && row('wallet', 'Compte Wallindirain', () => go('wallet')),
     row('users', 'Contacts et étiquettes', () => go('contacts')), row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
     row('shield', 'Sécurité', null, '#/app/profile')),

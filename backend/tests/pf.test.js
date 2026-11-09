@@ -118,7 +118,7 @@ test('virement : déplace l\'argent entre deux comptes sans changer revenus ni d
   const other = (await s2.get('/api/pf/accounts')).json.accounts[0].id;
   assert.equal((await s.post('/api/pf/transfers', { from: om.id, to: other, amount: 1, occurred_on: dayStr(0) })).status, 404, 'pas vers le compte d\'un autre');
   const row = (await s.get('/api/pf/transactions?kind=transfer')).json.transactions[0];
-  assert.equal((await s.post(`/api/pf/transactions/${row.id}/update`, { account_id: om.id, amount: 5, category: 'x', occurred_on: dayStr(0) })).status, 400, 'un virement ne se modifie pas');
+  assert.equal((await s.post(`/api/pf/transactions/${row.id}/update`, { account_id: om.id, amount: 5, category: 'food', occurred_on: dayStr(0) })).status, 409, 'un virement ne se modifie pas');
   assert.equal((await s.post(`/api/pf/transactions/${row.id}/void`)).status, 200);
   assert.equal((await rows('SELECT count(*)::int AS n FROM pf_transactions WHERE transfer_id = $1 AND voided_at IS NOT NULL', [row.transfer_id]))[0].n, 2);
   assert.equal((await home(s)).accounts.find((a) => a.id === om.id).balance, h0.accounts.find((a) => a.id === om.id).balance);
@@ -226,6 +226,8 @@ test('un compte anonymisé perd ses données de finances personnelles', async ()
 });
 
 test('retour arrière 048 : refusé s\'il existe des données ou si la fonction est allumée, accepté sinon', async () => {
+  const rb54 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-054.sql'), 'utf8');
+  await db.owner.query('BEGIN'); for (const q of splitSql(rb54)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT');   // la 054 se défait avant la 053
   const rb53 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-053.sql'), 'utf8');
   await db.owner.query('BEGIN'); for (const q of splitSql(rb53)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT');   // la 053 se défait avant la 051
   const rb51 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-051.sql'), 'utf8');

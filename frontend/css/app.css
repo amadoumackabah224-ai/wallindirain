@@ -563,3 +563,12 @@ div.notif { cursor: default; }
 .money-hero { position: relative; } .money-hero .eye-corner { position: absolute; top: 14px; right: 14px; }
 .secret.block { display: inline-block; }
 .combo-tabs { margin-top: 4px; }
+/* Mes finances : catégories et profil */
+.pf-cat { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--pf-line, rgba(255,255,255,.08)); }
+.pf-cat.sub { padding-left: 22px; } .pf-cat.off { opacity: .55; }
+.pf-cat-main { flex: 1; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.pf-cat-main small { opacity: .7; }
+.pf-cat-ico { width: 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); flex: none; }
+.pf-cat-add { background: none; border: 0; color: inherit; padding: 12px; cursor: pointer; opacity: .8; }
+.pf-profile .pf-btn { margin-top: 8px; } .pf-profile-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 24px; }
+.pf-sub { margin: 20px 0 4px; font-size: .95rem; }
