@@ -16,6 +16,8 @@ const ymd = (x, name = 'Date') => {
   if (typeof x !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x) || Number.isNaN(Date.parse(x))) throw new HttpError(400, 'invalid_input', `${name} invalide`);
   return x;
 };
+/** Clé de catégorie : lettres, chiffres et _ ; l'existence (système ou à la personne) et le type sont contrôlés par la base. */
+const catKey = (x) => { if (typeof x !== 'string' || !/^[a-z0-9_]{1,40}$/.test(x)) throw new HttpError(400, 'invalid_input', 'Catégorie invalide'); return x; };
 const optInt = (x, name, max = 1e11) => (x == null || x === '' ? null : v.int(x, name, { min: 1, max }));
 
 /**
@@ -168,7 +170,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     writing(ctx); const b = ctx.body;
     const kind = v.oneOf(b.kind, ['income', 'expense'], 'Type');
     const id = await fn('fn_pf_tx_add', ctx.user.id, v.uuid(b.account_id, 'Compte'), kind, v.int(b.amount, 'Montant', { min: 1, max: 1e11 }),
-      v.oneOf(b.category, kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES, 'Catégorie'), v.optStr(b.note, 'Note', 200), ymd(b.occurred_on));
+      catKey(b.category), v.optStr(b.note, 'Note', 200), ymd(b.occurred_on));
     ctx.status = 201;
     return { id };
   }));
@@ -177,7 +179,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const [t] = await q('SELECT kind FROM pf_transactions WHERE id = $1 AND owner_id = $2', [v.uuid(ctx.params.id, 'Transaction'), ctx.user.id]);
     if (!t) throw new HttpError(404, 'not_found', 'Transaction introuvable');
     await fn('fn_pf_tx_update', ctx.user.id, ctx.params.id, v.uuid(b.account_id, 'Compte'), v.int(b.amount, 'Montant', { min: 1, max: 1e11 }),
-      v.oneOf(b.category, t.kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES, 'Catégorie'), v.optStr(b.note, 'Note', 200), ymd(b.occurred_on));
+      catKey(b.category), v.optStr(b.note, 'Note', 200), ymd(b.occurred_on));
     return { ok: true };
   }));
   app.post('/api/pf/transactions/:id/void', guard(ALL, async (ctx) => {
@@ -189,6 +191,39 @@ export function registerPf(app, { q, fn, guard, limit }) {
     writing(ctx); const b = ctx.body;
     ctx.status = 201;
     return { id: await fn('fn_pf_transfer', ctx.user.id, v.uuid(b.from, 'Compte de départ'), v.uuid(b.to, 'Compte d\'arrivée'), v.int(b.amount, 'Montant', { min: 1, max: 1e11 }), v.optStr(b.note, 'Note', 200), ymd(b.occurred_on)) };
+  }));
+
+
+  // ----- Profil et catégories (migration 054) : arbre système + catégories de la personne, avec nom/icône/masquage modifiables -----
+  app.get('/api/pf/categories', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id;
+    const [pref] = await q('SELECT profile FROM pf_prefs WHERE owner_id = $1', [id]);
+    const sys = await q('SELECT s.key, s.parent_key AS parent, s.kind, s.label AS default_label, COALESCE(o.label, s.label) AS label, COALESCE(o.icon, s.icon) AS icon, s.profile, s.operating, s.position, COALESCE(o.hidden, false) AS hidden FROM pf_cat_system s LEFT JOIN pf_cat_override o ON o.key = s.key AND o.owner_id = $1 ORDER BY s.position', [id]);
+    const own = await q('SELECT key, parent_key AS parent, kind, label, icon, archived_at IS NOT NULL AS hidden FROM pf_cat_custom WHERE owner_id = $1 ORDER BY created_at', [id]);
+    const rootOf = Object.fromEntries(sys.map((c) => [c.key, c]));
+    const operatingOf = (k) => { let c = rootOf[k]; while (c && c.parent) c = rootOf[c.parent]; return c ? c.operating : true; };
+    const items = [
+      ...sys.map((c) => ({ key: c.key, parent: c.parent, kind: c.kind, label: c.label, default_label: c.default_label, icon: c.icon, profile: c.profile, operating: c.operating, hidden: c.hidden, system: true })),
+      ...own.map((c) => ({ key: c.key, parent: c.parent, kind: c.kind, label: c.label, default_label: null, icon: c.icon, profile: 'both', operating: operatingOf(c.parent), hidden: c.hidden, system: false })),
+    ];
+    return { enabled: true, profile: pref?.profile ?? null, items };
+  }));
+  app.post('/api/pf/profile', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_profile_set', ctx.user.id, v.oneOf(ctx.body.profile, ['personal', 'business', 'both'], 'Profil'));
+    return { ok: true };
+  }));
+  app.post('/api/pf/categories', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const key = await fn('fn_pf_cat_add', ctx.user.id, b.parent ? catKey(b.parent) : null, b.parent ? null : v.oneOf(b.kind, ['income', 'expense'], 'Type'), v.str(b.label, 'Nom', { max: 40 }), v.optStr(b.icon, 'Icône', 12));
+    ctx.status = 201;
+    return { key };
+  }));
+  app.post('/api/pf/categories/:key', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    await fn('fn_pf_cat_edit', ctx.user.id, catKey(ctx.params.key), v.optStr(b.label, 'Nom', 40), v.optStr(b.icon, 'Icône', 12), b.hidden === true);
+    return { ok: true };
   }));
 
   app.post('/api/pf/prefs', guard(ALL, async (ctx) => {
@@ -217,7 +252,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   }));
   app.post('/api/pf/budgets', guard(ALL, async (ctx) => {
     writing(ctx); const b = ctx.body;
-    await fn('fn_pf_budget_set', ctx.user.id, v.oneOf(b.category, EXPENSE_CATEGORIES, 'Catégorie'), optInt(b.amount, 'Budget'));
+    await fn('fn_pf_budget_set', ctx.user.id, catKey(b.category), optInt(b.amount, 'Budget'));
     return { ok: true };
   }));
   app.post('/api/pf/goal', guard(ALL, async (ctx) => {
@@ -228,7 +263,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   app.post('/api/pf/recurring', guard(ALL, async (ctx) => {
     writing(ctx); const b = ctx.body;
     const kind = v.oneOf(b.kind, ['income', 'expense'], 'Type');
-    const id = await fn('fn_pf_recurring_save', ctx.user.id, b.id ? v.uuid(b.id, 'Récurrent') : null, v.str(b.label, 'Nom', { max: 40 }), kind, v.oneOf(b.category, kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES, 'Catégorie'),
+    const id = await fn('fn_pf_recurring_save', ctx.user.id, b.id ? v.uuid(b.id, 'Récurrent') : null, v.str(b.label, 'Nom', { max: 40 }), kind, catKey(b.category),
       v.int(b.amount, 'Montant', { min: 1, max: 1e11 }), v.oneOf(b.frequency, ['daily', 'weekly', 'monthly'], 'Fréquence'), ymd(b.anchor_on));
     ctx.status = b.id ? 200 : 201;
     return { id };
