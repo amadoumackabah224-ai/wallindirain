@@ -20,20 +20,59 @@ const ymd = (x, name = 'Date') => {
 const catKey = (x) => { if (typeof x !== 'string' || !/^[a-z0-9_]{1,40}$/.test(x)) throw new HttpError(400, 'invalid_input', 'Catégorie invalide'); return x; };
 const optInt = (x, name, max = 1e11) => (x == null || x === '' ? null : v.int(x, name, { min: 1, max }));
 
+export const GAUGE_DEFAULTS = { income: [0.9, 1.2], flow: [0.9, 1.2], balance: [0.9, 1.2] };
+export const WIDGETS = ['balance_evolution', 'accounts', 'cash_flow', 'planned_payments', 'cash_forecast', 'balance', 'expenses', 'top_expense', 'exchange_rate', 'budget', 'recent_tx'];
+export const WIDGET_DEFAULTS = { balance_evolution: true, accounts: true, cash_flow: true, recent_tx: true };
+export const PERIODS = ['today', 'week', 'month', 'year', 'd7', 'd30', 'w12', 'm6', 'y1'];
+
+/** Nombre de jours d'une période (la semaine commence le lundi ; mois et année en cours depuis le 1er). */
+export function periodDays(period, now = new Date()) {
+  const y = now.getUTCFullYear();
+  switch (period) {
+    case 'today': return 1;
+    case 'week': return ((now.getUTCDay() + 6) % 7) + 1;
+    case 'month': return now.getUTCDate();
+    case 'year': return Math.floor((Date.UTC(y, now.getUTCMonth(), now.getUTCDate()) - Date.UTC(y, 0, 1)) / DAY) + 1;
+    case 'd7': return 7;
+    case 'w12': return 84;
+    case 'm6': return 182;
+    case 'y1': return 365;
+    default: return 30;
+  }
+}
+
 /**
- * Position de l'aiguille d'une jauge, entre 0 (rouge) et 1 (vert).
- *  - revenus : revenus / objectif (objectif réglé, sinon les 30 jours d'avant)
- *  - flux : 0,5 quand rien ne bouge ; plus haut si on gagne plus qu'on ne dépense
- *  - solde : solde / objectif (réglé), sinon 0,5 à solde nul
+ * Position de l'aiguille (0 = rouge, 1 = vert) pour un rapport « maintenant ÷ période d'avant ».
+ * En dessous du seuil « faible » : zone rouge ; entre les deux seuils : zone orange ; à partir du seuil « élevé » : zone verte.
  */
-export function gauges({ income, expense, balance, prevIncome, incomeTarget, balanceTarget }) {
+export function ratioPosition(r, low, high) {
   const clamp = (x) => Math.max(0, Math.min(1, x));
-  const target = incomeTarget ?? (prevIncome > 0 ? prevIncome : null);
-  const scale = Math.max(income, expense, 1);
+  if (!Number.isFinite(r) || r <= 0) return 0;
+  if (r < low) return clamp(0.33 * (r / low));
+  if (r < high) return clamp(0.33 + 0.34 * ((r - low) / (high - low)));
+  return clamp(0.67 + 0.33 * Math.min(1, (r - high) / Math.max(high, 0.01)));
+}
+/** Rapport actuel / précédent ; sans base de comparaison, on lit le signe (vert si ça monte depuis rien, rouge si négatif). */
+function ratioOf(now, before) {
+  if (before > 0) return now / before;
+  return now > 0 ? 2 : now === 0 ? null : 0;
+}
+
+/**
+ * Jauges : chaque aiguille compare les 30 derniers jours aux 30 d'avant (solde : maintenant et il y a 30 jours).
+ * Revenus : revenus d'exploitation seulement (financements et remboursements de prêt exclus). Un objectif réglé remplace la comparaison.
+ */
+export function gauges({ opIncome, prevOpIncome, net, prevNet, balance, balance30, incomeTarget, balanceTarget, thresholds = GAUGE_DEFAULTS }) {
+  const t = { ...GAUGE_DEFAULTS, ...thresholds };
+  const incomeR = incomeTarget ? opIncome / incomeTarget : ratioOf(opIncome, prevOpIncome);
+  const flowR = ratioOf(net, prevNet);
+  const balanceR = balanceTarget ? balance / balanceTarget : ratioOf(balance, balance30);
+  const pos = (r, [lo, hi], fallback) => (r === null ? fallback : ratioPosition(r, lo, hi));
   return {
-    income: target ? clamp(income / target) : (income > 0 ? 1 : 0),
-    flow: income === 0 && expense === 0 ? 0.5 : clamp(0.5 + (income - expense) / (2 * scale)),
-    balance: balanceTarget ? clamp(balance / balanceTarget) : (balance > 0 ? 0.75 : balance < 0 ? 0 : 0.5)
+    income: pos(incomeR, t.income, opIncome === 0 && prevOpIncome === 0 ? 0 : 0.5),
+    flow: pos(flowR, t.flow, 0.5),
+    balance: pos(balanceR, t.balance, balance > 0 ? 0.75 : balance < 0 ? 0 : 0.5),
+    ratios: { income: incomeR, flow: flowR, balance: balanceR }
   };
 }
 
@@ -95,38 +134,81 @@ export function registerPf(app, { q, fn, guard, limit }) {
   }));
 
   /** Tout l'écran « Tableau de bord » en un seul appel. */
+  /** Rubriques de catégories hors exploitation (financements, remboursements de prêt), y compris les sous-catégories ajoutées par la personne. */
+  async function nonOperating(id) {
+    const rows = [...(await q('SELECT key, parent_key AS parent, operating FROM pf_cat_system')), ...(await q('SELECT key, parent_key AS parent, true AS operating FROM pf_cat_custom WHERE owner_id = $1', [id]))];
+    const by = Object.fromEntries(rows.map((r) => [r.key, r]));
+    const out = new Set();
+    for (const r of rows) { let c = r; for (let i = 0; i < 5 && c.parent; i++) c = by[c.parent] || { operating: true }; if (c.operating === false) out.add(r.key); }
+    return out;
+  }
+  const settingsOf = (pref) => ({
+    decimals: !!pref?.decimals, default_period: pref?.default_period || 'd30',
+    widgets: { ...Object.fromEntries(WIDGETS.map((w) => [w, !!WIDGET_DEFAULTS[w]])), ...(pref?.widgets || {}) },
+    gauges: { income_low: pref?.g_income_low == null ? null : Number(pref.g_income_low), income_high: pref?.g_income_high == null ? null : Number(pref.g_income_high),
+      flow_low: pref?.g_flow_low == null ? null : Number(pref.g_flow_low), flow_high: pref?.g_flow_high == null ? null : Number(pref.g_flow_high),
+      balance_low: pref?.g_balance_low == null ? null : Number(pref.g_balance_low), balance_high: pref?.g_balance_high == null ? null : Number(pref.g_balance_high) },
+    defaults: { gauges: GAUGE_DEFAULTS }
+  });
+  const thresholdsOf = (g) => ({ income: [g.income_low ?? 0.9, g.income_high ?? 1.2], flow: [g.flow_low ?? 0.9, g.flow_high ?? 1.2], balance: [g.balance_low ?? 0.9, g.balance_high ?? 1.2] });
+
+  app.get('/api/pf/settings', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const [pref] = await q('SELECT decimals, default_period, widgets, g_income_low, g_income_high, g_flow_low, g_flow_high, g_balance_low, g_balance_high FROM pf_prefs WHERE owner_id = $1', [ctx.user.id]);
+    return { enabled: true, ...settingsOf(pref) };
+  }));
+  app.post('/api/pf/settings', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    if (b.widgets != null && (typeof b.widgets !== 'object' || Array.isArray(b.widgets))) throw new HttpError(400, 'invalid_input', 'Réglage des blocs invalide');
+    if (b.gauges != null && (typeof b.gauges !== 'object' || Array.isArray(b.gauges))) throw new HttpError(400, 'invalid_input', 'Seuils invalides');
+    await fn('fn_pf_settings_set', ctx.user.id, b.decimals === true, v.oneOf(b.default_period, PERIODS, 'Période'), b.widgets == null ? null : JSON.stringify(b.widgets), b.gauges == null ? null : JSON.stringify(b.gauges));
+    return { ok: true };
+  }));
+
+  /** Tout l'écran « Tableau de bord » en un seul appel. */
   app.get('/api/pf/home', guard(ALL, async (ctx) => {
     if (!(await featureOn())) return { enabled: false };
     const id = ctx.user.id;
     const acc = await access(id);
-    const days = Math.min(acc.tier === 'pro' ? 365 : FREE_MAX_DAYS, Math.max(7, Number(ctx.query.days) || 30));
+    const [pref] = await q('SELECT income_target, balance_target, decimals, default_period, widgets, g_income_low, g_income_high, g_flow_low, g_flow_high, g_balance_low, g_balance_high FROM pf_prefs WHERE owner_id = $1', [id]);
+    const settings = settingsOf(pref);
+    const period = ctx.query.days ? null : (PERIODS.includes(ctx.query.period) ? ctx.query.period : settings.default_period);
+    const wanted = period ? periodDays(period) : Math.max(7, Number(ctx.query.days) || 30);
+    const days = Math.min(acc.tier === 'pro' ? 365 : FREE_MAX_DAYS, wanted);
     const accounts = await accountsOf(id, acc);
     const active = accounts.filter((a) => !a.archived_at);
     const balance = active.reduce((a, x) => a + Number(x.balance), 0);
-    const since = dayStr(Date.now() - (days - 1) * DAY), prevFrom = dayStr(Date.now() - (2 * days - 1) * DAY);
+    const seriesDays = Math.max(days, 7), span = Math.max(2 * days, 60, seriesDays);
+    const since = dayStr(Date.now() - (days - 1) * DAY), from = dayStr(Date.now() - (span - 1) * DAY);
+    const w30 = dayStr(Date.now() - 29 * DAY);   // les 30 derniers jours des jauges ; les 30 d'avant vont de -59 à -30
     const flows = await q(`SELECT occurred_on::text AS day, kind, category, sum(amount)::bigint AS total FROM pf_all_tx
-        WHERE owner_id = $1 AND voided_at IS NULL AND occurred_on >= $2::date AND occurred_on <= current_date GROUP BY 1, 2, 3`, [id, prevFrom]);
+        WHERE owner_id = $1 AND voided_at IS NULL AND occurred_on >= $2::date AND occurred_on <= current_date GROUP BY 1, 2, 3`, [id, from]);
     const inRange = flows.filter((f) => f.day >= since);
     const sum = (rows, kinds) => rows.filter((f) => kinds.includes(f.kind)).reduce((a, f) => a + Number(f.total), 0);
     const income = sum(inRange, ['income']), expense = sum(inRange, ['expense']);
-    const prevIncome = sum(flows.filter((f) => f.day < since), ['income']);
+    // jauges : 30 derniers jours contre les 30 d'avant
+    const nonOp = await nonOperating(id);
+    const cur30 = flows.filter((f) => f.day >= w30), prev30 = flows.filter((f) => f.day < w30 && f.day >= dayStr(Date.now() - 59 * DAY));
+    const opIncome = (rows) => rows.filter((f) => f.kind === 'income' && !nonOp.has(f.category)).reduce((a, f) => a + Number(f.total), 0);
+    const netOf = (rows) => sum(rows, ['income']) - sum(rows, ['expense']);
+    const gaugeSet = gauges({ opIncome: opIncome(cur30), prevOpIncome: opIncome(prev30), net: netOf(cur30), prevNet: netOf(prev30), balance, balance30: balance - netOf(cur30),
+      incomeTarget: pref?.income_target ? Number(pref.income_target) : null, balanceTarget: pref?.balance_target ? Number(pref.balance_target) : null, thresholds: thresholdsOf(settings.gauges) });
     // courbe du solde : on part du solde actuel et on remonte jour après jour (virements : net nul sur l'ensemble des comptes)
     const net = new Map();
     for (const f of flows) if (f.kind === 'income' || f.kind === 'expense') net.set(f.day, (net.get(f.day) || 0) + (f.kind === 'income' ? 1 : -1) * Number(f.total));
     const later = await q(`SELECT occurred_on::text AS day, sum(CASE WHEN kind = 'income' THEN amount WHEN kind = 'expense' THEN -amount ELSE 0 END)::bigint AS net FROM pf_all_tx
         WHERE owner_id = $1 AND voided_at IS NULL AND occurred_on > current_date GROUP BY 1`, [id]);
     const series = []; let run = balance - later.reduce((a, r) => a + Number(r.net), 0);   // les opérations datées de demain ne comptent pas encore dans la courbe
-    for (let i = 0; i < days; i++) { const d = dayStr(Date.now() - i * DAY); series.unshift({ day: d, balance: run }); run -= net.get(d) || 0; }
+    for (let i = 0; i < seriesDays; i++) { const d = dayStr(Date.now() - i * DAY); series.unshift({ day: d, balance: run }); run -= net.get(d) || 0; }
     const byCategory = (kinds) => Object.entries(inRange.filter((f) => kinds.includes(f.kind)).reduce((m, f) => { m[f.category] = (m[f.category] || 0) + Number(f.total); return m; }, {}))
       .map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total);
-    const [pref] = await q('SELECT income_target, balance_target FROM pf_prefs WHERE owner_id = $1', [id]);
     const [w] = await q(`SELECT COALESCE(sum(amount) FILTER (WHERE available_at <= now()), 0)::bigint AS available, COALESCE(sum(amount) FILTER (WHERE available_at > now()), 0)::bigint AS pending FROM wallet_entries WHERE user_id = $1`, [id]);
     const recent = await q(`SELECT t.id, t.kind, t.amount::bigint AS amount, t.category, t.note, t.occurred_on::text AS occurred_on, COALESCE(a.name, 'Wallindirain') AS account_name, COALESCE(a.color, 'teal') AS color, t.source
         FROM pf_all_tx t LEFT JOIN pf_accounts a ON a.id = t.account_id WHERE t.owner_id = $1 AND t.voided_at IS NULL AND t.occurred_on >= current_date - $2::int
         ORDER BY t.occurred_on DESC, t.created_at DESC LIMIT 6`, [id, acc.tier === 'pro' ? 100000 : acc.free_history_days]);
     return {
-      enabled: true, ...acc, days, accounts, balance, income, expense, flow: income - expense, prev_income: prevIncome,
-      gauges: gauges({ income, expense, balance, prevIncome, incomeTarget: pref?.income_target ? Number(pref.income_target) : null, balanceTarget: pref?.balance_target ? Number(pref.balance_target) : null }),
+      enabled: true, ...acc, period, days, clamped: days < wanted, settings, accounts, balance, income, expense, flow: income - expense, prev_income: opIncome(prev30),
+      gauges: gaugeSet,
       targets: { income: pref?.income_target ? Number(pref.income_target) : null, balance: pref?.balance_target ? Number(pref.balance_target) : null },
       series, income_by_category: byCategory(['income']), expense_by_category: byCategory(['expense']), recent,
       wallindirain: { available: Number(w.available), pending: Number(w.pending) }
