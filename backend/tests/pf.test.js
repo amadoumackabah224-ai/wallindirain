@@ -54,7 +54,7 @@ test('éteint par défaut : rien n\'est disponible et aucune donnée n\'est cré
   assert.equal((await s.get('/api/pf/status')).json.enabled, false);
   assert.equal((await s.get('/api/pf/home')).json.enabled, false);
   assert.equal((await acc(s, { name: 'Espèces', kind: 'cash' })).status, 403);
-  await expectErr(call(db.app, 'fn_pf_account_save', w.seller, null, 'Espèces', 'cash', 'blue', 0), 'feature_off');
+  await expectErr(call(db.app, 'fn_pf_account_save', w.seller, null, 'Espèces', 'cash', 'blue', 0, null), 'feature_off');
   assert.equal((await rows('SELECT count(*)::int AS n FROM pf_accounts'))[0].n, 0);
   assert.equal((await db.owner.query(`UPDATE settings SET value = 1 WHERE key = 'feature_finances_perso'`)).rowCount, 1);
   before0 = await walletTotals();
@@ -212,7 +212,7 @@ test('droits de la base : fonctions accordées, fonctions internes fermées, tab
   await assert.rejects(db.app.query(`INSERT INTO pf_accounts(owner_id, name, kind) VALUES ($1, 'Triche', 'cash')`, [w.seller]), /permission denied/);
   await assert.rejects(db.app.query(`UPDATE pf_transactions SET amount = 1`), /permission denied/);
   // fonction appelée par un rôle non autorisé / compte inactif
-  await expectErr(call(db.app, 'fn_pf_account_save', '00000000-0000-0000-0000-000000000099', null, 'Fantôme', 'cash', 'blue', 0), 'forbidden');
+  await expectErr(call(db.app, 'fn_pf_account_save', '00000000-0000-0000-0000-000000000099', null, 'Fantôme', 'cash', 'blue', 0, null), 'forbidden');
 });
 
 test('un compte anonymisé perd ses données de finances personnelles', async () => {
@@ -226,6 +226,8 @@ test('un compte anonymisé perd ses données de finances personnelles', async ()
 });
 
 test('retour arrière 048 : refusé s\'il existe des données ou si la fonction est allumée, accepté sinon', async () => {
+  const rb56 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-056.sql'), 'utf8');
+  await db.owner.query('BEGIN'); for (const q of splitSql(rb56)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT');   // la 056 se défait avant la 055
   const rb55 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-055.sql'), 'utf8');
   await db.owner.query('BEGIN'); for (const q of splitSql(rb55)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT');   // la 055 se défait avant la 054
   const rb54 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-054.sql'), 'utf8');

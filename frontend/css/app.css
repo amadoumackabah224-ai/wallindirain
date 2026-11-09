@@ -582,3 +582,4 @@ div.notif { cursor: default; }
 .pf-gset-row input { width: 100%; }
 .pf-gear { background: none; border: 0; color: inherit; padding: 8px; cursor: pointer; }
 .pf-note.center { text-align: center; }
+.pf-acc .pf-row-main > * { max-width: calc(100% - 84px); }

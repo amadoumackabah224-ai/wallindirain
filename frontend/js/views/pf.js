@@ -21,6 +21,13 @@ const PERIOD_LABEL = Object.fromEntries(PERIODS);
 const today = () => new Date().toISOString().slice(0, 10);
 const dayLabel = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 const fmtShort = (n) => { const a = Math.abs(n); const s = n < 0 ? '-' : ''; return a >= 1e6 ? `${s}${(a / 1e6).toFixed(2).replace('.', ',')}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}k` : `${s}${a}`; };
+// Devises (migration 056) : les montants d'un compte sont dans sa devise, en plus petite unité (1 USD = 100). Les totaux sont en GNF.
+let CURRENCIES = {};   // code → { name, decimals, rate }
+const curDec = (code) => (!code || code === 'GNF' ? 0 : (CURRENCIES[code]?.decimals ?? 2));
+const toMinor = (v, code) => Math.round(Number(String(v).replace(',', '.')) * 10 ** curDec(code));
+const fromMinor = (n, code) => Number(n) / 10 ** curDec(code);
+const fmtCur = (minor, code) => (!code || code === 'GNF' ? fmtGNF(minor) : `${fromMinor(minor, code).toLocaleString('fr-FR', { minimumFractionDigits: curDec(code), maximumFractionDigits: curDec(code) }).replace(/[\u202f\u00a0]/g, ' ')} ${code}`);
+const curMoney = (n, code, signed = false) => `${signed && n > 0 ? '+' : ''}${fmtCur(n, code)}`;
 const money = (n, signed = false) => `${signed && n > 0 ? '+' : ''}${fmtGNF(n)}`;
 
 const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan financier'], ['contacts', 'users', 'Contacts'], ['stats', 'chart', 'Statistiques'], ['more', 'more', 'Plus']];
@@ -29,11 +36,11 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, categories: (a) => categoriesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }) };
   const key = SCREENS[screen] ? screen : '';
   const tabOf = ({ '': 'home', home: 'home', plan: 'plan', recurring: 'plan', wallet: 'more', contacts: 'contacts', stats: 'stats' })[key] || 'more';
   document.title = 'Mes finances · Wallindirain';
-  const body = h('div', { class: 'pf-body' }, liveView(async () => { const [st, set] = await Promise.all([get('/pf/status'), get('/pf/settings').catch(() => null), loadCats().catch(() => null)]); decimals = !!set?.decimals; return st; }, (st, refresh) => {
+  const body = h('div', { class: 'pf-body' }, liveView(async () => { const [st, set, cu] = await Promise.all([get('/pf/status'), get('/pf/settings').catch(() => null), get('/pf/currencies').catch(() => null), loadCats().catch(() => null)]); decimals = !!set?.decimals; CURRENCIES = Object.fromEntries((cu?.currencies || []).map((c) => [c.code, c])); return st; }, (st, refresh) => {
     if (!st.enabled) return h('div', { class: 'pf-pad' }, empty('bank', 'Mes finances n\'est pas encore disponible. Vous serez prévenu dès son ouverture.'), backLink());
     return SCREENS[key]({ user, go, st, reload: refresh });
   }));
@@ -52,7 +59,8 @@ const proBadge = () => h('span', { class: 'pf-pro' }, 'PRO');
 const moreLink = (label, onclick) => h('button', { class: 'pf-more', type: 'button', onclick }, label);
 
 // ---------- formulaires ----------
-const accountOptions = (accounts, writableOnly = true) => accounts.filter((a) => !a.archived_at && (!writableOnly || a.writable)).map((a) => [a.id, a.name]);
+const accountOptions = (accounts, writableOnly = true) => accounts.filter((a) => !a.archived_at && (!writableOnly || a.writable)).map((a) => [a.id, a.currency && a.currency !== 'GNF' ? `${a.name} · ${a.currency}` : a.name]);
+const accCur = (accounts, id) => accounts.find((a) => a.id === id)?.currency || 'GNF';
 
 async function askTx(kind, accounts, existing) {
   const list = accountOptions(accounts);
@@ -61,12 +69,12 @@ async function askTx(kind, accounts, existing) {
   const options = catOptions(kind, existing?.category);
   const v = await ask({ title: existing ? 'Modifier la transaction' : kind === 'income' ? 'Nouveau revenu' : 'Nouvelle dépense', submit: 'Enregistrer', fields: [
     { name: 'account_id', label: 'Compte', type: 'select', options: list, value: existing?.account_id || list[0][0] },
-    { name: 'amount', label: 'Montant (GNF)', type: 'number', inputmode: 'numeric', value: existing?.amount ?? '' },
+    { name: 'amount', label: 'Montant (dans la devise du compte)', type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.amount, existing.currency) : '' },
     { name: 'category', label: 'Catégorie', type: 'select', options, value: existing?.category || options[0]?.[0] },
     { name: 'occurred_on', label: 'Date', type: 'date', value: existing?.occurred_on || today() },
     { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200, value: existing?.note || '' }] });
   if (!v) return false;
-  const body = { account_id: v.account_id, amount: Number(v.amount), category: v.category, occurred_on: v.occurred_on, note: v.note || undefined };
+  const body = { account_id: v.account_id, amount: toMinor(v.amount, accCur(accounts, v.account_id)), category: v.category, occurred_on: v.occurred_on, note: v.note || undefined };
   if (existing) await post(`/pf/transactions/${existing.id}/update`, body); else await post('/pf/transactions', { ...body, kind });
   return true;
 }
@@ -75,20 +83,24 @@ async function askTransfer(accounts) {
   if (list.length < 2) { toast('Il faut au moins deux comptes pour faire un virement.', 'bad'); return false; }
   const v = await ask({ title: 'Virement entre mes comptes', text: 'L\'argent passe d\'un de vos comptes à un autre. Cela ne change ni vos revenus ni vos dépenses.', submit: 'Virer', fields: [
     { name: 'from', label: 'Du compte', type: 'select', options: list, value: list[0][0] }, { name: 'to', label: 'Vers le compte', type: 'select', options: list, value: list[1][0] },
-    { name: 'amount', label: 'Montant (GNF)', type: 'number', inputmode: 'numeric' }, { name: 'occurred_on', label: 'Date', type: 'date', value: today() },
+    { name: 'amount', label: 'Montant (dans la devise des comptes)', type: 'number', step: 'any', inputmode: 'decimal' }, { name: 'occurred_on', label: 'Date', type: 'date', value: today() },
     { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200 }] });
   if (!v) return false;
-  await post('/pf/transfers', { from: v.from, to: v.to, amount: Number(v.amount), occurred_on: v.occurred_on, note: v.note || undefined });
+  await post('/pf/transfers', { from: v.from, to: v.to, amount: toMinor(v.amount, accCur(accounts, v.from)), occurred_on: v.occurred_on, note: v.note || undefined });
   return true;
 }
 async function askAccount(existing) {
+  const cur = existing?.currency || 'GNF';
+  const curOptions = [['GNF', 'GNF · Franc guinéen'], ...Object.entries(CURRENCIES).map(([code, c]) => [code, `${code} · ${c.name}`])];
   const v = await ask({ title: existing ? 'Modifier le compte' : 'Nouveau compte', text: existing ? '' : 'Un compte est une de vos « poches » : espèces, Orange Money, banque, épargne…', submit: 'Enregistrer', fields: [
     { name: 'name', label: 'Nom (ex. Orange Money, Espèces)', value: existing?.name || '', maxlength: 40 },
     { name: 'kind', label: 'Type', type: 'select', options: Object.entries(KIND_LABEL), value: existing?.kind || 'mobile_money' },
     { name: 'color', label: 'Couleur', type: 'select', options: Object.entries(COLOR_LABEL), value: existing?.color || 'blue' },
-    { name: 'opening_balance', label: 'Solde de départ (GNF)', type: 'number', inputmode: 'numeric', value: existing?.opening_balance ?? 0, required: false, hint: 'Ce que contient ce compte aujourd\'hui.' }] });
+    ...(existing ? [] : [{ name: 'currency', label: 'Devise', type: 'select', options: curOptions, value: 'GNF', hint: 'Une autre devise s\'ajoute dans Paramètres → Devises. Elle ne change plus après la création.' }]),
+    { name: 'opening_balance', label: `Solde de départ (${cur === 'GNF' && !existing ? 'dans la devise choisie' : cur})`, type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.opening_balance, cur) : 0, required: false, hint: 'Ce que contient ce compte aujourd\'hui.' }] });
   if (!v) return false;
-  await post('/pf/accounts', { id: existing?.id, name: v.name, kind: v.kind, color: v.color, opening_balance: Number(v.opening_balance || 0) });
+  const code = existing ? cur : v.currency;
+  await post('/pf/accounts', { id: existing?.id, name: v.name, kind: v.kind, color: v.color, currency: code, opening_balance: toMinor(v.opening_balance || 0, code) });
   return true;
 }
 /** Menu « + » : dépense, revenu, virement, compte. */
@@ -106,18 +118,18 @@ const fab = (accounts, done) => h('button', { class: 'pf-fab', type: 'button', '
 
 const accountRow = (a, onclick) => h('button', { class: `pf-row${a.archived_at ? ' dim' : ''}`, type: 'button', onclick },
   h('span', { class: `pf-ico pf-c-${a.color || 'blue'}` }, icon(KIND_ICON[a.kind] || 'wallet', 24)),
-  h('span', { class: 'pf-row-main' }, h('b', {}, a.name), h('span', { class: 'pf-amt' }, money(a.balance)), h('small', {}, a.archived_at ? 'Archivé' : a.auto ? 'Automatique · lecture seule' : a.writable === false ? 'Lecture seule (formule gratuite)' : KIND_LABEL[a.kind])), icon('chevronRight', 18));
+  h('span', { class: 'pf-row-main' }, h('b', {}, a.name), h('span', { class: 'pf-amt' }, curMoney(a.balance, a.currency)), h('small', {}, a.currency && a.currency !== 'GNF' ? `≈ ${fmtGNF(a.balance_base)} · ` : '', a.archived_at ? 'Archivé' : a.auto ? 'Automatique · lecture seule' : a.writable === false ? 'Lecture seule (formule gratuite)' : KIND_LABEL[a.kind])), icon('chevronRight', 18));
 const wallindirainRow = (w) => h('a', { class: 'pf-row', href: '#/app/wallet' },
   h('span', { class: 'pf-ico pf-c-gold' }, icon('wallet', 24)),
   h('span', { class: 'pf-row-main' }, h('b', {}, 'Portefeuille Wallindirain'), h('span', { class: 'pf-amt' }, money(w.available)), h('small', {}, `Lecture seule${w.pending > 0 ? ` · ${money(w.pending)} en attente` : ''}`)), icon('chevronRight', 18));
 const txRow = (t, onclick) => h('button', { class: 'pf-row', type: 'button', onclick },
   h('span', { class: `pf-ico pf-c-${t.color || 'blue'}` }, icon(t.kind === 'income' ? 'plus' : t.kind === 'expense' ? 'arrowUpRight' : 'arrowRight', 22)),
-  h('span', { class: 'pf-row-main' }, h('b', {}, CAT_LABEL[t.category] || t.category), h('span', { class: `pf-amt ${t.kind === 'income' || t.kind === 'transfer_in' ? 'pos' : t.kind === 'expense' ? 'neg' : ''}` }, money(t.kind === 'expense' || t.kind === 'transfer_out' ? -t.amount : t.amount, true)), h('small', {}, `${t.account_name} · ${dayLabel(t.occurred_on)}${t.note ? ` · ${t.note}` : ''}`)));
+  h('span', { class: 'pf-row-main' }, h('b', {}, CAT_LABEL[t.category] || t.category), h('span', { class: `pf-amt ${t.kind === 'income' || t.kind === 'transfer_in' ? 'pos' : t.kind === 'expense' ? 'neg' : ''}` }, curMoney(t.kind === 'expense' || t.kind === 'transfer_out' ? -t.amount : t.amount, t.currency, true)), h('small', {}, `${t.account_name} · ${dayLabel(t.occurred_on)}${t.note ? ` · ${t.note}` : ''}`)));
 
 async function editTx(t, accounts, done) {
   if (t.source === 'wallindirain') { toast('Ligne automatique : elle vient de votre portefeuille Wallindirain et ne se modifie pas ici.', 'ok'); return; }
   const isTransfer = t.kind === 'transfer_in' || t.kind === 'transfer_out';
-  const v = await ask({ title: CAT_LABEL[t.category] || 'Transaction', text: `${money(t.amount)} · ${t.account_name} · ${dayLabel(t.occurred_on)}`, submit: isTransfer ? 'Fermer' : 'Modifier', fields: [] });
+  const v = await ask({ title: CAT_LABEL[t.category] || 'Transaction', text: `${curMoney(t.amount, t.currency)} · ${t.account_name} · ${dayLabel(t.occurred_on)}`, submit: isTransfer ? 'Fermer' : 'Modifier', fields: [] });
   if (!v) return;
   try {
     if (isTransfer) { if (await confirmBox('Annuler ce virement ?', 'Il sera annulé des deux comptes.', 'Annuler le virement', true)) { await post(`/pf/transactions/${t.id}/void`); toast('Virement annulé', 'ok'); done(); } return; }
@@ -160,6 +172,7 @@ function homeScreen({ go, reload, st }) {
           h('button', { class: 'pf-btn', type: 'button', onclick: action(async () => { await askAccount(); }, { ok: 'Compte créé', refresh }) }, 'Créer un compte')))),
         d.priced && d.tier !== 'pro' && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'Formule gratuite · budgets, historique complet et statistiques avec Pro'), icon('chevronRight', 18)),
         d.on_trial && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, `Essai Pro jusqu'au ${new Date(d.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`), icon('chevronRight', 18)),
+        w.exchange_rate && card('Taux de change', d.currencies.length === 0 ? h('p', { class: 'pf-note' }, 'Aucune devise ajoutée : le GNF est votre devise de base.') : d.currencies.map((c) => h('div', { class: 'pf-flow' }, h('div', { class: 'pf-flow-row' }, h('b', {}, `1 ${c.code}`), h('span', {}, rateText(c.rate))), h('small', {}, `${c.name} · mis à jour le ${new Date(c.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`))), moreLink('Devises', () => go('currencies'))),
         w.balance && card('Solde', h('div', { class: 'pf-big' }, fmtGNF(d.balance)), h('div', { class: 'pf-sub' }, `${active.length} compte${active.length > 1 ? 's' : ''}`)),
         w.balance_evolution && card('Évolution du solde', h('div', { class: 'pf-sub' }, 'AUJOURD\'HUI'), h('div', { class: 'pf-big' }, fmtGNF(d.balance)), areaChart(d.series.map((p) => p.balance), d.series.map((p) => p.day))),
         w.accounts && card('Comptes', active.slice(0, 3).map((a) => accountRow(a, () => go(a.auto ? 'wallet' : 'accounts'))), !active.some((a) => a.auto) && wallindirainRow(d.wallindirain), moreLink('Afficher plus', () => go('accounts'))),
@@ -518,13 +531,52 @@ function walletScreen({ go, st, reload }) {
 function settingsScreen({ go, st }) {
   const row = (ico, label, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-set', type: href ? null : 'button', href, onclick }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18));
   return h('div', {}, head('Paramètres', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' }, h('section', { class: 'pf-card flush' },
-    row('sliders', 'Général, tableau de bord et jauges', () => go('general')), row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Objectifs des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
+    row('sliders', 'Général, tableau de bord et jauges', () => go('general')), row('wallet', 'Devises et taux de change', () => go('currencies')), row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Objectifs des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
     st.wallet?.eligible && row('wallet', 'Compte Wallindirain', () => go('wallet')),
     row('users', 'Contacts et étiquettes', () => go('contacts')), row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
     row('shield', 'Sécurité', null, '#/app/profile')),
     h('p', { class: 'pf-note' }, 'Vos données financières personnelles ne sont visibles que par vous. Vous pouvez archiver un compte à tout moment ; rien n\'est partagé avec les autres utilisateurs.')));
 }
-const WIDGET_INFO = [['balance_evolution', 'Évolution du solde'], ['accounts', 'Comptes'], ['cash_flow', 'Flux de trésorerie'], ['planned_payments', 'Paiements planifiés', true], ['cash_forecast', 'Prévision de trésorerie', true], ['balance', 'Solde'], ['expenses', 'Dépenses'], ['top_expense', 'Dépense principale'], ['budget', 'Budget', true], ['recent_tx', 'Dernières transactions'], ['exchange_rate', 'Taux de change', false, true]];
+const rateText = (r) => `${Number(r).toLocaleString('fr-FR', { maximumFractionDigits: 4 }).replace(/[\u202f\u00a0]/g, ' ')} GNF`;
+const CUR_PRESETS = { USD: ['Dollar américain', 2], EUR: ['Euro', 2], XOF: ['Franc CFA (BCEAO)', 0], XAF: ['Franc CFA (BEAC)', 0], GBP: ['Livre sterling', 2], CNY: ['Yuan chinois', 2], AED: ['Dirham des Émirats', 2], MAD: ['Dirham marocain', 2], SAR: ['Riyal saoudien', 2], CAD: ['Dollar canadien', 2], CHF: ['Franc suisse', 2], NGN: ['Naira nigérian', 2], GHS: ['Cedi ghanéen', 2] };
+
+async function askCurrency(existing) {
+  const isNew = !existing;
+  const v = await ask({ title: isNew ? 'Ajouter une devise' : `Taux du ${existing.code}`, text: isNew ? 'Votre devise de base reste le GNF. Vous saisissez vous-même le taux et le mettez à jour quand vous voulez.' : existing.name, submit: 'Enregistrer', fields: [
+    ...(isNew ? [{ name: 'preset', label: 'Devise', type: 'select', options: [...Object.entries(CUR_PRESETS).filter(([c]) => !CURRENCIES[c]).map(([c, [n]]) => [c, `${c} · ${n}`]), ['OTHER', 'Autre devise…']], value: 'USD' },
+      { name: 'custom', label: 'Si « Autre » : code à 3 lettres (ex. JPY)', required: false, maxlength: 3 },
+      { name: 'name', label: 'Si « Autre » : nom de la devise', required: false, maxlength: 40 },
+      { name: 'decimals', label: 'Si « Autre » : décimales', type: 'select', options: [['0', '0'], ['2', '2'], ['3', '3']], value: '2' }] : []),
+    { name: 'rate', label: `Taux : 1 ${existing?.code || 'unité'} = combien de GNF ?`, type: 'number', step: 'any', inputmode: 'decimal', value: existing?.rate ?? '' }] });
+  if (!v) return false;
+  let code = existing?.code, name = existing?.name, decimalsN = existing?.decimals;
+  if (isNew) {
+    if (v.preset === 'OTHER') { code = String(v.custom || '').trim().toUpperCase(); name = String(v.name || '').trim() || code; decimalsN = Number(v.decimals); } else { code = v.preset; [name, decimalsN] = CUR_PRESETS[v.preset]; }
+  }
+  await post('/pf/currencies', { code, name, decimals: decimalsN, rate: v.rate });
+  return true;
+}
+
+/** Paramètres → Devises : GNF en base, « + » pour en ajouter, taux saisis à la main. */
+function currenciesScreen({ go }) {
+  return liveView(() => get('/pf/currencies'), (d, refresh) => {
+    CURRENCIES = Object.fromEntries(d.currencies.map((c) => [c.code, c]));
+    const add = action(async () => { await askCurrency(); }, { ok: 'Devise ajoutée', refresh });
+    const edit = (c) => action(async () => { await askCurrency(c); }, { ok: 'Taux enregistré', refresh });
+    const remove = (c) => action(async () => { if (await confirmBox(`Retirer le ${c.code} ?`, 'Aucun compte ne l\'utilise. Vous pourrez l\'ajouter de nouveau.', 'Retirer', true)) await post(`/pf/currencies/${c.code}/remove`, {}); }, { ok: 'Devise retirée', refresh });
+    const auto = h('input', { type: 'checkbox', checked: d.rates_auto, onchange: action(async () => { await post('/pf/rates-auto', { on: auto.checked }); }, { ok: 'Réglage enregistré', refresh }) });
+    return h('div', {}, head('Devises', { back: ['Paramètres', () => go('settings')], right: h('button', { class: 'pf-gear', type: 'button', 'aria-label': 'Ajouter une devise', onclick: add }, icon('plus', 24)) }),
+      h('div', { class: 'pf-pad' },
+        card('Devise de base', h('div', { class: 'pf-row static' }, h('span', { class: 'pf-ico pf-c-green' }, h('b', {}, 'GNF')), h('span', { class: 'pf-row-main' }, h('b', {}, d.base.name), h('small', {}, 'Tous vos totaux sont calculés dans cette devise')))),
+        card('Mes autres devises', d.currencies.length === 0 ? h('p', { class: 'pf-note' }, 'Aucune pour le moment. Touchez « + » en haut pour en ajouter une (dollar, euro, franc CFA…).')
+          : d.currencies.map((c) => h('div', { class: 'pf-acc' }, h('button', { class: 'pf-row', type: 'button', onclick: edit(c) }, h('span', { class: 'pf-ico pf-c-blue' }, h('b', {}, c.code)), h('span', { class: 'pf-row-main' }, h('b', {}, c.name), h('span', { class: 'pf-amt' }, `1 ${c.code} = ${rateText(c.rate)}`), h('small', {}, `${c.accounts} compte${c.accounts > 1 ? 's' : ''} · mis à jour le ${new Date(c.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`))),
+            c.accounts === 0 && h('button', { class: 'pf-mini', type: 'button', onclick: remove(c) }, 'Retirer'))),
+          d.free_currencies != null && h('p', { class: 'pf-note' }, `Formule gratuite : ${d.free_currencies} devise en plus du GNF. Pro : autant que vous voulez.`)),
+        card('Taux de change', h('label', { class: 'pf-opt' }, h('span', { class: 'grow' }, 'Mise à jour automatique des taux', h('small', {}, 'Réglage enregistré. Aucun service de taux n\'est encore connecté : pour l\'instant, vos taux restent ceux que vous saisissez.')), auto),
+          h('p', { class: 'pf-note' }, 'Changer un taux recalcule vos totaux en GNF (tableau de bord, statistiques, budgets). Le solde de chaque compte, lui, reste dans sa devise.'))));
+  });
+}
+const WIDGET_INFO = [['balance_evolution', 'Évolution du solde'], ['accounts', 'Comptes'], ['cash_flow', 'Flux de trésorerie'], ['planned_payments', 'Paiements planifiés', true], ['cash_forecast', 'Prévision de trésorerie', true], ['balance', 'Solde'], ['expenses', 'Dépenses'], ['top_expense', 'Dépense principale'], ['budget', 'Budget', true], ['recent_tx', 'Dernières transactions'], ['exchange_rate', 'Taux de change']];
 const GAUGE_INFO = [['income', 'Revenus', 'Revenus d\'exploitation des 30 derniers jours ÷ ceux des 30 jours d\'avant (financements et remboursements de prêt exclus).'], ['flow', 'Flux de trésorerie', 'Flux net des 30 derniers jours ÷ celui des 30 jours d\'avant.'], ['balance', 'Solde', 'Solde actuel ÷ solde d\'il y a 30 jours.']];
 
 /** Paramètres → Général : décimales, période par défaut, blocs du tableau de bord, seuils des jauges. */
@@ -533,11 +585,11 @@ function generalScreen({ go }) {
     const num = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
     const dec = h('input', { type: 'checkbox', checked: set.decimals });
     const per = h('select', {}, PERIODS.map(([k, l]) => h('option', { value: k, selected: k === set.default_period }, l)));
-    const wid = Object.fromEntries(WIDGET_INFO.map(([k]) => [k, h('input', { type: 'checkbox', checked: !!set.widgets[k], disabled: k === 'exchange_rate' })]));
+    const wid = Object.fromEntries(WIDGET_INFO.map(([k]) => [k, h('input', { type: 'checkbox', checked: !!set.widgets[k] })]));
     const gin = {}; for (const [g] of GAUGE_INFO) for (const side of ['low', 'high']) gin[`${g}_${side}`] = h('input', { type: 'number', step: '0.05', min: '0', max: '10', inputmode: 'decimal', value: set.gauges[`${g}_${side}`] ?? '', placeholder: String(set.defaults.gauges[g][side === 'low' ? 0 : 1]).replace('.', ',') });
     const save = action(async () => {
       const gauges = Object.fromEntries(Object.entries(gin).map(([k, el]) => [k, num(el.value)]).filter(([, v]) => v !== null));
-      await post('/pf/settings', { decimals: dec.checked, default_period: per.value, widgets: Object.fromEntries(WIDGET_INFO.filter(([k]) => k !== 'exchange_rate').map(([k]) => [k, wid[k].checked])), gauges });
+      await post('/pf/settings', { decimals: dec.checked, default_period: per.value, widgets: Object.fromEntries(WIDGET_INFO.map(([k]) => [k, wid[k].checked])), gauges });
       decimals = dec.checked;
     }, { ok: 'Paramètres enregistrés', refresh });
     const reset = action(async () => { for (const el of Object.values(gin)) el.value = ''; }, {});
@@ -546,9 +598,9 @@ function generalScreen({ go }) {
       card('Général',
         line('Utiliser des décimales dans les montants', dec, 'Affiche deux décimales (1 000,00). Le franc guinéen n\'a pas de centimes : utile pour d\'autres devises.'),
         line('Période par défaut des statistiques', per),
-        line('Devise de base', h('b', {}, 'GNF'), 'Les autres devises arrivent bientôt.')),
+        line('Devise de base', h('b', {}, 'GNF'), 'Pour ajouter d\'autres devises : Paramètres → Devises.')),
       card('Tableau de bord', h('p', { class: 'pf-note' }, 'Choisissez les blocs à afficher. Les blocs Pro restent visibles mais verrouillés dans la formule gratuite.'),
-        WIDGET_INFO.map(([k, l, pro, soon]) => line(l, wid[k], soon ? 'Bientôt, avec les devises' : pro ? 'Pro' : undefined))),
+        WIDGET_INFO.map(([k, l, pro]) => line(l, wid[k], pro ? 'Pro' : undefined))),
       card('Jauges', h('p', { class: 'pf-note' }, 'Réglez à partir de quel rapport l\'aiguille passe de « faible » (rouge) à « élevé » (vert). Exemple : 0,9 et 1,2. Vide = valeur par défaut.'),
         GAUGE_INFO.map(([g, l, help]) => h('div', { class: 'pf-gset' }, h('b', {}, l), h('small', {}, help),
           h('div', { class: 'pf-gset-row' }, h('label', {}, 'Faible en dessous de', gin[`${g}_low`]), h('label', {}, 'Élevé à partir de', gin[`${g}_high`])))),
