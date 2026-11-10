@@ -131,6 +131,6 @@ export function spaceScreen({ go, head, card, id }) {
     const tabsEl = h('div', { class: 'wallet-tabs', role: 'group' }, tabs.map(([k, l]) => h('button', { type: 'button', 'data-k': k, 'aria-pressed': String(k === tab), onclick: () => { tab = k; paint(); } }, l)));
     const add = can && h('div', { class: 'pf-split' }, h('button', { class: 'btn primary', type: 'button', onclick: run(() => askTx('expense'), 'Dépense ajoutée') }, 'Dépense'), h('button', { class: 'btn', type: 'button', onclick: run(() => askTx('income'), 'Revenu ajouté') }, 'Revenu'), h('button', { class: 'btn', type: 'button', onclick: run(askTransfer, 'Virement fait') }, 'Virement'));
     paint();
-    return h('div', {}, head(d.space.name, { back: ['Espaces', () => go('spaces')] }), h('div', { class: 'pf-pad' }, h('div', { class: 'pf-badges' }, badge(ROLE[d.role], 'blue'), d.space.archived && badge('Archivé', 'grey'), !d.space.archived && !d.writable && badge('Lecture seule : formule Pro du propriétaire terminée', 'orange'), h('small', { class: 'pf-note' }, `Propriétaire : ${d.space.owner_name}`)), add, tabsEl), body);
+    return h('div', {}, head(d.space.name, { eye: true, back: ['Espaces', () => go('spaces')] }), h('div', { class: 'pf-pad' }, h('div', { class: 'pf-badges' }, badge(ROLE[d.role], 'blue'), d.space.archived && badge('Archivé', 'grey'), !d.space.archived && !d.writable && badge('Lecture seule : formule Pro du propriétaire terminée', 'orange'), h('small', { class: 'pf-note' }, `Propriétaire : ${d.space.owner_name}`)), add, tabsEl), body);
   });
 }
