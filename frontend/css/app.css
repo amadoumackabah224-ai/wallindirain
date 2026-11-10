@@ -583,3 +583,9 @@ div.notif { cursor: default; }
 .pf-gear { background: none; border: 0; color: inherit; padding: 8px; cursor: pointer; }
 .pf-note.center { text-align: center; }
 .pf-acc .pf-row-main > * { max-width: calc(100% - 84px); }
+
+/* Espaces de groupe (057) */
+.pf-badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.pf-split { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.pf-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 12px; }
+.pf-big { font-size: 1.8rem; font-weight: 700; }

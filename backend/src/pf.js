@@ -133,7 +133,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   app.get('/api/pf/status', guard(ALL, async (ctx) => {
     if (!(await featureOn())) return { enabled: false };
     const [link] = await q('SELECT wallet_linked, wallet_account FROM pf_prefs WHERE owner_id = $1', [ctx.user.id]);
-    return { enabled: true, ...(await access(ctx.user.id)), wallet: { eligible: WALLET_ROLES.includes(ctx.user.role), linked: !!link?.wallet_linked, account: link?.wallet_account || null } };
+    return { enabled: true, spaces_enabled: await spaceFlag(), ...(await access(ctx.user.id)), wallet: { eligible: WALLET_ROLES.includes(ctx.user.role), linked: !!link?.wallet_linked, account: link?.wallet_account || null } };
   }));
 
   /** Tout l'écran « Tableau de bord » en un seul appel. */
@@ -281,19 +281,22 @@ export function registerPf(app, { q, fn, guard, limit }) {
 
 
   // ----- Profil et catégories (migration 054) : arbre système + catégories de la personne, avec nom/icône/masquage modifiables -----
-  app.get('/api/pf/categories', guard(ALL, async (ctx) => {
-    if (!(await featureOn())) return { enabled: false };
-    const id = ctx.user.id;
-    const [pref] = await q('SELECT profile FROM pf_prefs WHERE owner_id = $1', [id]);
+  /** Arbre des catégories d'une personne : catégories du système (noms et icônes modifiés par elle) + celles qu'elle a ajoutées. */
+  async function catTree(id) {
     const sys = await q('SELECT s.key, s.parent_key AS parent, s.kind, s.label AS default_label, COALESCE(o.label, s.label) AS label, COALESCE(o.icon, s.icon) AS icon, s.profile, s.operating, s.position, COALESCE(o.hidden, false) AS hidden FROM pf_cat_system s LEFT JOIN pf_cat_override o ON o.key = s.key AND o.owner_id = $1 ORDER BY s.position', [id]);
     const own = await q('SELECT key, parent_key AS parent, kind, label, icon, archived_at IS NOT NULL AS hidden FROM pf_cat_custom WHERE owner_id = $1 ORDER BY created_at', [id]);
     const rootOf = Object.fromEntries(sys.map((c) => [c.key, c]));
     const operatingOf = (k) => { let c = rootOf[k]; while (c && c.parent) c = rootOf[c.parent]; return c ? c.operating : true; };
-    const items = [
+    return [
       ...sys.map((c) => ({ key: c.key, parent: c.parent, kind: c.kind, label: c.label, default_label: c.default_label, icon: c.icon, profile: c.profile, operating: c.operating, hidden: c.hidden, system: true })),
       ...own.map((c) => ({ key: c.key, parent: c.parent, kind: c.kind, label: c.label, default_label: null, icon: c.icon, profile: 'both', operating: operatingOf(c.parent), hidden: c.hidden, system: false })),
     ];
-    return { enabled: true, profile: pref?.profile ?? null, items };
+  }
+  app.get('/api/pf/categories', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id;
+    const [pref] = await q('SELECT profile FROM pf_prefs WHERE owner_id = $1', [id]);
+    return { enabled: true, profile: pref?.profile ?? null, items: await catTree(id) };
   }));
   app.post('/api/pf/profile', guard(ALL, async (ctx) => {
     writing(ctx);
@@ -444,6 +447,100 @@ export function registerPf(app, { q, fn, guard, limit }) {
   }));
 
   // Relier / délier le compte Wallindirain (Pro) : l'activité du portefeuille apparaît seule dans Mes finances
+
+
+  // ----- Espaces de groupe (migration 057) : comptes et transactions partagés selon le rôle, séparés des finances personnelles -----
+  const SPACE_ROLES = ['accountant', 'contributor', 'viewer'];
+  const spaceFlag = async () => (await setting('pf_spaces')) >= 1;
+  /** Rôle de la personne dans l'espace (membre actif) ; sinon « introuvable » : un non-membre ne sait même pas que l'espace existe. */
+  async function spaceRole(userId, spaceId) {
+    const [m] = await q(`SELECT m.role, s.name, s.owner_id, s.archived_at, o.full_name AS owner_name FROM pf_space_members m JOIN pf_spaces s ON s.id = m.space_id JOIN users o ON o.id = s.owner_id
+        WHERE m.space_id = $1 AND m.user_id = $2 AND m.status = 'active'`, [spaceId, userId]);
+    if (!m) throw new HttpError(404, 'not_found', 'Espace introuvable');
+    return m;
+  }
+
+  app.get('/api/pf/spaces', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id;
+    const on = await spaceFlag();
+    if (!on) return { enabled: true, spaces_enabled: false, spaces: [], invitations: [] };
+    const acc = await access(id);
+    const spaces = await q(`SELECT s.id, s.name, m.role, s.archived_at, o.full_name AS owner_name,
+        (SELECT count(*) FROM pf_space_members x WHERE x.space_id = s.id AND x.status = 'active')::int AS members,
+        COALESCE((SELECT sum(a.opening_balance) FROM pf_space_accounts a WHERE a.space_id = s.id AND a.archived_at IS NULL), 0)::bigint
+          + COALESCE((SELECT sum(CASE WHEN t.kind IN ('income','transfer_in') THEN t.amount ELSE -t.amount END) FROM pf_space_tx t JOIN pf_space_accounts a ON a.id = t.account_id WHERE t.space_id = s.id AND t.voided_at IS NULL AND a.archived_at IS NULL), 0)::bigint AS balance
+      FROM pf_space_members m JOIN pf_spaces s ON s.id = m.space_id JOIN users o ON o.id = s.owner_id
+      WHERE m.user_id = $1 AND m.status = 'active' ORDER BY s.archived_at NULLS FIRST, s.created_at`, [id]);
+    const invitations = await q(`SELECT s.id AS space_id, s.name, m.role, i.full_name AS invited_by_name FROM pf_space_members m JOIN pf_spaces s ON s.id = m.space_id LEFT JOIN users i ON i.id = m.invited_by
+      WHERE m.user_id = $1 AND m.status = 'invited' AND s.archived_at IS NULL ORDER BY m.created_at DESC`, [id]);
+    return { enabled: true, spaces_enabled: true, can_create: acc.tier === 'pro', spaces, invitations };
+  }));
+
+  app.get('/api/pf/spaces/:id', guard(ALL, async (ctx) => {
+    if (!(await featureOn()) || !(await spaceFlag())) throw new HttpError(404, 'not_found', 'Espace introuvable');
+    const sid = v.uuid(ctx.params.id, 'Espace'), uid = ctx.user.id;
+    const me = await spaceRole(uid, sid);
+    const ownerAcc = await access(me.owner_id);
+    const period = PERIODS.includes(ctx.query.period) ? ctx.query.period : 'd30';
+    const days = periodDays(period);
+    const since = dayStr(Date.now() - (days - 1) * DAY);
+    const accounts = await q(`SELECT a.id, a.name, a.kind, a.color, a.opening_balance::bigint AS opening_balance, a.archived_at,
+        (a.opening_balance + COALESCE((SELECT sum(CASE WHEN t.kind IN ('income','transfer_in') THEN t.amount ELSE -t.amount END) FROM pf_space_tx t WHERE t.account_id = a.id AND t.voided_at IS NULL), 0))::bigint AS balance
+      FROM pf_space_accounts a WHERE a.space_id = $1 ORDER BY a.archived_at NULLS FIRST, a.created_at`, [sid]);
+    const flows = await q(`SELECT kind, category, sum(amount)::bigint AS total FROM pf_space_tx WHERE space_id = $1 AND voided_at IS NULL AND kind IN ('income','expense') AND occurred_on >= $2::date AND occurred_on <= current_date GROUP BY 1, 2`, [sid, since]);
+    const sumOf = (k) => flows.filter((f) => f.kind === k).reduce((a, f) => a + Number(f.total), 0);
+    const by = (k) => flows.filter((f) => f.kind === k).map((f) => ({ category: f.category, total: Number(f.total) })).sort((a, b) => b.total - a.total);
+    const recent = await q(`SELECT t.id, t.kind, t.amount::bigint AS amount, t.category, t.note, t.occurred_on::text AS occurred_on, t.transfer_id, t.account_id, a.name AS account_name, t.author_id, u.full_name AS author_name, t.created_at
+      FROM pf_space_tx t JOIN pf_space_accounts a ON a.id = t.account_id JOIN users u ON u.id = t.author_id WHERE t.space_id = $1 AND t.voided_at IS NULL ORDER BY t.occurred_on DESC, t.created_at DESC LIMIT 80`, [sid]);
+    const members = await q(`SELECT m.user_id, u.full_name AS name, m.role, m.status, ${me.role === 'owner' ? 'u.phone' : 'NULL::text'} AS phone FROM pf_space_members m JOIN users u ON u.id = m.user_id
+      WHERE m.space_id = $1 AND m.status IN ('active','invited') ORDER BY (m.role = 'owner') DESC, m.status, u.full_name`, [sid]);
+    const log = ['owner', 'accountant'].includes(me.role) ? await q(`SELECT l.id, l.action, l.detail, l.created_at, u.full_name AS actor_name FROM pf_space_log l LEFT JOIN users u ON u.id = l.actor_id WHERE l.space_id = $1 ORDER BY l.id DESC LIMIT 60`, [sid]) : [];
+    return {
+      enabled: true, space: { id: sid, name: me.name, archived: !!me.archived_at, owner_name: me.owner_name }, role: me.role,
+      writable: !me.archived_at && ownerAcc.tier === 'pro', can_write: !me.archived_at && ownerAcc.tier === 'pro' && ['owner', 'accountant', 'contributor'].includes(me.role),
+      me: uid, period, days, accounts, balance: accounts.filter((a) => !a.archived_at).reduce((t, a) => t + Number(a.balance), 0),
+      income: sumOf('income'), expense: sumOf('expense'), income_by_category: by('income'), expense_by_category: by('expense'),
+      categories: await catTree(me.owner_id), recent, members, log
+    };
+  }));
+
+  app.post('/api/pf/spaces', guard(ALL, async (ctx) => {
+    writing(ctx); ctx.status = 201;
+    return { id: await fn('fn_pf_space_create', ctx.user.id, v.str(ctx.body.name, 'Nom', { max: 60 })) };
+  }));
+  const spaceAction = (path, name, args) => app.post(path, guard(ALL, async (ctx) => {
+    writing(ctx);
+    const out = await fn(name, ctx.user.id, v.uuid(ctx.params.id, 'Espace'), ...args(ctx.body, ctx));
+    return out && typeof out === 'object' ? out : { ok: true };
+  }));
+  const day = (b) => ymd(b.occurred_on);
+  spaceAction('/api/pf/spaces/:id/rename', 'fn_pf_space_rename', (b) => [v.str(b.name, 'Nom', { max: 60 })]);
+  spaceAction('/api/pf/spaces/:id/archive', 'fn_pf_space_archive', (b) => [b.archived !== false]);
+  spaceAction('/api/pf/spaces/:id/invite', 'fn_pf_space_invite', (b) => [v.str(b.phone, 'Téléphone', { max: 20 }), v.oneOf(b.role, SPACE_ROLES, 'Rôle')]);
+  spaceAction('/api/pf/spaces/:id/respond', 'fn_pf_space_respond', (b) => [b.accept === true]);
+  spaceAction('/api/pf/spaces/:id/leave', 'fn_pf_space_leave', () => []);
+  app.post('/api/pf/spaces/:id/members/:uid/role', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_space_set_role', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(ctx.params.uid, 'Membre'), v.oneOf(ctx.body.role, SPACE_ROLES, 'Rôle')); return { ok: true }; }));
+  app.post('/api/pf/spaces/:id/members/:uid/remove', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_space_remove', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(ctx.params.uid, 'Membre')); return { ok: true }; }));
+  app.post('/api/pf/spaces/:id/accounts', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body; ctx.status = b.id ? 200 : 201;
+    return { id: await fn('fn_pf_space_account_save', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), b.id ? v.uuid(b.id, 'Compte') : null, v.str(b.name, 'Nom', { max: 40 }), v.oneOf(b.kind, ['cash', 'mobile_money', 'bank', 'savings', 'other'], 'Type'), v.oneOf(b.color, ['blue', 'green', 'orange', 'red', 'purple', 'brown', 'teal', 'grey'], 'Couleur'), v.int(b.opening_balance ?? 0, 'Solde', { min: -1e11, max: 1e11 })) };
+  }));
+  app.post('/api/pf/spaces/:id/accounts/:aid/archive', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_space_account_archive', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(ctx.params.aid, 'Compte'), ctx.body.archived !== false); return { ok: true }; }));
+  app.post('/api/pf/spaces/:id/transactions', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body; ctx.status = 201;
+    return { id: await fn('fn_pf_space_tx_add', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(b.account_id, 'Compte'), v.oneOf(b.kind, ['income', 'expense'], 'Type'), v.int(b.amount, 'Montant', { min: 1, max: 1e11 }), catKey(b.category), v.optStr(b.note, 'Note', 200), day(b)) };
+  }));
+  app.post('/api/pf/spaces/:id/transactions/:tid', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    await fn('fn_pf_space_tx_update', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(ctx.params.tid, 'Transaction'), v.uuid(b.account_id, 'Compte'), v.int(b.amount, 'Montant', { min: 1, max: 1e11 }), catKey(b.category), v.optStr(b.note, 'Note', 200), day(b));
+    return { ok: true };
+  }));
+  app.post('/api/pf/spaces/:id/transactions/:tid/void', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_space_tx_void', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(ctx.params.tid, 'Transaction')); return { ok: true }; }));
+  app.post('/api/pf/spaces/:id/transfers', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body; ctx.status = 201;
+    return { id: await fn('fn_pf_space_transfer', ctx.user.id, v.uuid(ctx.params.id, 'Espace'), v.uuid(b.from, 'Compte'), v.uuid(b.to, 'Compte'), v.int(b.amount, 'Montant', { min: 1, max: 1e11 }), v.optStr(b.note, 'Note', 200), day(b)) };
+  }));
 
   // ----- Devises (migration 056) : base GNF, autres devises avec un taux saisi à la main -----
   app.get('/api/pf/currencies', guard(ALL, async (ctx) => {

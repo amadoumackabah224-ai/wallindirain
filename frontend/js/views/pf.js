@@ -5,6 +5,7 @@ import { h, fmtGNF as baseFmt, eyeToggle, liveView, badge, ask, confirmBox, acti
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
+import { spacesScreen, spaceScreen } from './pf-spaces.js';
 import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
 
 export const INCOME_LABEL = { sales: 'Ventes', salary: 'Salaire', gift: 'Cadeau', other_in: 'Autre revenu' };
@@ -36,7 +37,9 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
+  const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
+  if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
   const key = SCREENS[screen] ? screen : '';
   const tabOf = ({ '': 'home', home: 'home', plan: 'plan', recurring: 'plan', wallet: 'more', contacts: 'contacts', stats: 'stats' })[key] || 'more';
   document.title = 'Mes finances · Wallindirain';
@@ -97,10 +100,12 @@ async function askAccount(existing) {
     { name: 'kind', label: 'Type', type: 'select', options: Object.entries(KIND_LABEL), value: existing?.kind || 'mobile_money' },
     { name: 'color', label: 'Couleur', type: 'select', options: Object.entries(COLOR_LABEL), value: existing?.color || 'blue' },
     ...(existing ? [] : [{ name: 'currency', label: 'Devise', type: 'select', options: curOptions, value: 'GNF', hint: 'Une autre devise s\'ajoute dans Paramètres → Devises. Elle ne change plus après la création.' }]),
-    { name: 'opening_balance', label: `Solde de départ (${cur === 'GNF' && !existing ? 'dans la devise choisie' : cur})`, type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.opening_balance, cur) : 0, required: false, hint: 'Ce que contient ce compte aujourd\'hui.' }] });
+    { name: 'opening_balance', label: `Solde actuel (${cur === 'GNF' && !existing ? 'dans la devise choisie' : cur})`, type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.balance, cur) : 0, required: false, hint: existing ? 'Le solde que ce compte doit afficher maintenant. Vos revenus et dépenses déjà notés sont conservés : seul le point de départ est ajusté.' : 'Ce que contient ce compte aujourd\'hui. Vos revenus et dépenses notés ensuite le feront varier.' }] });
   if (!v) return false;
   const code = existing ? cur : v.currency;
-  await post('/pf/accounts', { id: existing?.id, name: v.name, kind: v.kind, color: v.color, currency: code, opening_balance: toMinor(v.opening_balance || 0, code) });
+  // l'écran parle de « solde actuel » : le point de départ enregistré = solde voulu − mouvements déjà notés
+  const moves = existing ? Number(existing.balance) - Number(existing.opening_balance) : 0;
+  await post('/pf/accounts', { id: existing?.id, name: v.name, kind: v.kind, color: v.color, currency: code, opening_balance: toMinor(v.opening_balance || 0, code) - moves });
   return true;
 }
 /** Menu « + » : dépense, revenu, virement, compte. */
@@ -494,6 +499,7 @@ function moreScreen({ go, st, user }) {
   const tile = (ico, label, sub, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-tile', type: href ? null : 'button', href, onclick }, h('span', { class: 'pf-tile-ico' }, icon(ico, 30)), h('span', {}, label), sub && h('small', {}, sub));
   return h('div', {}, head('Plus'), h('div', { class: 'pf-pad' }, h('div', { class: 'pf-tiles' },
     tile('bank', 'Comptes', null, () => go('accounts')), tile('receipt', 'Transactions', null, () => go('tx')),
+    (pfProfile() === 'business' || pfProfile() === 'both') && st.spaces_enabled && tile('users', 'Espaces de groupe', 'Budget partagé', () => go('spaces')),
     tile('star', 'Formule', st.tier === 'pro' ? 'Pro' : 'Gratuite', () => go('pro')), tile('settings', 'Paramètres', null, () => go('settings')),
     st.wallet?.eligible && tile('wallet', 'Portefeuille', 'Wallindirain', null, '#/app/wallet'), tile('user', 'Mon profil', null, null, '#/app/profile')),
     user.role !== 'member' && backLink()));
