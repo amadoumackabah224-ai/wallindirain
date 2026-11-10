@@ -608,3 +608,16 @@ div.notif { cursor: default; }
 .pf-entry-err { color: var(--bad); min-height: 1.2em; margin: 0 0 8px; font-weight: 600; }
 .pf-file { width: 100%; margin: 4px 0 10px; }
 .pf-tools-sel { flex: 0 1 60%; }
+
+/* Bandeau de compteurs (affectation call center) */
+.stat-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.stat-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 6px 12px; border-radius: 999px; background: var(--paper); font-size: .85rem; }
+.stat-chip b { font-size: 1rem; }
+.stat-chip.hot { background: var(--gold-soft, #fdf2d0); color: var(--head); }
+.pf-monthnav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.pf-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; padding: 14px 8px; }
+.pf-sum small { display: block; opacity: .7; } .pf-sum b { font-size: 1.05rem; }
+.pf-sum .neg { color: var(--bad); }
+.pf-monthbtn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--paper); color: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.pf-emp { border-bottom: 1px solid var(--line-2); } .pf-emp:last-child { border-bottom: 0; } .pf-emp.dim { opacity: .55; }
+.pf-emp-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 14px; }

@@ -7,6 +7,7 @@ import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
 import { spacesScreen, spaceScreen } from './pf-spaces.js';
 import { toolsScreen } from './pf-tools.js';
+import { payrollScreen } from './pf-payroll.js';
 import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
 
 export const INCOME_LABEL = { sales: 'Ventes', salary: 'Salaire', gift: 'Cadeau', other_in: 'Autre revenu' };
@@ -38,7 +39,7 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), payroll: (a) => payrollScreen({ ...a, head, card, isAdmin: user.role === 'admin' }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
   if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
   const accId = /^account-[0-9a-f-]{36}$/.test(screen) ? screen.slice(8) : null;
@@ -505,18 +506,28 @@ function contactsScreen({ go, st }) {
     const pro = d.tier === 'pro';
     const fromOrders = action(async () => { const r = await post('/pf/contacts-from-orders'); return r.added; }, { ok: (n) => (n > 0 ? `${n} client(s) ajouté(s)` : 'Aucun nouveau client'), refresh: load });
     const add = action(async () => { await askContact(null); }, { ok: 'Contact ajouté', refresh: load });
+    const runImport = async (rows) => {
+      if (!rows.length) { toast('Aucun contact lisible (il faut au moins un nom et un numéro).', 'bad'); return; }
+      if (rows.length > 500) { toast('500 contacts au plus par import : choisissez-en moins.', 'bad'); return; }
+      if (!(await confirmBox(`Importer ${rows.length} contact(s) ?`, 'Les numéros déjà dans votre carnet et les lignes invalides seront ignorés.', 'Importer'))) return;
+      const r = await post('/pf/contacts-import', { rows });
+      toast(`${r.added} ajouté(s), ${r.skipped} ignoré(s)`, 'ok'); load();
+    };
     importFile.onchange = async () => {
       const f = importFile.files[0]; importFile.value = '';
       if (!f) return;
       if (!pro) { go('pro'); return; }
+      try { await runImport(parseContacts(await f.text())); } catch (e) { errToast(e); }
+    };
+    // Sélecteur de contacts du téléphone (Android/Chrome) : s'ouvre directement. Ailleurs (iPhone) : choix du fichier .vcf.
+    const canPick = typeof navigator !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window;
+    const fromPhone = async () => {
+      if (!pro) { go('pro'); return; }
+      if (!canPick) { importFile.click(); return; }
       try {
-        const rows = parseContacts(await f.text());
-        if (!rows.length) { toast('Aucun contact lisible dans ce fichier (il faut au moins un nom et un numéro par ligne).', 'bad'); return; }
-        if (rows.length > 500) { toast('500 contacts au plus par import : découpez le fichier.', 'bad'); return; }
-        if (!(await confirmBox(`Importer ${rows.length} contact(s) ?`, 'Les numéros déjà dans votre carnet et les lignes invalides seront ignorés.', 'Importer'))) return;
-        const r = await post('/pf/contacts-import', { rows });
-        toast(`${r.added} ajouté(s), ${r.skipped} ignoré(s)`, 'ok'); load();
-      } catch (e) { errToast(e); }
+        const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+        await runImport(picked.flatMap((c) => (c.tel || []).slice(0, 1).map((t) => ({ name: (c.name?.[0] || '').trim() || t, phone: String(t).trim() }))));
+      } catch (e) { if (e?.name !== 'AbortError') errToast(e); }
     };
     host.replaceChildren(h('div', {}, head('Contacts'), h('div', { class: 'pf-pad' },
       d.priced && !pro && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, `Formule gratuite : ${d.total} / ${d.free_contacts} contacts. Contacts illimités, étiquettes et import avec Pro.`), icon('chevronRight', 18)),
@@ -530,8 +541,8 @@ function contactsScreen({ go, st }) {
           h('span', { class: 'pf-row-main' }, h('b', {}, c.name), h('small', {}, `${fmtPhone ? fmtPhone(c.phone) : c.phone}${c.city ? ` · ${c.city}` : ''}`), c.labels.length > 0 && h('span', { class: 'pf-labs' }, c.labels.map(labelChip))), icon('chevronRight', 18)))),
       h('div', { class: 'pf-btns' }, h('button', { class: 'pf-btn', type: 'button', onclick: add }, 'Nouveau contact'),
         d.seller && h('button', { class: 'pf-btn alt', type: 'button', onclick: fromOrders }, 'Ajouter mes clients'),
-        h('button', { class: 'pf-btn alt', type: 'button', onclick: () => (pro ? importFile.click() : go('pro')) }, pro ? 'Importer un fichier' : 'Importer un fichier 🔒')),
-      h('p', { class: 'pf-note' }, 'Fichier CSV ou vCard (.vcf) exporté depuis votre téléphone ou un tableur : une ligne par contact avec le nom et le numéro. WhatsApp s\'ouvre avec un message prêt à envoyer ; Wallindirain ne lit jamais vos conversations.'),
+        h('button', { class: 'pf-btn alt', type: 'button', onclick: fromPhone }, canPick ? (pro ? 'Importer depuis mes contacts' : 'Importer depuis mes contacts 🔒') : (pro ? 'Importer un fichier de contacts' : 'Importer un fichier 🔒'))),
+      h('p', { class: 'pf-note' }, canPick ? 'Le sélecteur de contacts de votre téléphone s\'ouvre : choisissez les personnes à ajouter. WhatsApp' : 'Fichier CSV ou vCard (.vcf) exporté depuis votre téléphone ou un tableur (sur iPhone : Contacts → partager le contact → Enregistrer dans Fichiers), une ligne par contact avec le nom et le numéro. WhatsApp s\'ouvre avec un message prêt à envoyer ; Wallindirain ne lit jamais vos conversations.'),
       d.seller && h('a', { class: 'pf-link', href: '#/app/relances' }, 'Relances de mes clients ›'))), importFile);
   }
 
@@ -579,6 +590,7 @@ function moreScreen({ go, st, user }) {
   const tile = (ico, label, sub, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-tile', type: href ? null : 'button', href, onclick }, h('span', { class: 'pf-tile-ico' }, icon(ico, 30)), h('span', {}, label), sub && h('small', {}, sub));
   return h('div', {}, head('Plus'), h('div', { class: 'pf-pad' }, h('div', { class: 'pf-tiles' },
     tile('bank', 'Comptes', null, () => go('accounts')), tile('receipt', 'Transactions', null, () => go('tx')),
+    (pfProfile() === 'business' || pfProfile() === 'both') && tile('user', 'Paie des employés', 'Salaires du mois', () => go('payroll')),
     (pfProfile() === 'business' || pfProfile() === 'both') && st.spaces_enabled && tile('users', 'Espaces de groupe', 'Budget partagé', () => go('spaces')),
     tile('star', 'Formule', st.tier === 'pro' ? 'Pro' : 'Gratuite', () => go('pro')), tile('settings', 'Paramètres', null, () => go('settings')),
     st.wallet?.eligible && tile('wallet', 'Portefeuille', 'Wallindirain', null, '#/app/wallet'), tile('user', 'Mon profil', null, null, '#/app/profile')),
