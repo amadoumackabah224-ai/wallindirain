@@ -563,6 +563,12 @@ export function registerPf(app, { q, fn, guard, limit }) {
     await fn('fn_pf_currency_remove', ctx.user.id, v.str(ctx.params.code, 'Code', { max: 3 }));
     return { ok: true };
   }));
+  // Données personnelles : la personne efface elle-même ses données Mes finances (rien d'autre).
+  app.post('/api/pf/erase', guard(ALL, async (ctx) => {
+    writing(ctx);
+    await fn('fn_pf_erase', ctx.user.id, v.str(ctx.body.confirm, 'Confirmation', { max: 20 }));
+    return { ok: true };
+  }));
   app.post('/api/pf/rates-auto', guard(ALL, async (ctx) => {
     writing(ctx);
     await fn('fn_pf_rates_auto_set', ctx.user.id, ctx.body.on === true);

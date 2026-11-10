@@ -1,7 +1,7 @@
 // « Mes finances » : outil de gestion financière personnelle pour tous les rôles (migration 048).
 // Écran plein écran, sombre, avec sa propre barre du bas : Tableau de bord · Plan financier · Contacts · Statistiques · Plus.
 // Ce sont des notes personnelles : le compte « Wallindirain » affiché est le vrai portefeuille, en lecture seule.
-import { h, fmtGNF as baseFmt, eyeToggle, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone } from '../ui.js';
+import { h, fmtGNF as baseFmt, eyeToggle, liveView, badge, ask, confirmBox, action, toast, errToast, empty, fmtPhone, showLegal } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
@@ -37,7 +37,7 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
   if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
   const accId = /^account-[0-9a-f-]{36}$/.test(screen) ? screen.slice(8) : null;
@@ -253,6 +253,24 @@ function accountScreen({ go, id }) {
   };
   load().catch(errToast);
   return host;
+}
+
+// ---------- Données personnelles et confidentialité ----------
+function privacyScreen({ go, head, card }) {
+  const doc = (slug, text) => h('button', { class: 'pf-set', type: 'button', onclick: () => showLegal(slug) }, icon('receipt', 22), h('span', { class: 'grow' }, text), h('small', { class: 'pf-note' }, 'Consulter'), icon('chevronRight', 18));
+  const erase = async () => {
+    if (!await confirmBox('Effacer mes données Mes finances ?', 'Comptes, transactions, budgets, objectifs, contacts, catégories et devises de Mes finances seront effacés définitivement. Votre compte Wallindirain, votre portefeuille et vos commandes ne sont pas touchés.', 'Continuer', true)) return;
+    const v = await ask({ title: 'Dernière confirmation', text: 'Tapez EFFACER pour confirmer. Cette action ne peut pas être annulée.', submit: 'Effacer mes données', fields: [{ name: 'confirm', label: 'EFFACER', maxlength: 20 }] });
+    if (!v) return;
+    try { await post('/pf/erase', { confirm: v.confirm.trim().toUpperCase() }); toast('Vos données Mes finances ont été effacées.', 'ok'); go(''); } catch (e) { errToast(e); }
+  };
+  return h('div', {}, head('Données personnelles', { back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' },
+    h('h3', { class: 'pf-sub' }, 'DOCUMENTS À CONSULTER'), h('section', { class: 'pf-card flush' }, doc('confidentialite', 'Politique de confidentialité'), doc('conditions', 'Conditions d\'utilisation')),
+    h('h3', { class: 'pf-sub' }, 'VOS DROITS'),
+    h('p', { class: 'pf-note' }, 'Vous pouvez modifier vos données à tout moment : modifiez le profil, vos comptes et vos transactions directement dans l\'application.'),
+    h('p', { class: 'pf-note' }, 'Vous pouvez aussi effacer toutes les données de Mes finances. Cela ne supprime pas votre compte Wallindirain : l\'argent de votre portefeuille et vos commandes restent gérés comme avant. Pour fermer entièrement votre compte, contactez le support.'),
+    h('p', { class: 'pf-note' }, 'Si vous avez un espace de groupe dont vous êtes propriétaire, archivez-le d\'abord : il appartient à plusieurs personnes.'),
+    h('button', { class: 'btn btn-bad btn-block', type: 'button', onclick: erase }, icon('alert', 18), ' Effacer mes données Mes finances')));
 }
 
 // ---------- Transactions ----------
@@ -576,7 +594,7 @@ function settingsScreen({ go, st }) {
     row('sliders', 'Général, tableau de bord et jauges', () => go('general')), row('wallet', 'Devises et taux de change', () => go('currencies')), row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Objectifs des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
     st.wallet?.eligible && row('wallet', 'Compte Wallindirain', () => go('wallet')),
     row('users', 'Contacts et étiquettes', () => go('contacts')), row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
-    row('shield', 'Sécurité', null, '#/app/profile')),
+    row('shield', 'Sécurité', null, '#/app/profile'), row('shield', 'Données personnelles et confidentialité', () => go('privacy'))),
     h('p', { class: 'pf-note' }, 'Vos données financières personnelles ne sont visibles que par vous. Vous pouvez archiver un compte à tout moment ; rien n\'est partagé avec les autres utilisateurs.')));
 }
 const rateText = (r) => `${Number(r).toLocaleString('fr-FR', { maximumFractionDigits: 4 }).replace(/[\u202f\u00a0]/g, ' ')} GNF`;
