@@ -56,8 +56,8 @@ export function pfApp(user, screen = '') {
 
 function backLink() { return h('a', { class: 'pf-link', href: '#/app/' }, '‹ Retour à Wallindirain'); }
 let memberOnly = false;   // compte membre : Mes finances est toute l'application, pas de retour vers Wallindirain
-const head = (title, { back, right } = {}) => h('header', { class: 'pf-head' }, h('div', { class: 'pf-head-row' },
-  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : (memberOnly ? null : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain'))), h('span', { class: 'grow' }), right, eyeToggle()),
+const head = (title, { back, right, eye = false } = {}) => h('header', { class: 'pf-head' }, h('div', { class: 'pf-head-row' },
+  back ? h('button', { class: 'pf-back', type: 'button', onclick: back[1] }, icon('chevronRight', 20), h('span', {}, back[0])) : (memberOnly ? null : h('a', { class: 'pf-back', href: '#/app/' }, icon('chevronRight', 20), h('span', {}, 'Wallindirain'))), h('span', { class: 'grow' }), right, eye && eyeToggle()),
   h('h1', { class: 'pf-title' }, title));
 const card = (title, ...children) => h('section', { class: 'pf-card' }, title && h('div', { class: 'pf-card-head' }, h('h2', {}, title)), ...children);
 const proBadge = () => h('span', { class: 'pf-pro' }, 'PRO');
@@ -71,17 +71,38 @@ async function askTx(kind, accounts, existing, preset) {
   const list = accountOptions(accounts);
   if (!list.length) { toast(accounts.some((a) => !a.archived_at) ? 'Aucun compte utilisable dans la formule gratuite : passez à Pro.' : 'Créez d\'abord un compte.', 'bad'); return false; }
   await loadCats().catch(() => null);
-  const options = catOptions(kind, existing?.category);
-  const v = await ask({ title: existing ? 'Modifier la transaction' : kind === 'income' ? 'Nouveau revenu' : 'Nouvelle dépense', submit: 'Enregistrer', fields: [
-    { name: 'account_id', label: 'Compte', type: 'select', options: list, value: existing?.account_id || (list.some((o) => o[0] === preset) ? preset : list[0][0]) },
-    { name: 'amount', label: 'Montant (dans la devise du compte)', type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.amount, existing.currency) : '' },
-    { name: 'category', label: 'Catégorie', type: 'select', options, value: existing?.category || options[0]?.[0] },
-    { name: 'occurred_on', label: 'Date', type: 'date', value: existing?.occurred_on || today() },
-    { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200, value: existing?.note || '' }] });
-  if (!v) return false;
-  const body = { account_id: v.account_id, amount: toMinor(v.amount, accCur(accounts, v.account_id)), category: v.category, occurred_on: v.occurred_on, note: v.note || undefined };
-  if (existing) await post(`/pf/transactions/${existing.id}/update`, body); else await post('/pf/transactions', { ...body, kind });
-  return true;
+  return new Promise((resolve) => {
+    let cur = kind;
+    const acc = h('select', { class: 'pf-entry-sel', 'aria-label': 'Compte' }, list.map(([id, name]) => h('option', { value: id }, name)));
+    acc.value = existing?.account_id || (list.some((o) => o[0] === preset) ? preset : list[0][0]);
+    const cat = h('select', { class: 'pf-entry-sel', 'aria-label': 'Catégorie' });
+    const fillCats = () => { const keep = cat.value; cat.replaceChildren(h('option', { value: '' }, 'Choisir…'), ...catOptions(cur, existing?.category).map(([k, l]) => h('option', { value: k }, l))); cat.value = existing?.category && !keep ? existing.category : keep; };
+    const amount = h('input', { class: 'pf-entry-amt', type: 'text', inputmode: 'decimal', placeholder: '0', autocomplete: 'off', 'aria-label': 'Montant', value: existing ? String(fromMinor(existing.amount, existing.currency)) : '' });
+    const curChip = h('span', { class: 'pf-entry-cur' });
+    const date = h('input', { class: 'pf-entry-sel', type: 'date', value: existing?.occurred_on || today(), 'aria-label': 'Date' });
+    const note = h('input', { class: 'pf-entry-sel', type: 'text', maxlength: '200', placeholder: 'Facultatif', value: existing?.note || '', 'aria-label': 'Note' });
+    const err = h('p', { class: 'pf-entry-err', role: 'alert' });
+    const row = (ico, label, control) => h('label', { class: 'pf-entry-row' }, icon(ico, 22), h('span', { class: 'grow' }, label), control);
+    const paint = () => { amount.classList.toggle('inc', cur === 'income'); amount.classList.toggle('exp', cur === 'expense'); curChip.textContent = accCur(accounts, acc.value) || 'GNF'; fillCats(); tabs.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.k === cur))); };
+    const close = (r) => { overlay.remove(); resolve(r); };
+    const tabs = h('div', { class: 'pf-entry-tabs', role: 'group' }, existing ? [] : [['expense', 'Dépense'], ['income', 'Revenu'], ['transfer', 'Transfert']].map(([k, l]) => h('button', { type: 'button', 'data-k': k, 'aria-pressed': String(k === cur), onclick: async () => { if (k === 'transfer') { overlay.remove(); resolve(await askTransfer(accounts, acc.value)); return; } cur = k; paint(); } }, l)));
+    const save = h('button', { class: 'btn btn-gold btn-block', type: 'button', onclick: async () => {
+      err.textContent = '';
+      const raw = amount.value.trim().replace(/\s/g, '').replace(',', '.');
+      if (!raw || !(Number(raw) > 0)) { err.textContent = 'Saisissez un montant.'; amount.focus(); return; }
+      if (!cat.value) { err.textContent = 'La catégorie est obligatoire.'; return; }
+      const body = { account_id: acc.value, amount: toMinor(raw, accCur(accounts, acc.value)), category: cat.value, occurred_on: date.value, note: note.value.trim() || undefined };
+      save.disabled = true;
+      try { if (existing) await post(`/pf/transactions/${existing.id}/update`, body); else await post('/pf/transactions', { ...body, kind: cur }); close(true); } catch (e) { save.disabled = false; err.textContent = e.message || 'Enregistrement impossible.'; }
+    } }, 'Enregistrer');
+    const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(false); } }, h('div', { class: 'modal sheet pf-entry', role: 'dialog', 'aria-modal': 'true', 'aria-label': existing ? 'Modifier la transaction' : 'Ajouter un enregistrement' },
+      h('div', { class: 'pf-entry-top' }, h('button', { class: 'pf-back', type: 'button', onclick: () => close(false) }, 'Annuler'), h('b', {}, existing ? 'Modifier' : 'Ajouter un enregistrement'), h('span', {})),
+      tabs, h('div', { class: 'pf-entry-amount' }, curChip, amount),
+      h('div', { class: 'pf-entry-list' }, row('wallet', 'Compte', acc), row('bag', 'Catégorie', cat), row('clock', 'Date', date), row('receipt', 'Note', note)),
+      err, save));
+    acc.addEventListener('change', paint);
+    document.body.append(overlay); paint(); setTimeout(() => amount.focus(), 50);
+  });
 }
 async function askTransfer(accounts, preset) {
   const list = accountOptions(accounts);
@@ -165,7 +186,7 @@ function homeScreen({ go, reload, st }) {
     const proLock = (title) => card(title, h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'Disponible avec la formule Pro'), icon('chevronRight', 18)));
     const proNeeded = d.tier !== 'pro';
     return h('div', {},
-      head('Tableau de bord', { right: h('button', { class: 'pf-gear', type: 'button', 'aria-label': 'Choisir les blocs affichés', onclick: () => go('general') }, icon('sliders', 20)) }),
+      head('Tableau de bord', { eye: true, right: h('button', { class: 'pf-gear', type: 'button', 'aria-label': 'Choisir les blocs affichés', onclick: () => go('general') }, icon('sliders', 20)) }),
       h('div', { class: 'pf-pad' },
         pfProfile() === null && profileChooser(reload),
         h('div', { class: 'pf-chips' }, PERIODS.map(([p, l]) => chip(p, l))),
@@ -207,10 +228,10 @@ function accountsScreen({ go }) {
   return liveView(() => get('/pf/accounts'), (o, refresh) => {
     const open = (a) => () => go(a.auto ? 'wallet' : `account-${a.id}`);
     const archive = (a) => action(async () => { await post(`/pf/accounts/${a.id}/archive`, { archived: !a.archived_at }); }, { ok: a.archived_at ? 'Compte rétabli' : 'Compte archivé', refresh });
-    return h('div', {}, head('Comptes', { back: ['Plus', () => go('more')] }),
+    return h('div', {}, head('Comptes', { eye: true, back: ['Plus', () => go('more')] }),
       h('div', { class: 'pf-pad' },
         o.accounts.length === 0 ? empty('bank', 'Aucun compte pour le moment.') : h('section', { class: 'pf-card flush' }, o.accounts.map((a) => h('div', { class: 'pf-acc' }, accountRow(a, open(a)),
-          !a.auto && h('button', { class: 'pf-mini', type: 'button', onclick: archive(a) }, a.archived_at ? 'Rétablir' : 'Archiver')))),
+          !a.auto && a.archived_at && h('button', { class: 'pf-mini', type: 'button', onclick: archive(a) }, 'Rétablir')))),
         h('p', { class: 'pf-note' }, 'Ces comptes sont vos notes personnelles. Ils ne contiennent pas d\'argent détenu par Wallindirain et n\'ont aucun effet sur votre portefeuille.')),
       fab(o.accounts, refresh));
   });
@@ -247,9 +268,11 @@ function accountScreen({ go, id }) {
     host.replaceChildren(h('div', { class: 'pf-pad' },
       card('30 derniers jours', h('div', { class: 'pf-big' }, curMoney(a.balance, a.currency)), a.currency && a.currency !== 'GNF' && h('small', { class: 'pf-note' }, `≈ ${fmtGNF(a.balance_base)}`), areaChart(values, days)),
       res.transactions.length === 0 ? empty('receipt', 'Aucune opération sur ce compte pour le moment.') : h('section', { class: 'pf-card flush' }, res.transactions.map((t) => txRow(t, () => editTx(t, accs.accounts, done)))),
-      res.history_limited && h('p', { class: 'pf-note' }, `Formule gratuite : les ${res.history_limited} derniers jours sont affichés.`)),
+      res.history_limited && h('p', { class: 'pf-note' }, `Formule gratuite : les ${res.history_limited} derniers jours sont affichés.`),
+      h('section', { class: 'pf-card' }, h('p', { class: 'pf-note' }, a.archived_at ? 'Ce compte est archivé : il n\'apparaît plus dans vos totaux ni dans vos listes, mais son historique est conservé.' : 'Vous n\'utilisez plus ce compte ? Archivez-le : il disparaît de vos totaux et de vos listes, son historique est conservé et vous pourrez le rétablir à tout moment. Cela libère aussi une place dans la formule gratuite.'),
+        h('button', { class: 'btn btn-ghost btn-block', type: 'button', onclick: async () => { try { if (a.archived_at || await confirmBox('Archiver ce compte ?', 'Il sera masqué de vos totaux et listes. Rien n\'est supprimé.', 'Archiver')) { await post(`/pf/accounts/${a.id}/archive`, { archived: !a.archived_at }); toast(a.archived_at ? 'Compte rétabli' : 'Compte archivé', 'ok'); go('accounts'); } } catch (e) { errToast(e); } } }, a.archived_at ? 'Rétablir ce compte' : 'Archiver ce compte'))),
       writable && h('button', { class: 'pf-fab wide', type: 'button', onclick: menu }, icon('plus', 22), h('span', {}, 'Transaction')));
-    host.prepend(head(a.name, { back: ['Comptes', () => go('accounts')], right: h('button', { class: 'pf-back', type: 'button', onclick: edit }, h('span', {}, 'Modifier')) }));
+    host.prepend(head(a.name, { eye: true, back: ['Comptes', () => go('accounts')], right: h('button', { class: 'pf-back', type: 'button', onclick: edit }, h('span', {}, 'Modifier')) }));
   };
   load().catch(errToast);
   return host;
@@ -288,7 +311,7 @@ function txScreen({ go }) {
       fab(accs.accounts, done));
   };
   load().catch(errToast);
-  return h('div', {}, head('Transactions', { back: ['Plus', () => go('more')] }), host);
+  return h('div', {}, head('Transactions', { eye: true, back: ['Plus', () => go('more')] }), host);
 }
 
 // ---------- Statistiques ----------
@@ -301,7 +324,7 @@ function statsScreen({ go }) {
       const max = list[0].total; const f = h('span', { class: `pf-bar-fill ${tone}` }); f.style.width = `${Math.max(4, Math.round((c.total * 100) / max))}%`;
       return h('div', { class: 'pf-flow' }, h('div', { class: 'pf-flow-row' }, h('b', {}, labels[c.category] || c.category), h('span', {}, fmtGNF(c.total))), h('span', { class: 'pf-bar-track' }, f));
     });
-    return h('div', {}, head('Statistiques'), h('div', { class: 'pf-pad' },
+    return h('div', {}, head('Statistiques', { eye: true }), h('div', { class: 'pf-pad' },
       h('div', { class: 'pf-chips' }, PERIODS.map(([p, l]) => chip(p, l))),
       card('Résumé', h('dl', { class: 'pf-kv' }, h('dt', {}, 'Revenus'), h('dd', { class: 'pos' }, fmtGNF(d.income)), h('dt', {}, 'Dépenses'), h('dd', { class: 'neg' }, fmtGNF(d.expense)), h('dt', {}, 'Flux net'), h('dd', {}, fmtGNF(d.flow)), h('dt', {}, 'Solde actuel'), h('dd', {}, fmtGNF(d.balance)))),
       card('Dépenses par catégorie', cats(d.expense_by_category, CAT_LABEL, 'neg')),
@@ -357,7 +380,7 @@ function planScreen({ go }) {
       await post('/pf/goal', { target: v.target === '' ? null : Number(v.target) });
     }, { ok: 'Objectif enregistré', refresh });
     const f = d.forecast;
-    return h('div', {}, head('Plan financier'), h('div', { class: 'pf-pad' },
+    return h('div', {}, head('Plan financier', { eye: true }), h('div', { class: 'pf-pad' },
       !pro && lock(go),
       card('Prévision à 30 jours',
         h('div', { class: 'pf-sub' }, 'SOLDE PRÉVU'), h('div', { class: 'pf-big' }, fmtGNF(f.projected)),
@@ -576,7 +599,7 @@ function walletScreen({ go, st, reload }) {
       if (!(await confirmBox('Délier mon compte Wallindirain ?', 'Les lignes automatiques disparaissent de Mes finances (y compris les retraits reçus sur le compte choisi). Vos comptes et transactions saisis à la main restent. Votre portefeuille Wallindirain n\'est pas touché.', 'Délier', true))) return false;
       await post('/pf/wallet-unlink'); return true;
     }, { ok: (r) => (r ? 'Compte délié' : ''), refresh: done });
-    return h('div', {}, head('Compte Wallindirain', { back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' },
+    return h('div', {}, head('Compte Wallindirain', { eye: true, back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' },
       !pro && h('button', { class: 'pf-upsell', type: 'button', onclick: () => go('pro') }, proBadge(), h('span', {}, 'La liaison automatique fait partie de la formule Pro.'), icon('chevronRight', 18)),
       card(null, h('div', { class: 'pf-start' }, h('span', { class: 'pf-ico pf-c-teal' }, icon('wallet', 26)), h('div', {}, h('b', {}, linked ? 'Relié : tout arrive tout seul' : 'Zéro saisie pour votre activité Wallindirain'),
         h('p', {}, 'Tout ce qui passe par votre portefeuille Wallindirain est classé automatiquement dans un compte « Wallindirain », en lecture seule.'))),
