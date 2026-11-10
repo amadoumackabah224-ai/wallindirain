@@ -82,8 +82,8 @@ export function chiefAssign() {
     };
     return h('div', {}, h('h1', {}, 'Affectation des livreurs'),
       h('div', { class: 'gap mb' }, eligible.length >= 2 && h('button', { class: 'btn btn-gold', onclick: createTour }, '+ Créer une tournée')),
-      tours.length > 0 && h('div', {}, h('h2', {}, `Tournées (${tours.length})`), tours.map(tourCard)),
-      groups.map(([title, sts]) => {
+      h('div', { class: 'stat-strip' }, [['À affecter', 'confirmed'], ['Échecs', 'failed'], ['En livraison', 'assigned', 'picked_up', 'on_the_way']].map(([label, ...sts]) => { const n = orders.filter((o) => sts.includes(o.status)).length; return h('span', { class: `stat-chip${n && label !== 'En livraison' ? ' hot' : ''}` }, h('b', {}, String(n)), ` ${label}`); }), tours.length > 0 && h('span', { class: 'stat-chip' }, h('b', {}, String(tours.length)), ' Tournées')),
+      groups.flatMap(([title, sts], gi) => [gi === 2 && tours.length > 0 && h('div', {}, h('h2', { class: 'mt' }, `Tournées (${tours.length})`), tours.map(tourCard)), ((title, sts) => {
         const list = orders.filter((o) => sts.includes(o.status));
         return h('div', {}, h('h2', { class: 'mt' }, `${title} (${list.length})`), list.length ? list.map((o) => {
           const assign = action(async () => {
@@ -99,12 +99,12 @@ export function chiefAssign() {
           const cancelOffer = action(async () => { await post(`/chief/offers/${open.id}/cancel`); }, { ok: 'Proposition retirée', refresh });
           const toWh = action(async () => { if (await confirmBox('Retour en entrepôt ?', 'Le magasinier réceptionnera le colis et indiquera la cause.')) await post(`/chief/orders/${o.id}/return`); }, { ok: 'Retour demandé', refresh });
           const cancel = action(async () => { const v = await ask({ title: `Annuler ${o.ref}`, submit: 'Annuler la commande', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/chief/orders/${o.id}/cancel`, { reason: v.reason }); }, { ok: 'Commande annulée', refresh });
-          return h('div', { class: 'card order' }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), o.courier_name && badge(o.courier_name, 'grey'), open && badge(`Proposée à ${open.courier_name}`, 'warn'), pickupLate(o, pickup_alert_hours) && badge(`Non récupéré depuis ${since(o.assigned_since)}`, 'bad'), o.failure_reason && badge(FAIL_LABEL[o.failure_reason], 'bad')),
+          return h('div', { class: 'card order' }, h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), statusBadge(o.status), isNew(o) && badge('Nouvelle', 'ok'), o.courier_name && badge(o.courier_name, 'grey'), open && badge(`Proposée à ${open.courier_name}`, 'warn'), pickupLate(o, pickup_alert_hours) && badge(`Non récupéré depuis ${since(o.assigned_since)}`, 'bad'), o.failure_reason && badge(FAIL_LABEL[o.failure_reason], 'bad')),
             kv([['Client', `${o.customer_name} · ${fmtPhone(o.customer_phone)}`], ['Livraison', `${o.commune}, ${o.address}`], ['À récupérer', pickupText(o)], ['Produit', `${o.product_name} × ${o.qty}`], ['Total', amount(o.sale_total), 'key']]),
             h('div', { class: 'gap mt actions' }, ['confirmed', 'failed'].includes(o.status) && (open ? h('button', { class: 'btn btn-sm btn-ghost', onclick: cancelOffer }, 'Retirer la proposition') : made < offers.max_offers && h('button', { class: 'btn btn-sm btn-ghost', onclick: offer }, 'Proposer à un livreur')),
               ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-gold', onclick: assign }, o.status === 'confirmed' ? 'Affecter à un livreur' : 'Réaffecter'),
               o.status === 'failed' && h('button', { class: 'btn btn-sm btn-ghost', onclick: toWh }, 'Retour en entrepôt'), ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
         }) : h('p', { class: 'muted small' }, 'Aucune.'));
-      }));
+      })(title, sts)]));
   }, { poll: 15000 });
 }

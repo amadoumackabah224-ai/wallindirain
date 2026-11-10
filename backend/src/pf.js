@@ -172,6 +172,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   app.get('/api/pf/home', guard(ALL, async (ctx) => {
     if (!(await featureOn())) return { enabled: false };
     const id = ctx.user.id;
+    if (ctx.user.role === 'admin' && !(await q('SELECT 1 FROM pf_prefs WHERE owner_id = $1 AND profile IS NOT NULL', [id])).length) await fn('fn_pf_profile_set', id, 'business').catch(() => null);
     const acc = await access(id);
     const [pref] = await q('SELECT income_target, balance_target, decimals, default_period, widgets, g_income_low, g_income_high, g_flow_low, g_flow_high, g_balance_low, g_balance_high FROM pf_prefs WHERE owner_id = $1', [id]);
     const settings = settingsOf(pref);
@@ -611,6 +612,35 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const [out] = await q('SELECT fn_pf_tx_import($1, $2, $3::jsonb) AS r', [ctx.user.id, v.uuid(b.account_id, 'Compte'), JSON.stringify(rows)]);
     return out.r;
   }));
+  // ---------- Paie des employés ----------
+  const monthOf = (x) => { const m = /^(\d{4})-(\d{2})$/.exec(String(x ?? '')); const d = m ? `${m[1]}-${m[2]}-01` : `${dayStr(new Date()).slice(0, 7)}-01`; if (Number.isNaN(Date.parse(d))) throw new HttpError(400, 'invalid_input', 'Mois invalide'); return d; };
+  app.get('/api/pf/payroll', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id, month = monthOf(ctx.query.month);
+    const employees = await q(`SELECT e.id, e.name, e.job, e.monthly_amount::bigint AS monthly_amount, e.user_id, e.archived_at, u.role AS staff_role,
+        p.amount::bigint AS paid_amount, p.paid_on::text AS paid_on
+      FROM pf_payroll e LEFT JOIN users u ON u.id = e.user_id LEFT JOIN pf_payroll_pay p ON p.payroll_id = e.id AND p.month = $2::date
+      WHERE e.owner_id = $1 AND (e.archived_at IS NULL OR p.id IS NOT NULL) ORDER BY e.archived_at NULLS FIRST, e.name`, [id, month]);
+    const num = (n) => Number(n);
+    const list = employees.map((e) => ({ ...e, monthly_amount: num(e.monthly_amount), paid_amount: e.paid_amount == null ? null : num(e.paid_amount) }));
+    const active = list.filter((e) => !e.archived_at);
+    return { enabled: true, tier: (await access(id)).tier, month: month.slice(0, 7), employees: list,
+      due: active.reduce((n, e) => n + e.monthly_amount, 0), paid: list.reduce((n, e) => n + (e.paid_amount || 0), 0),
+      unpaid: active.filter((e) => e.paid_amount == null).reduce((n, e) => n + e.monthly_amount, 0) };
+  }));
+  app.get('/api/pf/payroll/staff', guard(['admin'], async () => ({ staff: await q(`SELECT id, full_name, role FROM users WHERE role IN ('agent','call_chief','courier','warehouse') AND deleted_at IS NULL AND status = 'active' ORDER BY full_name LIMIT 300`) })));
+  app.post('/api/pf/payroll', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const id = await fn('fn_pf_payroll_save', ctx.user.id, b.id ? v.uuid(b.id, 'Employé') : null, v.str(b.name, 'Nom', { min: 2, max: 80 }), v.optStr(b.job, 'Poste', 60), v.int(b.monthly_amount, 'Salaire', { min: 1, max: 100_000_000_000 }), b.user_id ? v.uuid(b.user_id, 'Membre') : null);
+    ctx.status = b.id ? 200 : 201; return { id };
+  }));
+  app.post('/api/pf/payroll/:id/archive', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_payroll_archive', ctx.user.id, v.uuid(ctx.params.id, 'Employé'), ctx.body.archived !== false); }));
+  app.post('/api/pf/payroll/:id/pay', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const [r] = await q('SELECT fn_pf_payroll_pay($1, $2, $3::date, $4, $5, $6::date) AS id', [ctx.user.id, v.uuid(ctx.params.id, 'Employé'), monthOf(b.month), v.uuid(b.account_id, 'Compte'), b.amount == null || b.amount === '' ? null : v.int(b.amount, 'Montant', { min: 1, max: 100_000_000_000 }), ymd(b.paid_on)]);
+    ctx.status = 201; return { id: r.id };
+  }));
+  app.post('/api/pf/payroll/:id/unpay', guard(ALL, async (ctx) => { writing(ctx); await q('SELECT fn_pf_payroll_unpay($1, $2, $3::date)', [ctx.user.id, v.uuid(ctx.params.id, 'Employé'), monthOf(ctx.body.month)]); }));
   app.post('/api/pf/rates-auto', guard(ALL, async (ctx) => {
     writing(ctx);
     await fn('fn_pf_rates_auto_set', ctx.user.id, ctx.body.on === true);
