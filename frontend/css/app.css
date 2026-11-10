@@ -589,3 +589,4 @@ div.notif { cursor: default; }
 .pf-split { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
 .pf-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 12px; }
 .pf-big { font-size: 1.8rem; font-weight: 700; }
+.pf-fab.wide { width: auto; height: 52px; border-radius: 26px; padding: 0 22px 0 16px; display: inline-flex; align-items: center; gap: 8px; left: 50%; right: auto; transform: translateX(-50%); font-weight: 600; font-size: 1rem; }
