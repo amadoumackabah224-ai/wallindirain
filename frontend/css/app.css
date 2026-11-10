@@ -606,3 +606,5 @@ div.notif { cursor: default; }
 .pf-entry-row:last-child { border-bottom: 0; }
 .pf-entry-sel { flex: 0 1 55%; min-width: 0; text-align: right; border: 0; background: transparent; color: inherit; font: inherit; }
 .pf-entry-err { color: var(--bad); min-height: 1.2em; margin: 0 0 8px; font-weight: 600; }
+.pf-file { width: 100%; margin: 4px 0 10px; }
+.pf-tools-sel { flex: 0 1 60%; }

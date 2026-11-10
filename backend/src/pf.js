@@ -569,6 +569,48 @@ export function registerPf(app, { q, fn, guard, limit }) {
     await fn('fn_pf_erase', ctx.user.id, v.str(ctx.body.confirm, 'Confirmation', { max: 20 }));
     return { ok: true };
   }));
+  // ---------- Pro : export CSV, règles automatiques, import ----------
+  const needPro = async (id) => { if ((await access(id)).tier !== 'pro') throw new HttpError(403, 'pro_required', 'Cette fonction fait partie de la formule Pro'); };
+  app.get('/api/pf/export', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) throw new HttpError(404, 'feature_off', 'Indisponible');
+    const id = ctx.user.id; await needPro(id);
+    const params = [id]; let where = 't.owner_id = $1 AND t.voided_at IS NULL';
+    if (ctx.query.from) { params.push(ymd(ctx.query.from)); where += ` AND t.occurred_on >= $${params.length}::date`; }
+    if (ctx.query.to) { params.push(ymd(ctx.query.to)); where += ` AND t.occurred_on <= $${params.length}::date`; }
+    if (ctx.query.account === 'wallindirain') where += ' AND t.account_id IS NULL';
+    else if (ctx.query.account) { params.push(v.uuid(ctx.query.account, 'Compte')); where += ` AND t.account_id = $${params.length}`; }
+    const rows = await q(`SELECT t.occurred_on::text AS day, t.kind, COALESCE(a.name, 'Wallindirain') AS account, t.category, t.amount_orig::bigint AS amount, t.currency, COALESCE(c.decimals, 0)::int AS decimals, t.note
+        FROM pf_all_tx t LEFT JOIN pf_accounts a ON a.id = t.account_id LEFT JOIN pf_currencies c ON c.owner_id = t.owner_id AND c.code = t.currency
+       WHERE ${where} ORDER BY t.occurred_on, t.created_at LIMIT 50000`, params);
+    const label = Object.fromEntries((await catTree(id)).map((c) => [c.key, c.label]));
+    const KIND_FR = { income: 'Revenu', expense: 'Dépense', transfer_in: 'Virement reçu', transfer_out: 'Virement émis' };
+    const cell = (x, num = false) => { let t = String(x ?? ''); if (!num && /^[=+\-@\t\r]/.test(t)) t = `'${t}`; return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const lines = [['Date', 'Type', 'Compte', 'Catégorie', 'Montant', 'Devise', 'Note'].join(';')];
+    for (const r of rows) {
+      const d = Number(r.decimals), n = Number(r.amount) * (r.kind === 'expense' || r.kind === 'transfer_out' ? -1 : 1);
+      lines.push([r.day, KIND_FR[r.kind] || r.kind, r.account, label[r.category] || r.category, (n / 10 ** d).toFixed(d).replace('.', ','), r.currency || 'GNF', r.note].map((x, i) => cell(x, i === 4)).join(';'));
+    }
+    ctx.headers['Content-Type'] = 'text/csv; charset=utf-8';
+    ctx.headers['Content-Disposition'] = `attachment; filename="mes-finances-${dayStr(new Date())}.csv"`;
+    return Buffer.from(`\ufeff${lines.join('\r\n')}\r\n`, 'utf8');
+  }));
+  app.get('/api/pf/rules', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    return { enabled: true, rules: await q('SELECT id, contains, kind, category FROM pf_rules WHERE owner_id = $1 ORDER BY created_at, id', [ctx.user.id]) };
+  }));
+  app.post('/api/pf/rules', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const id = await fn('fn_pf_rule_save', ctx.user.id, v.str(b.contains, 'Mot à repérer', { max: 40 }), b.kind ? v.oneOf(b.kind, ['income', 'expense'], 'Type') : null, catKey(b.category));
+    ctx.status = 201; return { id };
+  }));
+  app.post('/api/pf/rules/:id/remove', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_rule_remove', ctx.user.id, v.uuid(ctx.params.id, 'Règle')); }));
+  app.post('/api/pf/import', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    if (!Array.isArray(b.rows)) throw new HttpError(400, 'invalid_input', 'Liste invalide');
+    const rows = b.rows.slice(0, 501).map((r) => ({ date: String(r?.date ?? '').slice(0, 10), kind: r?.kind, amount: r?.amount, category: r?.category || null, note: r?.note == null ? null : String(r.note).slice(0, 200) }));
+    const [out] = await q('SELECT fn_pf_tx_import($1, $2, $3::jsonb) AS r', [ctx.user.id, v.uuid(b.account_id, 'Compte'), JSON.stringify(rows)]);
+    return out.r;
+  }));
   app.post('/api/pf/rates-auto', guard(ALL, async (ctx) => {
     writing(ctx);
     await fn('fn_pf_rates_auto_set', ctx.user.id, ctx.body.on === true);
