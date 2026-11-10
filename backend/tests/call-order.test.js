@@ -44,14 +44,15 @@ beforeEach(() => srv.resetLimits());
 after(async () => { await srv.close(); await db.owner.end(); await db.app.end(); });
 
 
-test('file d\'appel : la plus récente en haut (les escaladées restent devant)', async () => {
+test('file d\'appel : la plus récente toujours en haut, même pour les escaladées', async () => {
   const a = await place(s), b = await place(s), c = await place(s);
   await new Promise((r) => setTimeout(r, 20));
   const refs = (await agent.get('/api/calls/queue')).json.orders.map((o) => o.id);
   assert.deepEqual(refs.slice(0, 3), [c.id, b.id, a.id]);
   await db.owner.query(`UPDATE orders SET escalated = true WHERE id = $1`, [a.id]);
   const chiefRefs = (await chief.get('/api/calls/queue')).json.orders.map((o) => o.id);
-  assert.equal(chiefRefs[0], a.id, 'une escaladée reste devant');
+  assert.equal(chiefRefs[0], c.id, 'la plus récente reste en haut');
+  assert.ok(chiefRefs.indexOf(a.id) > chiefRefs.indexOf(b.id), 'l\'escaladée garde son badge mais ne passe plus devant');
 });
 
 test('affectation : les nouvelles à affecter sont en haut', async () => {

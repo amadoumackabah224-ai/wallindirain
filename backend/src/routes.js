@@ -945,12 +945,12 @@ export function registerRoutes(app, { db, cfg }) {
 
   app.get('/api/calls/queue', guard(CALL, async (ctx) => ({
     orders: await q(`SELECT ${CALL_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
-        WHERE o.status = 'new' AND (NOT o.escalated OR $1 = 'call_chief') ORDER BY o.escalated DESC, o.created_at DESC LIMIT 100`, [ctx.user.role])
+        WHERE o.status = 'new' AND (NOT o.escalated OR $1 = 'call_chief') ORDER BY o.created_at DESC LIMIT 100`, [ctx.user.role])
   })));
 
   app.get('/api/calls/mine', guard(CALL, async (ctx) => {
     const orders = await q(`SELECT ${CALL_COLS} FROM orders o LEFT JOIN products p ON p.id = o.product_id
-        WHERE o.status = 'in_call' AND o.locked_by = $1 ORDER BY o.locked_at`, [ctx.user.id]);
+        WHERE o.status = 'in_call' AND o.locked_by = $1 ORDER BY o.locked_at DESC`, [ctx.user.id]);
     for (const o of orders) o.calls = await q('SELECT agent_name, call_center, result, note, at FROM calls WHERE order_id = $1 ORDER BY id', [o.id]);
     return { orders };
   }));
