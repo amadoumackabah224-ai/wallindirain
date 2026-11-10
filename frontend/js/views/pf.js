@@ -40,6 +40,8 @@ export function pfApp(user, screen = '') {
   const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
   if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
+  const accId = /^account-[0-9a-f-]{36}$/.test(screen) ? screen.slice(8) : null;
+  if (accId) SCREENS[screen] = (a) => accountScreen({ ...a, id: accId });
   const key = SCREENS[screen] ? screen : '';
   const tabOf = ({ '': 'home', home: 'home', plan: 'plan', recurring: 'plan', wallet: 'more', contacts: 'contacts', stats: 'stats' })[key] || 'more';
   document.title = 'Mes finances · Wallindirain';
@@ -65,13 +67,13 @@ const moreLink = (label, onclick) => h('button', { class: 'pf-more', type: 'butt
 const accountOptions = (accounts, writableOnly = true) => accounts.filter((a) => !a.archived_at && (!writableOnly || a.writable)).map((a) => [a.id, a.currency && a.currency !== 'GNF' ? `${a.name} · ${a.currency}` : a.name]);
 const accCur = (accounts, id) => accounts.find((a) => a.id === id)?.currency || 'GNF';
 
-async function askTx(kind, accounts, existing) {
+async function askTx(kind, accounts, existing, preset) {
   const list = accountOptions(accounts);
   if (!list.length) { toast(accounts.some((a) => !a.archived_at) ? 'Aucun compte utilisable dans la formule gratuite : passez à Pro.' : 'Créez d\'abord un compte.', 'bad'); return false; }
   await loadCats().catch(() => null);
   const options = catOptions(kind, existing?.category);
   const v = await ask({ title: existing ? 'Modifier la transaction' : kind === 'income' ? 'Nouveau revenu' : 'Nouvelle dépense', submit: 'Enregistrer', fields: [
-    { name: 'account_id', label: 'Compte', type: 'select', options: list, value: existing?.account_id || list[0][0] },
+    { name: 'account_id', label: 'Compte', type: 'select', options: list, value: existing?.account_id || (list.some((o) => o[0] === preset) ? preset : list[0][0]) },
     { name: 'amount', label: 'Montant (dans la devise du compte)', type: 'number', step: 'any', inputmode: 'decimal', value: existing ? fromMinor(existing.amount, existing.currency) : '' },
     { name: 'category', label: 'Catégorie', type: 'select', options, value: existing?.category || options[0]?.[0] },
     { name: 'occurred_on', label: 'Date', type: 'date', value: existing?.occurred_on || today() },
@@ -81,11 +83,11 @@ async function askTx(kind, accounts, existing) {
   if (existing) await post(`/pf/transactions/${existing.id}/update`, body); else await post('/pf/transactions', { ...body, kind });
   return true;
 }
-async function askTransfer(accounts) {
+async function askTransfer(accounts, preset) {
   const list = accountOptions(accounts);
   if (list.length < 2) { toast('Il faut au moins deux comptes pour faire un virement.', 'bad'); return false; }
   const v = await ask({ title: 'Virement entre mes comptes', text: 'L\'argent passe d\'un de vos comptes à un autre. Cela ne change ni vos revenus ni vos dépenses.', submit: 'Virer', fields: [
-    { name: 'from', label: 'Du compte', type: 'select', options: list, value: list[0][0] }, { name: 'to', label: 'Vers le compte', type: 'select', options: list, value: list[1][0] },
+    { name: 'from', label: 'Du compte', type: 'select', options: list, value: list.some((o) => o[0] === preset) ? preset : list[0][0] }, { name: 'to', label: 'Vers le compte', type: 'select', options: list, value: (list.find((o) => o[0] !== preset) || list[1])[0] },
     { name: 'amount', label: 'Montant (dans la devise des comptes)', type: 'number', step: 'any', inputmode: 'decimal' }, { name: 'occurred_on', label: 'Date', type: 'date', value: today() },
     { name: 'note', label: 'Note (facultatif)', required: false, maxlength: 200 }] });
   if (!v) return false;
@@ -203,12 +205,7 @@ function flowBar(label, value, total, tone) {
 // ---------- Comptes ----------
 function accountsScreen({ go }) {
   return liveView(() => get('/pf/accounts'), (o, refresh) => {
-    const open = (a) => async () => {
-      if (a.auto) { go('wallet'); return; }
-      const v = await ask({ title: a.name, text: `${KIND_LABEL[a.kind]} · solde ${money(a.balance)}`, submit: 'Modifier', fields: [] });
-      if (!v) return;
-      try { if (await askAccount(a)) { toast('Compte modifié', 'ok'); refresh(); } } catch (e) { errToast(e); }
-    };
+    const open = (a) => () => go(a.auto ? 'wallet' : `account-${a.id}`);
     const archive = (a) => action(async () => { await post(`/pf/accounts/${a.id}/archive`, { archived: !a.archived_at }); }, { ok: a.archived_at ? 'Compte rétabli' : 'Compte archivé', refresh });
     return h('div', {}, head('Comptes', { back: ['Plus', () => go('more')] }),
       h('div', { class: 'pf-pad' },
@@ -217,6 +214,45 @@ function accountsScreen({ go }) {
         h('p', { class: 'pf-note' }, 'Ces comptes sont vos notes personnelles. Ils ne contiennent pas d\'argent détenu par Wallindirain et n\'ont aucun effet sur votre portefeuille.')),
       fab(o.accounts, refresh));
   });
+}
+
+// ---------- Détail d'un compte : solde, courbe sur 30 jours, opérations, ajout direct ----------
+function accountScreen({ go, id }) {
+  const host = h('div', {});
+  const load = async () => {
+    const [accs, res] = await Promise.all([get('/pf/accounts'), get(`/pf/transactions?account=${id}`)]);
+    const a = accs.accounts.find((x) => x.id === id);
+    if (!a) { host.replaceChildren(h('div', { class: 'pf-pad' }, empty('bank', 'Compte introuvable.'))); return; }
+    // courbe : on remonte dans le temps depuis le solde actuel en défaisant les opérations
+    const net = (t) => (t.kind === 'income' || t.kind === 'transfer_in' ? 1 : -1) * Number(t.amount);
+    const days = [], values = [];
+    let bal = Number(a.balance);
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      days.unshift(d); values.unshift(bal / (CURRENCIES[a.currency]?.decimals === 2 ? 100 : 1));
+      bal -= res.transactions.filter((t) => t.occurred_on === d).reduce((n, t) => n + net(t), 0);
+    }
+    const done = load;
+    const edit = async () => { try { if (await askAccount(a)) { toast('Compte modifié', 'ok'); load(); } } catch (e) { errToast(e); } };
+    const writable = a.writable !== false && !a.archived_at;
+    const menu = () => {
+      const run = (fn) => async () => { try { if (await fn()) done(); } catch (e) { errToast(e); } };
+      const items = [['Nouvelle dépense', 'arrowUpRight', () => askTx('expense', accs.accounts, null, id)], ['Nouveau revenu', 'plus', () => askTx('income', accs.accounts, null, id)], ['Virement', 'arrowRight', () => askTransfer(accs.accounts, id)]];
+      const close = () => overlay.remove();
+      const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } }, h('div', { class: 'modal sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Ajouter' }, h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }),
+        h('div', { class: 'more-list' }, items.map(([label, ico, fn]) => h('button', { class: 'more-row', type: 'button', onclick: () => { close(); run(fn)(); } }, icon(ico, 22), h('span', { class: 'grow' }, label), icon('chevronRight', 18)))),
+        h('button', { class: 'btn btn-ghost btn-block mt', type: 'button', onclick: close }, 'Fermer')));
+      document.body.append(overlay);
+    };
+    host.replaceChildren(h('div', { class: 'pf-pad' },
+      card('30 derniers jours', h('div', { class: 'pf-big' }, curMoney(a.balance, a.currency)), a.currency && a.currency !== 'GNF' && h('small', { class: 'pf-note' }, `≈ ${fmtGNF(a.balance_base)}`), areaChart(values, days)),
+      res.transactions.length === 0 ? empty('receipt', 'Aucune opération sur ce compte pour le moment.') : h('section', { class: 'pf-card flush' }, res.transactions.map((t) => txRow(t, () => editTx(t, accs.accounts, done)))),
+      res.history_limited && h('p', { class: 'pf-note' }, `Formule gratuite : les ${res.history_limited} derniers jours sont affichés.`)),
+      writable && h('button', { class: 'pf-fab wide', type: 'button', onclick: menu }, icon('plus', 22), h('span', {}, 'Transaction')));
+    host.prepend(head(a.name, { back: ['Comptes', () => go('accounts')], right: h('button', { class: 'pf-back', type: 'button', onclick: edit }, h('span', {}, 'Modifier')) }));
+  };
+  load().catch(errToast);
+  return host;
 }
 
 // ---------- Transactions ----------
