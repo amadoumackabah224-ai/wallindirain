@@ -637,9 +637,12 @@ export function registerPf(app, { q, fn, guard, limit }) {
   // ----- administration : réglages du module et abonnés -----
   app.get('/api/admin/pf', guard(['admin'], async () => ({
     settings: Object.fromEntries((await q(`SELECT key, value FROM settings WHERE key = 'feature_finances_perso' OR key LIKE 'pf\\_%'`)).map((r) => [r.key, Number(r.value)])),
-    users: await q(`SELECT u.id, u.full_name, u.phone, u.role, a.trial_until, a.paid_until, (SELECT count(*) FROM pf_accounts c WHERE c.owner_id = u.id AND c.archived_at IS NULL)::int AS accounts,
-        (SELECT count(*) FROM pf_transactions t WHERE t.owner_id = u.id AND t.voided_at IS NULL)::int AS transactions, fn_pf_tier(u.id) AS tier
-      FROM pf_access a JOIN users u ON u.id = a.owner_id ORDER BY a.updated_at DESC LIMIT 200`)
+    users: await q(`SELECT u.id, u.full_name, u.phone, u.role, u.status, u.created_at, a.trial_until, a.paid_until,
+        (SELECT count(*) FROM pf_accounts c WHERE c.owner_id = u.id AND c.archived_at IS NULL)::int AS accounts,
+        (SELECT count(*) FROM pf_transactions t WHERE t.owner_id = u.id AND t.voided_at IS NULL)::int AS transactions,
+        (SELECT max(t.created_at) FROM pf_transactions t WHERE t.owner_id = u.id) AS last_activity, fn_pf_tier(u.id) AS tier
+      FROM users u LEFT JOIN pf_access a ON a.owner_id = u.id
+      WHERE u.deleted_at IS NULL AND (a.owner_id IS NOT NULL OR u.role = 'member') ORDER BY COALESCE(a.updated_at, u.created_at) DESC LIMIT 200`)
   })));
   app.post('/api/admin/pf/grant', guard(['admin'], async (ctx) => {
     limit(`pf-grant:${ctx.user.id}`, 100, 3600_000);

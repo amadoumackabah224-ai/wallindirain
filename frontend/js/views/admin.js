@@ -277,10 +277,21 @@ function adminFinancesPerso() {
       if (!v) return;
       await post('/admin/pf/grant', { user_id: u.id, months: Number(v.months), note: v.note });
     }, { ok: 'Pro accordé', refresh });
+    const toggle = (u) => action(async () => {
+      const off = u.status !== 'suspended';
+      if (!await confirmBox(off ? `Suspendre ${u.full_name} ?` : `Réactiver ${u.full_name} ?`, off ? 'La personne ne pourra plus se connecter. Ses données sont conservées.' : 'La personne pourra de nouveau se connecter.', off ? 'Suspendre' : 'Réactiver', off)) return;
+      await post(`/admin/users/${u.id}/status`, { status: off ? 'suspended' : 'active' });
+    }, { ok: 'Statut mis à jour', refresh });
     return h('div', {}, h('div', { class: 'notice' }, settings.feature_finances_perso >= 1 ? 'Mes finances est ouvert. Tant que le prix mensuel est à 0, tout le monde a toutes les fonctions.' : 'Mes finances est éteint : allumez-le dans l\'onglet « Fonctions ».'),
       h('div', { class: 'card' }, h('h2', {}, 'Personnes qui utilisent Mes finances'),
-        users.length === 0 ? h('p', { class: 'muted' }, 'Personne pour le moment.') : table(['Nom', 'Rôle', 'Formule', 'Comptes', 'Opérations', ''], users.map((u) => [u.full_name, ROLE_LABEL[u.role] || u.role, u.tier === 'pro' ? badge('Pro', 'ok') : badge('Gratuit', 'grey'), String(u.accounts), String(u.transactions),
-          h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: grant(u) }, 'Offrir / encaisser')]))));
+        users.length > 0 && h('p', { class: 'small muted' }, `${users.length} personne(s) · ${users.filter((u) => u.tier === 'pro').length} en Pro · ${users.filter((u) => u.status === 'suspended').length} suspendue(s) · ${users.filter((u) => !u.transactions).length} sans aucune opération`),
+        users.length === 0 ? h('p', { class: 'muted' }, 'Personne pour le moment.') : table(['Personne', 'Dates', 'Formule', 'Activité', ''], users.map((u) => [
+          h('div', {}, h('b', {}, u.full_name), h('div', { class: 'small muted' }, `${fmtPhone(u.phone)} · ${ROLE_LABEL[u.role] || u.role}`), u.status !== 'active' && badge(u.status === 'suspended' ? 'Suspendu' : 'En attente', u.status === 'suspended' ? 'bad' : 'warn')),
+          h('div', { class: 'small' }, `Inscrit : ${fmtDate(u.created_at)}`, h('div', { class: 'muted' }, `Dernière opération : ${u.last_activity ? fmtDate(u.last_activity) : '—'}`)),
+          h('div', {}, u.tier === 'pro' ? badge('Pro', 'ok') : badge('Gratuit', 'grey'), u.paid_until && Date.parse(u.paid_until) > Date.now() && h('div', { class: 'small muted' }, `jusqu'au ${fmtDate(u.paid_until)}`)),
+          `${u.accounts} compte(s) · ${u.transactions} opér.`,
+          h('div', { class: 'row-actions' }, h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: grant(u) }, 'Offrir / encaisser'),
+            u.role !== 'admin' && h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: toggle(u) }, u.status === 'suspended' ? 'Réactiver' : 'Suspendre'))]))));
   });
 }
 
