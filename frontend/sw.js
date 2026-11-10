@@ -7,7 +7,7 @@ const SHELL = [
   '/assets/logo-gold.png', '/assets/w-gold.png', '/assets/icon-192.png', '/assets/icon-512.png', '/assets/fonts/inter-latin.woff2',
   '/js/api.js', '/js/charts.js', '/js/icons.js', '/js/main.js', '/js/pwa.js', '/js/ui.js', '/js/views/admin.js', '/js/views/agreements.js',
   '/js/views/auth.js', '/js/views/calls.js', '/js/views/courier.js', '/js/views/couriers.js', '/js/views/dashboard.js', '/js/views/invoices.js',
-  '/js/views/kyc.js', '/js/views/legal.js', '/js/views/notifications.js', '/js/views/outils.js', '/js/views/pf.js', '/js/views/pf-charts.js', '/js/views/pf-cats.js', '/js/views/pf-spaces.js', '/js/views/profile.js', '/js/views/relances.js', '/js/views/finances.js', '/js/views/seller.js', '/js/views/stats.js',
+  '/js/views/kyc.js', '/js/views/legal.js', '/js/views/notifications.js', '/js/views/outils.js', '/js/views/pf.js', '/js/views/pf-charts.js', '/js/views/pf-cats.js', '/js/views/pf-tools.js', '/js/views/pf-spaces.js', '/js/views/profile.js', '/js/views/relances.js', '/js/views/finances.js', '/js/views/seller.js', '/js/views/stats.js',
   '/js/views/supplier.js', '/js/views/support.js', '/js/views/wallet.js', '/js/views/warehouse.js'
 ];
 

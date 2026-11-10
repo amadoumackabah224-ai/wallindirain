@@ -6,6 +6,7 @@ import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { gaugeSvg, areaChart } from './pf-charts.js';
 import { spacesScreen, spaceScreen } from './pf-spaces.js';
+import { toolsScreen } from './pf-tools.js';
 import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
 
 export const INCOME_LABEL = { sales: 'Ventes', salary: 'Salaire', gift: 'Cadeau', other_in: 'Autre revenu' };
@@ -37,7 +38,7 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
   if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
   const accId = /^account-[0-9a-f-]{36}$/.test(screen) ? screen.slice(8) : null;
@@ -82,6 +83,8 @@ async function askTx(kind, accounts, existing, preset) {
     const date = h('input', { class: 'pf-entry-sel', type: 'date', value: existing?.occurred_on || today(), 'aria-label': 'Date' });
     const note = h('input', { class: 'pf-entry-sel', type: 'text', maxlength: '200', placeholder: 'Facultatif', value: existing?.note || '', 'aria-label': 'Note' });
     const err = h('p', { class: 'pf-entry-err', role: 'alert' });
+    let rules = []; get('/pf/rules').then((r) => { rules = r.rules || []; }).catch(() => null);
+    note.addEventListener('input', () => { if (cat.value || existing) return; const t = note.value.toLowerCase(); const m = rules.find((r) => (!r.kind || r.kind === cur) && t.includes(r.contains)); if (m && [...cat.options].some((o) => o.value === m.category)) cat.value = m.category; });
     const row = (ico, label, control) => h('label', { class: 'pf-entry-row' }, icon(ico, 22), h('span', { class: 'grow' }, label), control);
     const paint = () => { amount.classList.toggle('inc', cur === 'income'); amount.classList.toggle('exp', cur === 'expense'); curChip.textContent = accCur(accounts, acc.value) || 'GNF'; fillCats(); tabs.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.k === cur))); };
     const close = (r) => { overlay.remove(); resolve(r); };
@@ -617,7 +620,7 @@ function settingsScreen({ go, st }) {
     row('sliders', 'Général, tableau de bord et jauges', () => go('general')), row('wallet', 'Devises et taux de change', () => go('currencies')), row('dashboard', 'Tableau de bord', () => go('')), row('chart', 'Objectifs des jauges', () => go('gauges')), row('bag', 'Catégories et profil', () => go('categories')), row('bank', 'Comptes', () => go('accounts')),
     st.wallet?.eligible && row('wallet', 'Compte Wallindirain', () => go('wallet')),
     row('users', 'Contacts et étiquettes', () => go('contacts')), row('clock', 'Budgets et objectif du mois', () => go('plan')), row('receipt', 'Revenus et dépenses récurrents', () => go('recurring')), row('star', 'Formule et abonnement', () => go('pro')),
-    row('shield', 'Sécurité', null, '#/app/profile'), row('shield', 'Données personnelles et confidentialité', () => go('privacy'))),
+    row('shield', 'Sécurité', null, '#/app/profile'), row('star', 'Outils Pro : export, règles, import', () => go('tools')), row('shield', 'Données personnelles et confidentialité', () => go('privacy'))),
     h('p', { class: 'pf-note' }, 'Vos données financières personnelles ne sont visibles que par vous. Vous pouvez archiver un compte à tout moment ; rien n\'est partagé avec les autres utilisateurs.')));
 }
 const rateText = (r) => `${Number(r).toLocaleString('fr-FR', { maximumFractionDigits: 4 }).replace(/[\u202f\u00a0]/g, ' ')} GNF`;
@@ -716,7 +719,7 @@ function proScreen({ go, st, reload }) {
   return h('div', {}, head('Formule', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' },
     card(null, h('div', { class: 'pf-big' }, st.tier === 'pro' ? 'Pro' : 'Gratuite'), h('p', { class: 'pf-note' }, !st.priced ? 'Toutes les fonctions sont ouvertes pour le moment.' : st.tier === 'pro' ? (until && Date.parse(st.paid_until) > Date.now() ? `Abonnement actif jusqu'au ${until}.` : `Essai Pro jusqu'au ${new Date(st.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`) : 'Vous gardez vos données. Passez à Pro pour retrouver toutes les fonctions.')),
     card('Gratuit', h('ul', { class: 'pf-list' }, h('li', {}, `${st.free_accounts} comptes personnels`), h('li', {}, 'Carnet de contacts (nombre limité), notes, appel, SMS, WhatsApp'), h('li', {}, 'Revenus, dépenses et virements'), h('li', {}, `Historique des ${st.free_history_days} derniers jours`), h('li', {}, 'Tableau de bord sur 30 jours'))),
-    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes et contacts illimités'), h('li', {}, 'Étiquettes et import de fichier de contacts'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectif du mois, récurrents et prévision à 30 jours'), h('li', {}, 'Règles automatiques et export (bientôt)')),
+    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes et contacts illimités'), h('li', {}, 'Étiquettes et import de fichier de contacts'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectif du mois, récurrents et prévision à 30 jours'), h('li', {}, 'Export CSV, règles automatiques de catégorie et import de transactions')),
       st.priced ? h('div', { class: 'pf-btns' }, st.prices.monthly > 0 && h('button', { class: 'pf-btn', type: 'button', onclick: sub('monthly') }, `${fmtGNF(st.prices.monthly)} / mois`), st.prices.yearly > 0 && h('button', { class: 'pf-btn alt', type: 'button', onclick: sub('yearly') }, `${fmtGNF(st.prices.yearly)} / an`))
         : h('p', { class: 'pf-note' }, 'Aucun prix n\'est fixé pour le moment.')),
     h('p', { class: 'pf-note' }, 'Le paiement est prélevé sur votre portefeuille Wallindirain. Un abonnement terminé ne supprime rien : vos données restent, avec les limites de la formule gratuite.')));
