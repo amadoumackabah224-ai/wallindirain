@@ -13,12 +13,13 @@ function orderInfo(o) {
       ['Produit', `${o.product_name} × ${o.qty}`], ['Total à payer', amount(o.sale_total), 'key'], ['Livraison', `${o.commune}, ${o.address}`], o.note && ['Note', o.note], o.call_attempts > 0 && ['Appels sans réponse', o.call_attempts]]));
 }
 
+const isNew = (o) => Date.now() - new Date(String(o.created_at).replace(' ', 'T').replace(/\+00$/, 'Z')).getTime() < 10 * 60_000;
 export function callQueue({ onTaken }) {
   return liveView(() => get('/calls/queue'), ({ orders }, refresh) => h('div', {}, h('h1', {}, 'File d\'appel'),
     orders.length ? orders.map((o) => {
       const take = action(async () => { await post(`/calls/${o.id}/take`); onTaken?.(); }, { ok: 'Commande prise : appelez le client', refresh });
       return h('div', { class: `card order ${o.risk_flag ? 'risk' : ''} ${o.escalated ? 'escalated' : ''}` },
-        h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), o.risk_flag && badge('Client à risque', 'bad'), o.escalated && badge('Escaladée', 'warn'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
+        h('div', { class: 'order-head' }, h('span', { class: 'ref' }, o.ref), isNew(o) && badge('Nouvelle', 'ok'), o.risk_flag && badge('Client à risque', 'bad'), o.escalated && badge('Escaladée', 'warn'), h('span', { class: 'grow' }), h('span', { class: 'small muted' }, fmtDate(o.created_at))),
         kv([['Produit', `${o.product_name} × ${o.qty}`], ['Quartier / ville', o.commune], ['Total', amount(o.sale_total), 'key']]),
         h('div', { class: 'mt' }, h('button', { class: 'btn btn-gold', onclick: take }, 'Prendre cette commande')));
     }) : empty('✅', 'Aucune commande à appeler. Bravo !')), { poll: 10000 });
