@@ -9,6 +9,7 @@ import { spacesScreen, spaceScreen } from './pf-spaces.js';
 import { toolsScreen } from './pf-tools.js';
 import { payrollScreen } from './pf-payroll.js';
 import { shopScreen } from './pf-shop.js';
+import { postOffline, offlineBar, warmCache } from '../offline.js';
 import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
 
 export const INCOME_LABEL = { sales: 'Ventes', salary: 'Salaire', gift: 'Cadeau', other_in: 'Autre revenu' };
@@ -39,6 +40,7 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 /** Point d'entrée : `#/pf/<écran>`. */
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
+  warmCache();
   const go = (s) => { location.hash = `#/pf/${s}`; };
   const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), shop: (a) => shopScreen({ ...a, head, card }), payroll: (a) => payrollScreen({ ...a, head, card, isAdmin: user.role === 'admin' }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
@@ -54,7 +56,7 @@ export function pfApp(user, screen = '') {
   }));
   const bar = h('nav', { class: 'pf-bar', 'aria-label': 'Mes finances' }, TABS.map(([k, ico, label]) => h('button', { class: `pf-tab${k === tabOf ? ' on' : ''}`, type: 'button', 'aria-current': k === tabOf ? 'page' : null, onclick: () => go(k === 'home' ? '' : k) },
     icon(ico, 26), h('span', {}, label))));
-  return h('div', { class: 'pf-root' }, body, bar);
+  return h('div', { class: 'pf-root' }, offlineBar(() => window.dispatchEvent(new Event('hashchange'))), body, bar);
 }
 
 function backLink() { return h('a', { class: 'pf-link', href: '#/app/' }, '‹ Retour à Wallindirain'); }
@@ -98,7 +100,7 @@ async function askTx(kind, accounts, existing, preset) {
       if (!cat.value) { err.textContent = 'La catégorie est obligatoire.'; return; }
       const body = { account_id: acc.value, amount: toMinor(raw, accCur(accounts, acc.value)), category: cat.value, occurred_on: date.value, note: note.value.trim() || undefined };
       save.disabled = true;
-      try { if (existing) await post(`/pf/transactions/${existing.id}/update`, body); else await post('/pf/transactions', { ...body, kind: cur }); close(true); } catch (e) { save.disabled = false; err.textContent = e.message || 'Enregistrement impossible.'; }
+      try { if (existing) await post(`/pf/transactions/${existing.id}/update`, body); else { const r = await postOffline('/pf/transactions', { ...body, kind: cur }, `${cur === 'income' ? 'Revenu' : 'Dépense'} ${fmtGNF(Number(raw))}`); if (r.queued) toast('Pas de réseau : enregistré sur votre téléphone, envoyé dès que le réseau revient.', 'ok'); } close(true); } catch (e) { save.disabled = false; err.textContent = e.message || 'Enregistrement impossible.'; }
     } }, 'Enregistrer');
     const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(false); } }, h('div', { class: 'modal sheet pf-entry', role: 'dialog', 'aria-modal': 'true', 'aria-label': existing ? 'Modifier la transaction' : 'Ajouter un enregistrement' },
       h('div', { class: 'pf-entry-top' }, h('button', { class: 'pf-back', type: 'button', onclick: () => close(false) }, 'Annuler'), h('b', {}, existing ? 'Modifier' : 'Ajouter un enregistrement'), h('span', {})),

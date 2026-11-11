@@ -1,6 +1,7 @@
 // Boutique : vendre en deux touches, produits et stock, clôture de caisse.
 import { h, ask, confirmBox, action, toast, errToast, empty, badge, liveView, fmtGNF } from '../ui.js';
 import { get, post } from '../api.js';
+import { postOffline, warmCache } from '../offline.js';
 import { icon } from '../icons.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -26,9 +27,9 @@ export function shopScreen({ go, head, card }) {
       if (!accs.length) { toast('Créez d\'abord un compte en GNF (caisse, Orange Money…).', 'bad'); return false; }
       const v = await ask({ title: `Encaisser ${fmtGNF(cartTotal())}`, text: [...cart].map(([id, q]) => `${q}× ${byId.get(id)?.name}`).join(', '), submit: 'Encaisser', fields: [{ name: 'account_id', label: 'Argent reçu sur', type: 'select', options: accs.map((a) => [a.id, a.name]), value: accs[0].id }] });
       if (!v) return false;
-      const r = await post('/pf/shop/sales', { account_id: v.account_id, lines: [...cart].map(([item_id, qty]) => ({ item_id, qty })) });
+      const r = await postOffline('/pf/shop/sales', { account_id: v.account_id, occurred_on: today(), lines: [...cart].map(([item_id, qty]) => ({ item_id, qty })) }, `Vente ${fmtGNF(cartTotal())}`);
       cart = new Map(); return r;
-    }, { ok: (r) => (r === false ? '' : `Vente enregistrée : ${fmtGNF(r.total)}`), refresh });
+    }, { ok: (r) => (r === false ? '' : r.queued ? 'Pas de réseau : vente gardée sur votre téléphone, envoyée dès que le réseau revient.' : `Vente enregistrée : ${fmtGNF(r.total)}`), refresh });
 
     const askItem = async (i) => {
       const v = await ask({ title: i ? 'Modifier le produit' : 'Nouveau produit', submit: 'Enregistrer', fields: [
