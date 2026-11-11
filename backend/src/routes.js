@@ -284,6 +284,26 @@ export function registerRoutes(app, { db, cfg }) {
     return rows[0].data;
   }));
 
+  // Véhicule du livreur (moto, voiture) : plaque et carte grise, vérifiées à la main par l'administrateur
+  app.get('/api/me/vehicle', guard(['courier'], async (ctx) => (await q('SELECT fn_my_vehicle($1) AS r', [ctx.user.id]))[0].r));
+  app.post('/api/me/vehicle', guard(['courier'], async (ctx) => { await fn('fn_vehicle_set', ctx.user.id, v.str(ctx.body.plate, 'Plaque', { min: 3, max: 20 })); }));
+  app.post('/api/me/vehicle/image', guard(['courier'], async (ctx) => {
+    limit(`veh:${ctx.user.id}`, 30, 3600_000);
+    const { mime, buf } = parseImage(ctx.body.image);
+    await fn('fn_vehicle_image_set', ctx.user.id, v.oneOf(ctx.body.side, ['plate', 'card'], 'Photo'), mime, buf);
+  }), { maxBody: MAX_PROOF_BODY });
+  app.post('/api/me/vehicle/submit', guard(['courier'], async (ctx) => { await fn('fn_vehicle_submit', ctx.user.id); }));
+  app.get('/api/vehicle/:id/:side', guard(ANY_ROLE, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_vehicle_image_get($1, $2, $3)', [ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.oneOf(ctx.params.side, ['plate', 'card'], 'Photo')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Image introuvable');
+    ctx.headers['Content-Type'] = rows[0].mime;
+    ctx.headers['Cache-Control'] = 'no-store';
+    ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
+  }));
+  app.post('/api/admin/couriers/:id/verify-vehicle', guard(['admin'], async (ctx) => { await fn('fn_admin_verify_vehicle', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), ctx.body.verified !== false); }));
+  app.post('/api/admin/couriers/:id/reject-vehicle', guard(['admin'], async (ctx) => { await fn('fn_admin_reject_vehicle', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.str(ctx.body.reason, 'Motif', { min: 3, max: 300 })); }));
+
   // =========================================================================
   // Profil (tous les rôles) : nom, photo, mot de passe, numéro de versement
   // =========================================================================
@@ -1316,7 +1336,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.get('/api/admin/couriers/:id/file', guard(ADM, async (ctx) => {
     const id = v.uuid(ctx.params.id, 'Livreur');
     const [c] = await q(`SELECT u.id, u.full_name, u.phone, u.status, u.identity_verified, u.payout_method, u.payout_phone, u.created_at, ${KIND_OF('u.id')} AS kind,
-        (SELECT d.status FROM identity_documents d WHERE d.user_id = u.id) AS kyc_status, (SELECT p.vehicle FROM courier_profiles p WHERE p.courier_id = u.id) AS vehicle
+        (SELECT d.status FROM identity_documents d WHERE d.user_id = u.id) AS kyc_status, (SELECT p.vehicle FROM courier_profiles p WHERE p.courier_id = u.id) AS vehicle,
+        (SELECT cv.plate FROM courier_vehicles cv WHERE cv.user_id = u.id) AS plate, (SELECT cv.status FROM courier_vehicles cv WHERE cv.user_id = u.id) AS vehicle_status
         FROM users u WHERE u.id = $1 AND u.role = 'courier' AND u.deleted_at IS NULL`, [id]);
     if (!c) throw new HttpError(404, 'not_found', 'Livreur introuvable');
     return {

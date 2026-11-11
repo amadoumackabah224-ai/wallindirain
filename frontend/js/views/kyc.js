@@ -80,3 +80,49 @@ export function reviewIdentity(u, onDone) {
   document.body.append(overlay); document.addEventListener('keydown', onKey);
   overlay.querySelector('button')?.focus();
 }
+
+/** Carte « Mon véhicule » du livreur à moto ou en voiture : plaque et carte grise, vérifiées à la main par l'administration. */
+export function vehicleCard() {
+  return liveView(() => get('/me/vehicle'), (k, refresh) => {
+    if (!k.needed || k.status === 'verified') return h('div', {});
+    const send = action(async () => {
+      const v = await ask({ title: 'Vérifier mon véhicule', text: 'Ces photos servent uniquement à vérifier que le véhicule est bien le vôtre. Seule l\'administration y a accès ; chaque accès est enregistré.', submit: 'Envoyer', fields: [
+        { name: 'plate', label: 'Numéro de plaque', maxlength: 20, value: k.plate || '', hint: 'Tel qu\'il est écrit sur la plaque.' },
+        { name: 'plate_img', label: 'Photo de la plaque', type: 'image', hint: 'Plaque entière, lisible, de face.' },
+        { name: 'card_img', label: 'Photo de la carte grise', type: 'image', hint: 'Document entier, texte lisible, sans reflet.' }] });
+      if (!v) return false;
+      await post('/me/vehicle', { plate: v.plate });
+      await post('/me/vehicle/image', { side: 'plate', image: v.plate_img });
+      await post('/me/vehicle/image', { side: 'card', image: v.card_img });
+      await post('/me/vehicle/submit');
+    }, { ok: (r) => (r === false ? '' : 'Véhicule envoyé : l\'administration va le vérifier'), refresh });
+    if (k.status === 'submitted') return h('div', { class: 'alert-row' }, h('span', { class: 'grow' }, `Votre véhicule (plaque ${k.plate}) est en cours d'examen. Vous serez prévenu dès la décision.`));
+    return h('div', { class: 'card' }, h('h2', {}, 'Mon véhicule'),
+      k.status === 'rejected' && h('div', { class: 'notice bad' }, `Véhicule refusé : ${k.reject_reason || 'motif non précisé'}. Envoyez de nouvelles photos.`),
+      h('p', { class: 'small muted' }, k.required ? 'Pour recevoir des missions, la plaque et la carte grise de votre véhicule doivent être vérifiées.' : 'Vous pouvez faire vérifier votre plaque et votre carte grise dès maintenant.'),
+      h('button', { class: 'btn btn-gold', type: 'button', onclick: send }, k.status === 'rejected' ? 'Renvoyer mes photos' : 'Envoyer plaque et carte grise'));
+  });
+}
+
+/** Fenêtre d'examen du véhicule pour l'administrateur. Ouvrir les images est enregistré. */
+export function reviewVehicle(c, onDone) {
+  const opener = document.activeElement;
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); opener?.isConnected && opener.focus?.(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const fig = (side, label) => h('figure', { class: 'kyc-big' }, h('img', { src: `/api/vehicle/${c.id}/${side}?t=${Date.now()}`, alt: `${label} de ${c.full_name}` }), h('figcaption', { class: 'small' }, label));
+  const verify = action(async () => { await post(`/admin/couriers/${c.id}/verify-vehicle`, { verified: true }); close(); }, { ok: 'Véhicule vérifié', refresh: onDone });
+  const reject = async () => {
+    const v = await ask({ title: 'Refuser le véhicule', text: 'Expliquez simplement pourquoi : le livreur verra ce motif et pourra renvoyer de meilleures photos.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif', maxlength: 300 }] });
+    if (!v) return;
+    try { await post(`/admin/couriers/${c.id}/reject-vehicle`, { reason: v.reason }); toast('Véhicule refusé', 'ok'); close(); await onDone?.(); } catch (e) { errToast(e); }
+  };
+  const overlay = h('div', { class: 'overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+    h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'veh-title' },
+      h('h2', { id: 'veh-title' }, `Véhicule de ${c.full_name}`),
+      h('p', { class: 'small muted' }, `Plaque déclarée : ${c.plate || 'aucune'}. Vérifiez que le numéro correspond à la photo de la plaque, et que le nom sur la carte grise est celui du livreur (ou une autorisation du propriétaire). L'ouverture des images est enregistrée.`),
+      h('div', { class: 'kyc-grid' }, fig('plate', 'Plaque'), fig('card', 'Carte grise')),
+      h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-ok grow', onclick: verify }, 'Valider le véhicule'),
+        h('button', { class: 'btn btn-bad', onclick: reject }, 'Refuser'), h('button', { class: 'btn btn-ghost', onclick: close }, 'Fermer'))));
+  document.body.append(overlay); document.addEventListener('keydown', onKey);
+  overlay.querySelector('button')?.focus();
+}

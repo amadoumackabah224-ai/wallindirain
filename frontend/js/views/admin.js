@@ -228,7 +228,8 @@ const FEATURES = [
   ['subscription_required', 'Abonnement obligatoire pour vendre', 'Un vendeur sans abonnement à jour ne peut plus créer de commande (après sa période d\'essai).'],
   ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
-  ['kyc_images_required', 'Photos de la pièce d\'identité obligatoires', 'Les photos de la pièce sont exigées avant de vérifier un compte.']
+,
+  ['vehicle_check_required', 'Plaque et carte grise des livreurs obligatoires', 'Un livreur à moto ou en voiture ne reçoit pas de mission tant que sa plaque et sa carte grise ne sont pas vérifiées. Vélo et à pied : rien à fournir.']
 ];
 const FEATURE_KEYS = FEATURES.map((f) => f[0]);
 const NUMERIC_GROUPS = {

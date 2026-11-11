@@ -2,7 +2,7 @@
 // Aucun calcul d'argent ici : tout est calculé et contrôlé par le serveur (la simulation aussi). L'écran affiche et envoie.
 import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, amount, action, kv, empty, toast, badge, table, confirmBox, pageHead, errToast } from '../ui.js';
 import { get, post } from '../api.js';
-import { reviewIdentity } from './kyc.js';
+import { reviewIdentity, reviewVehicle } from './kyc.js';
 import { agreementCard } from './agreements.js';
 
 const KIND = { independent: 'Indépendant', company: 'Wallindirain' };
@@ -69,9 +69,11 @@ export function adminCouriers() {
         pageHead(c.full_name, `${KIND_LONG[c.kind]} · ${fmtPhone(c.phone)}`),
         h('div', { class: 'card' }, h('h2', {}, 'Compte'), kv([['Catégorie', kindBadge(c.kind)], ['Statut', { active: 'Actif', pending: 'À valider', suspended: 'Suspendu' }[c.status] || c.status],
           ['Identité', c.identity_verified ? 'Vérifiée' : ({ submitted: 'Pièce à examiner', rejected: 'Pièce refusée' }[c.kyc_status] || 'Pas encore demandée')], ['Véhicule', { moto: 'Moto', velo: 'Vélo', voiture: 'Voiture', pied: 'À pied' }[c.vehicle] || 'Non précisé'],
+          ...(['moto', 'voiture'].includes(c.vehicle) ? [['Plaque et carte grise', c.vehicle_status === 'verified' ? `Vérifiées · ${c.plate}` : ({ submitted: `À examiner · ${c.plate}`, rejected: 'Refusées', draft: 'Incomplètes' }[c.vehicle_status] || 'Pas encore envoyées')]] : []),
           ['Versement', c.payout_phone ? `${c.payout_method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} · ${fmtPhone(c.payout_phone)}` : 'Non défini'], ['Solde du portefeuille', fmtGNF(f.balance)], ['Argent à reverser', fmtGNF(f.cash_pending)]]),
           h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-gold', onclick: changeKind }, c.kind === 'company' ? 'Passer en indépendant' : 'Passer en livreur de Wallindirain'),
-            c.kyc_status === 'submitted' && h('button', { class: 'btn btn-sm btn-ghost', onclick: () => reviewIdentity({ id: c.id, full_name: c.full_name }, refresh) }, 'Examiner la pièce'))),
+            c.kyc_status === 'submitted' && h('button', { class: 'btn btn-sm btn-ghost', onclick: () => reviewIdentity({ id: c.id, full_name: c.full_name }, refresh) }, 'Examiner la pièce'),
+            c.vehicle_status && h('button', { class: 'btn btn-sm btn-ghost', onclick: () => reviewVehicle({ id: c.id, full_name: c.full_name, plate: c.plate }, refresh) }, c.vehicle_status === 'verified' ? 'Revoir le véhicule' : 'Examiner le véhicule'))),
         agreementCard({ id: c.id, full_name: c.full_name }, refresh),
         h('div', { class: 'card' }, h('h2', {}, 'Historique de catégorie'), table(['Depuis', 'Catégorie', 'Par', 'Note'], f.kind_history.map((k) => [fmtDate(k.effective_from), kindBadge(k.kind), k.set_by_name || '—', k.note || '—']), { empty: h('p', { class: 'muted' }, 'Indépendant depuis la création (aucun changement).') })),
         h('div', { class: 'card' }, h('h2', {}, 'Missions récentes'), table(['Commande', 'Statut', 'Zone', 'Frais livraison', 'Paie', 'Catégorie retenue', 'Date'], f.orders.map((o) => [h('b', {}, o.ref), STATUS[o.status] || o.status, o.commune, amount(o.delivery_fee), amount(o.pay),
