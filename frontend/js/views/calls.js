@@ -83,7 +83,7 @@ export function chiefAssign() {
     return h('div', {}, h('h1', {}, 'Affectation des livreurs'),
       h('div', { class: 'gap mb' }, eligible.length >= 2 && h('button', { class: 'btn btn-gold', onclick: createTour }, '+ Créer une tournée')),
       h('div', { class: 'stat-strip' }, [['À affecter', 'confirmed'], ['Échecs', 'failed'], ['En livraison', 'assigned', 'picked_up', 'on_the_way']].map(([label, ...sts]) => { const n = orders.filter((o) => sts.includes(o.status)).length; return h('span', { class: `stat-chip${n && label !== 'En livraison' ? ' hot' : ''}` }, h('b', {}, String(n)), ` ${label}`); }), tours.length > 0 && h('span', { class: 'stat-chip' }, h('b', {}, String(tours.length)), ' Tournées')),
-      groups.flatMap(([title, sts], gi) => [gi === 2 && tours.length > 0 && h('div', {}, h('h2', { class: 'mt' }, `Tournées (${tours.length})`), tours.map(tourCard)), ((title, sts) => {
+      groups.flatMap(([title, sts], gi) => [((title, sts) => {
         const list = orders.filter((o) => sts.includes(o.status));
         return h('div', {}, h('h2', { class: 'mt' }, `${title} (${list.length})`), list.length ? list.map((o) => {
           const assign = action(async () => {
@@ -105,6 +105,6 @@ export function chiefAssign() {
               ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-gold', onclick: assign }, o.status === 'confirmed' ? 'Affecter à un livreur' : 'Réaffecter'),
               o.status === 'failed' && h('button', { class: 'btn btn-sm btn-ghost', onclick: toWh }, 'Retour en entrepôt'), ['confirmed', 'failed', 'assigned'].includes(o.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
         }) : h('p', { class: 'muted small' }, 'Aucune.'));
-      })(title, sts)]));
+      })(title, sts), gi === 2 && tours.length > 0 && h('div', {}, h('h2', { class: 'mt' }, `Tournées (${tours.length})`), tours.map(tourCard))]));
   }, { poll: 15000 });
 }

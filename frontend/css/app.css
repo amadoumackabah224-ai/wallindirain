@@ -356,7 +356,7 @@ svg.trophy-none { filter: grayscale(1); }
 
 
 /* Lignes clés (montant à encaisser, gain…) et boutons d'action des cartes de commande */
-.kv dt.key, .kv dd.key { background: var(--gold-3, #fbf3d5); padding: 6px 8px; font-weight: 700; color: var(--navy); }
+.kv dt.key, .kv dd.key { background: var(--gold-3, #fbf3d5); padding: 6px 8px; font-weight: 700; color: var(--ink); }
 .kv dt.key { border-radius: 8px 0 0 8px; } .kv dd.key { border-radius: 0 8px 8px 0; }
 .step-done { color: var(--ok); } .step-todo { color: var(--muted); }
 .actions { align-items: stretch; }
