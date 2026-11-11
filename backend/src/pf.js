@@ -641,6 +641,62 @@ export function registerPf(app, { q, fn, guard, limit }) {
     ctx.status = 201; return { id: r.id };
   }));
   app.post('/api/pf/payroll/:id/unpay', guard(ALL, async (ctx) => { writing(ctx); await q('SELECT fn_pf_payroll_unpay($1, $2, $3::date)', [ctx.user.id, v.uuid(ctx.params.id, 'Employé'), monthOf(ctx.body.month)]); }));
+  // ---------- Boutique : produits et stock, vente rapide, clôture de caisse ----------
+  const N = (x) => (x == null ? null : Number(x));
+  app.get('/api/pf/shop', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const id = ctx.user.id, day = ctx.query.date ? ymd(ctx.query.date) : dayStr(new Date());
+    const items = (await q('SELECT id, name, price::bigint, cost::bigint, stock, low_stock, archived_at FROM pf_items WHERE owner_id = $1 ORDER BY archived_at NULLS FIRST, lower(name)', [id]))
+      .map((i) => ({ ...i, price: N(i.price), cost: N(i.cost) }));
+    const [t] = await q('SELECT count(*)::int AS n, COALESCE(sum(total), 0)::bigint AS total, COALESCE(sum(cost_total), 0)::bigint AS cost FROM pf_sales WHERE owner_id = $1 AND occurred_on = $2::date AND voided_at IS NULL', [id, day]);
+    const sales = await q(`SELECT s.id, s.total::bigint AS total, s.cost_total::bigint AS cost_total, s.created_at, a.name AS account_name,
+        (SELECT jsonb_agg(jsonb_build_object('name', l.name, 'qty', l.qty) ORDER BY l.name) FROM pf_sale_lines l WHERE l.sale_id = s.id) AS lines
+      FROM pf_sales s JOIN pf_accounts a ON a.id = s.account_id WHERE s.owner_id = $1 AND s.occurred_on = $2::date AND s.voided_at IS NULL ORDER BY s.created_at DESC LIMIT 100`, [id, day]);
+    return { enabled: true, tier: (await access(id)).tier, day, items,
+      low_stock: items.filter((i) => !i.archived_at && i.stock != null && i.stock <= i.low_stock).length,
+      today: { count: t.n, total: N(t.total), cost: N(t.cost), margin: N(t.total) - N(t.cost) },
+      sales: sales.map((x) => ({ ...x, total: N(x.total), cost_total: N(x.cost_total) })) };
+  }));
+  app.post('/api/pf/shop/items', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const stock = b.stock === '' || b.stock == null ? null : v.int(b.stock, 'Stock', { min: 0, max: 100_000_000 });
+    const itemId = await fn('fn_pf_item_save', ctx.user.id, b.id ? v.uuid(b.id, 'Produit') : null, v.str(b.name, 'Nom', { min: 2, max: 80 }), v.int(b.price, 'Prix de vente', { min: 1, max: 100_000_000_000 }),
+      v.int(b.cost ?? 0, 'Prix d\'achat', { min: 0, max: 100_000_000_000 }), stock, v.int(b.low_stock ?? 0, 'Seuil d\'alerte', { min: 0, max: 100_000_000 }));
+    ctx.status = b.id ? 200 : 201; return { id: itemId };
+  }));
+  app.post('/api/pf/shop/items/:id/archive', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_item_archive', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), ctx.body.archived !== false); }));
+  app.post('/api/pf/shop/items/:id/restock', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    await q('SELECT fn_pf_item_restock($1, $2, $3, $4, $5, $6::date)', [ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(b.qty, 'Quantité', { min: 1, max: 1_000_000 }),
+      b.unit_cost == null || b.unit_cost === '' ? null : v.int(b.unit_cost, 'Prix d\'achat', { min: 0, max: 100_000_000_000 }), b.account_id ? v.uuid(b.account_id, 'Compte') : null, ymd(b.occurred_on || dayStr(new Date()))]);
+  }));
+  app.post('/api/pf/shop/sales', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    if (!Array.isArray(b.lines) || b.lines.length === 0 || b.lines.length > 100) throw new HttpError(400, 'invalid_input', 'Aucun produit dans la vente');
+    const lines = b.lines.map((l) => ({ item_id: v.uuid(l?.item_id, 'Produit'), qty: v.int(l?.qty, 'Quantité', { min: 1, max: 100_000 }) }));
+    const [r] = await q('SELECT fn_pf_sale_add($1, $2, $3::date, $4::jsonb, $5) AS r', [ctx.user.id, v.uuid(b.account_id, 'Compte'), ymd(b.occurred_on || dayStr(new Date())), JSON.stringify(lines), v.optStr(b.note, 'Note', 200)]);
+    ctx.status = 201; return r.r;
+  }));
+  app.post('/api/pf/shop/sales/:id/void', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_sale_void', ctx.user.id, v.uuid(ctx.params.id, 'Vente')); }));
+  app.get('/api/pf/shop/margins', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const days = Math.min(365, Math.max(1, Number(ctx.query.days) || 30));
+    const rows = await q(`SELECT l.name, sum(l.qty)::int AS qty, sum(l.qty * l.unit_price)::bigint AS revenue, sum(l.qty * (l.unit_price - l.unit_cost))::bigint AS margin
+      FROM pf_sale_lines l JOIN pf_sales s ON s.id = l.sale_id WHERE s.owner_id = $1 AND s.voided_at IS NULL AND s.occurred_on > current_date - $2::int
+      GROUP BY l.name ORDER BY margin DESC LIMIT 50`, [ctx.user.id, days]);
+    return { enabled: true, days, products: rows.map((r) => ({ ...r, revenue: N(r.revenue), margin: N(r.margin) })) };
+  }));
+  app.get('/api/pf/shop/closes', guard(ALL, async (ctx) => {
+    if (!(await featureOn())) return { enabled: false };
+    const rows = await q(`SELECT c.id, c.day::text AS day, c.expected::bigint AS expected, c.counted::bigint AS counted, c.note, a.name AS account_name
+      FROM pf_cash_close c JOIN pf_accounts a ON a.id = c.account_id WHERE c.owner_id = $1 ORDER BY c.day DESC, c.created_at DESC LIMIT 30`, [ctx.user.id]);
+    return { enabled: true, closes: rows.map((r) => ({ ...r, expected: N(r.expected), counted: N(r.counted), diff: N(r.counted) - N(r.expected) })) };
+  }));
+  app.post('/api/pf/shop/close', guard(ALL, async (ctx) => {
+    writing(ctx); const b = ctx.body;
+    const [r] = await q('SELECT fn_pf_cash_close($1, $2, $3::date, $4, $5) AS r', [ctx.user.id, v.uuid(b.account_id, 'Compte'), ymd(b.day || dayStr(new Date())), v.int(b.counted, 'Montant compté', { min: 0, max: 100_000_000_000 }), v.optStr(b.note, 'Note', 200)]);
+    return r.r;
+  }));
   app.post('/api/pf/rates-auto', guard(ALL, async (ctx) => {
     writing(ctx);
     await fn('fn_pf_rates_auto_set', ctx.user.id, ctx.body.on === true);

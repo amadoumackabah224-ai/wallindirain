@@ -621,3 +621,14 @@ div.notif { cursor: default; }
 .pf-monthbtn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--paper); color: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer; }
 .pf-emp { border-bottom: 1px solid var(--line-2); } .pf-emp:last-child { border-bottom: 0; } .pf-emp.dim { opacity: .55; }
 .pf-emp-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 14px; }
+
+/* Boutique */
+.shop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 12px 0; }
+.shop-tile { position: relative; border-radius: 14px; background: var(--pf-card); color: var(--pf-text); border: 2px solid transparent; overflow: hidden; }
+.shop-tile.on { border-color: var(--gold, #d4af37); } .shop-tile.out { opacity: .5; }
+.shop-add { display: flex; flex-direction: column; gap: 4px; width: 100%; min-height: 92px; padding: 12px; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.shop-add b { font-size: 1rem; } .shop-add span { font-weight: 700; } .shop-add small { opacity: .7; }
+.shop-qty { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-top: 1px solid var(--pf-line); }
+.shop-qty button { width: 34px; height: 34px; border-radius: 50%; border: 0; font-size: 1.2rem; font-weight: 700; cursor: pointer; }
+.shop-cart { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px 10px 16px; border-radius: 16px; background: var(--head, #0b1b3a); color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.35); z-index: 20; }
+.pf-note.warn { color: var(--warn, #e0a000); font-weight: 600; }
