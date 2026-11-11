@@ -2,7 +2,7 @@
 import { h, ask, fmtPhone, payoutText, fmtDate, liveView, action, avatar, compressImage, errToast, toast, kv, ROLE_LABEL, showLegal, getTheme, setTheme, moneyLock, setMoneyLock } from '../ui.js';
 import { icon } from '../icons.js';
 import { get, post } from '../api.js';
-import { kycCard } from './kyc.js';
+import { kycCard, vehicleCard } from './kyc.js';
 import { referralCard } from './stats.js';
 import { installCard } from '../pwa.js';
 
@@ -73,6 +73,7 @@ export function profileView({ onChanged }) {
             p.has_avatar && h('button', { class: 'btn btn-sm btn-ghost', onclick: removePhoto }, 'Supprimer la photo')),
           h('p', { class: 'small muted' }, 'La photo est facultative. Seuls vous et l\'administration la voyez.'))),
       PAYOUT_ROLES.includes(p.role) && kycCard(p.id),
+      p.role === 'courier' && vehicleCard(),
       h('div', { class: 'set-list' },
         row('infos', 'user', 'Mes informations', `${p.name} · membre depuis ${fmtDate(p.created_at)}`,
           kv([['Nom', p.name], ['Téléphone de connexion', fmtPhone(p.phone)], ['Membre depuis', fmtDate(p.created_at)]]),
