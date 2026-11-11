@@ -8,6 +8,7 @@ import { gaugeSvg, areaChart } from './pf-charts.js';
 import { spacesScreen, spaceScreen } from './pf-spaces.js';
 import { toolsScreen } from './pf-tools.js';
 import { payrollScreen } from './pf-payroll.js';
+import { shopScreen } from './pf-shop.js';
 import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
 
 export const INCOME_LABEL = { sales: 'Ventes', salary: 'Salaire', gift: 'Cadeau', other_in: 'Autre revenu' };
@@ -39,7 +40,7 @@ const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan 
 export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), payroll: (a) => payrollScreen({ ...a, head, card, isAdmin: user.role === 'admin' }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), shop: (a) => shopScreen({ ...a, head, card }), payroll: (a) => payrollScreen({ ...a, head, card, isAdmin: user.role === 'admin' }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
   if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
   const accId = /^account-[0-9a-f-]{36}$/.test(screen) ? screen.slice(8) : null;
@@ -590,6 +591,7 @@ function moreScreen({ go, st, user }) {
   const tile = (ico, label, sub, onclick, href) => h(href ? 'a' : 'button', { class: 'pf-tile', type: href ? null : 'button', href, onclick }, h('span', { class: 'pf-tile-ico' }, icon(ico, 30)), h('span', {}, label), sub && h('small', {}, sub));
   return h('div', {}, head('Plus'), h('div', { class: 'pf-pad' }, h('div', { class: 'pf-tiles' },
     tile('bank', 'Comptes', null, () => go('accounts')), tile('receipt', 'Transactions', null, () => go('tx')),
+    (pfProfile() === 'business' || pfProfile() === 'both') && tile('bag', 'Boutique', 'Vendre, stock, caisse', () => go('shop')),
     (pfProfile() === 'business' || pfProfile() === 'both') && tile('user', 'Paie des employés', 'Salaires du mois', () => go('payroll')),
     (pfProfile() === 'business' || pfProfile() === 'both') && st.spaces_enabled && tile('users', 'Espaces de groupe', 'Budget partagé', () => go('spaces')),
     tile('star', 'Formule', st.tier === 'pro' ? 'Pro' : 'Gratuite', () => go('pro')), tile('settings', 'Paramètres', null, () => go('settings')),
