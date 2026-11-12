@@ -5,6 +5,7 @@ import { get, post } from '../api.js';
 import { kycCard, vehicleCard } from './kyc.js';
 import { referralCard } from './stats.js';
 import { installCard } from '../pwa.js';
+import { lockCard } from '../lock.js';
 
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const PAYOUT_ROLES = ['seller', 'supplier', 'agent', 'call_chief', 'courier'];
@@ -74,6 +75,7 @@ export function profileView({ onChanged }) {
           h('p', { class: 'small muted' }, 'La photo est facultative. Seuls vous et l\'administration la voyez.'))),
       PAYOUT_ROLES.includes(p.role) && kycCard(p.id),
       p.role === 'courier' && vehicleCard(),
+      lockCard({ id: p.id, phone: p.phone, full_name: p.name }, refresh),
       h('div', { class: 'set-list' },
         row('infos', 'user', 'Mes informations', `${p.name} · membre depuis ${fmtDate(p.created_at)}`,
           kv([['Nom', p.name], ['Téléphone de connexion', fmtPhone(p.phone)], ['Membre depuis', fmtDate(p.created_at)]]),

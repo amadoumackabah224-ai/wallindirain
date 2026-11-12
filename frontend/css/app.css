@@ -632,3 +632,23 @@ div.notif { cursor: default; }
 .shop-qty button { width: 34px; height: 34px; border-radius: 50%; border: 0; font-size: 1.2rem; font-weight: 700; cursor: pointer; }
 .shop-cart { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px 10px 16px; border-radius: 16px; background: var(--head, #0b1b3a); color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.35); z-index: 20; }
 .pf-note.warn { color: var(--warn, #e0a000); font-weight: 600; }
+
+/* Saisie hors connexion */
+.off-bar-wrap { position: sticky; top: 0; z-index: 25; }
+.off-bar { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: .85rem; background: #3a2e0c; color: #ffe9a8; border-bottom: 1px solid rgba(255,255,255,.12); }
+.off-bar.wait { background: #0d2a4a; color: #cfe6ff; } .off-bar.bad { background: #4a1414; color: #ffd0d0; }
+.off-bar b { white-space: nowrap; } .off-bar .grow { flex: 1; } .off-btn { flex: none; min-height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; }
+
+/* Verrouillage de l'application */
+.lock-screen { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #0b1b3a, #060f24); color: #fff; padding: 24px; overflow-y: auto; }
+.lock-box { width: 100%; max-width: 320px; text-align: center; }
+.lock-logo { letter-spacing: .3em; font-weight: 700; font-size: .8rem; color: #d4af37; margin-bottom: 18px; }
+.lock-box h2 { margin: 0 0 14px; font-size: 1.2rem; color: #fff; }
+.lock-dots { display: flex; justify-content: center; gap: 14px; margin: 10px 0 6px; }
+.lock-dots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #d4af37; } .lock-dots span.on { background: #d4af37; }
+.lock-msg { min-height: 1.4em; margin: 8px 0 14px; font-size: .9rem; color: #ffb4b4; }
+.lock-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.lock-pad button { width: 72px; height: 72px; justify-self: center; border-radius: 50%; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #fff; font: inherit; font-size: 1.5rem; font-weight: 600; cursor: pointer; }
+.lock-pad button:active { background: rgba(212,175,55,.35); } .lock-pad button:disabled { opacity: .4; }
+.lock-pad .lock-aux { border-color: transparent; background: transparent; font-size: 1.3rem; }
+.lock-forgot { margin-top: 22px; background: none; border: 0; color: #9db4d8; font: inherit; font-size: .9rem; text-decoration: underline; cursor: pointer; }

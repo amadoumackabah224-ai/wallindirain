@@ -253,14 +253,27 @@ export function registerPf(app, { q, fn, guard, limit }) {
         FROM pf_all_tx t LEFT JOIN pf_accounts a ON a.id = t.account_id WHERE ${where} ORDER BY t.occurred_on DESC, t.created_at DESC LIMIT 100`, params);
     return { enabled: true, transactions: rows, history_limited: acc.tier !== 'pro' ? acc.free_history_days : null };
   }));
-  app.post('/api/pf/transactions', guard(ALL, async (ctx) => {
+  // Saisie hors connexion : l'application renvoie la même opération avec la même clé ; elle n'est enregistrée qu'une fois.
+  const once = async (ctx, work) => {
+    const key = ctx.body && ctx.body.client_key;
+    if (key === undefined || key === null) return work();
+    const st = (await q('SELECT fn_pf_once($1, $2) AS r', [ctx.user.id, String(key)]))[0].r;
+    if (st.state === 'done') { ctx.status = 200; return { ...st.result, repeated: true }; }
+    if (st.state === 'busy') throw new HttpError(409, 'invalid_state', 'Cet envoi est déjà en cours, réessayez dans un instant.');
+    try {
+      const out = await work();
+      await q('SELECT fn_pf_once_done($1, $2, $3::jsonb)', [ctx.user.id, String(key), JSON.stringify(out)]);
+      return out;
+    } catch (e) { await q('SELECT fn_pf_once_release($1, $2)', [ctx.user.id, String(key)]).catch(() => {}); throw e; }
+  };
+  app.post('/api/pf/transactions', guard(ALL, (ctx) => once(ctx, async () => {
     writing(ctx); const b = ctx.body;
     const kind = v.oneOf(b.kind, ['income', 'expense'], 'Type');
     const id = await fn('fn_pf_tx_add', ctx.user.id, v.uuid(b.account_id, 'Compte'), kind, v.int(b.amount, 'Montant', { min: 1, max: 1e11 }),
       catKey(b.category), v.optStr(b.note, 'Note', 200), ymd(b.occurred_on));
     ctx.status = 201;
     return { id };
-  }));
+  })));
   app.post('/api/pf/transactions/:id/update', guard(ALL, async (ctx) => {
     writing(ctx); const b = ctx.body;
     const [t] = await q('SELECT kind FROM pf_transactions WHERE id = $1 AND owner_id = $2', [v.uuid(ctx.params.id, 'Transaction'), ctx.user.id]);
@@ -670,13 +683,13 @@ export function registerPf(app, { q, fn, guard, limit }) {
     await q('SELECT fn_pf_item_restock($1, $2, $3, $4, $5, $6::date)', [ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.int(b.qty, 'Quantité', { min: 1, max: 1_000_000 }),
       b.unit_cost == null || b.unit_cost === '' ? null : v.int(b.unit_cost, 'Prix d\'achat', { min: 0, max: 100_000_000_000 }), b.account_id ? v.uuid(b.account_id, 'Compte') : null, ymd(b.occurred_on || dayStr(new Date()))]);
   }));
-  app.post('/api/pf/shop/sales', guard(ALL, async (ctx) => {
+  app.post('/api/pf/shop/sales', guard(ALL, (ctx) => once(ctx, async () => {
     writing(ctx); const b = ctx.body;
     if (!Array.isArray(b.lines) || b.lines.length === 0 || b.lines.length > 100) throw new HttpError(400, 'invalid_input', 'Aucun produit dans la vente');
     const lines = b.lines.map((l) => ({ item_id: v.uuid(l?.item_id, 'Produit'), qty: v.int(l?.qty, 'Quantité', { min: 1, max: 100_000 }) }));
     const [r] = await q('SELECT fn_pf_sale_add($1, $2, $3::date, $4::jsonb, $5) AS r', [ctx.user.id, v.uuid(b.account_id, 'Compte'), ymd(b.occurred_on || dayStr(new Date())), JSON.stringify(lines), v.optStr(b.note, 'Note', 200)]);
     ctx.status = 201; return r.r;
-  }));
+  })));
   app.post('/api/pf/shop/sales/:id/void', guard(ALL, async (ctx) => { writing(ctx); await fn('fn_pf_sale_void', ctx.user.id, v.uuid(ctx.params.id, 'Vente')); }));
   app.get('/api/pf/shop/margins', guard(ALL, async (ctx) => {
     if (!(await featureOn())) return { enabled: false };

@@ -5,6 +5,7 @@
 // qui reçoit { to, body, template } et lève une erreur en cas d'échec.
 
 import { EMAIL_PROVIDERS } from './email.js';
+import { sendSms, smsConfigured } from './sms.js';
 
 /** Numéro guinéen à 9 chiffres (ou numéro étranger +indicatif…) -> format international sans "+" */
 export const toInternational = (phone) => (String(phone).startsWith('+') ? String(phone).slice(1) : `224${phone}`);
@@ -65,9 +66,12 @@ export function startWorker({ db, cfg, log }) {
       const { rows } = await tx.query('SELECT * FROM fn_messages_claim(20)');
       for (const m of rows) {
         try {
+          // SMS : par Nimba si les identifiants sont enregistrés ; sinon le message part comme avant (jamais perdu)
           const status = m.channel === 'email'
             ? await sendEmail({ to: m.to_email, subject: m.subject || 'Wallindirain', body: m.body, template: m.template }, emailCfg)
-            : await send({ to: m.to_phone, body: m.body, template: m.template }, cfg.messaging);
+            : m.channel === 'sms' && smsConfigured(cfg.sms)
+              ? (await sendSms(cfg.sms, { to: m.to_phone, body: m.body }), 'sent')
+              : await send({ to: m.to_phone, body: m.body, template: m.template }, cfg.messaging);
           await tx.query('SELECT fn_message_mark($1, $2, NULL)', [m.id, status]);
         } catch (e) {
           log({ level: 'warn', msg: 'envoi de message échoué', id: m.id, err: String(e.message) });

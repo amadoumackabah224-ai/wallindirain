@@ -1,6 +1,8 @@
 // Point d'entrée de l'interface : routage, session, navigation par rôle.
 import { h, ROLE_LABEL, toast, spinner, avatar, legalLinks, setLegalAudience, AUDIENCE_OF_ROLE } from './ui.js';
-import { get, post, setUnauthorizedHandler } from './api.js';
+import { get, post, setUnauthorizedHandler, clearCache, rememberUser } from './api.js';
+import { setOfflineUser, startSync } from './offline.js';
+import { initLock, stopLock, clearLock } from './lock.js';
 import { loginView, registerView, forgotView, clientOrderView, dataRequestView, flags } from './views/auth.js';
 import { profileView } from './views/profile.js';
 import { helpButton } from './views/support.js';
@@ -128,7 +130,7 @@ async function askLegal() {
   legalGate({ onAccepted: () => { gateOpen = false; if (user) user.legal_pending = false; }, onQuit: () => { gateOpen = false; logout(); } });
 }
 
-async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; location.hash = '#/login'; }
+async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; setOfflineUser(null); clearCache(); clearLock(); stopLock(); location.hash = '#/login'; }
 
 async function route() {
   const [, a, b] = location.hash.split('/');
@@ -137,6 +139,7 @@ async function route() {
   if (a === 'suivi' && b) return pub(trackView(b));              // suivi de commande pour le client
   if (a === 'demande-donnees') return pub(dataRequestView());
   if (!user) { try { user = (await get('/auth/me')).user; } catch (e) { user = null; if (e?.code === 'network') return pub(offlineScreen(route)); } }
+  if (user) { setOfflineUser(user.id); rememberUser(user); startSync(); initLock(user, logout); }
   if (!user) {
     if (a === 'register') return pub(registerView({ ref: b }));
     if (a === 'forgot') return pub(forgotView());
@@ -150,7 +153,7 @@ async function route() {
   location.hash = '#/app/';
 }
 
-setUnauthorizedHandler(() => { if (user) { user = null; toast('Session expirée : reconnectez-vous.', 'bad'); location.hash = '#/login'; route(); } });
+setUnauthorizedHandler(() => { if (user) { user = null; clearCache(); stopLock(); toast('Session expirée : reconnectez-vous.', 'bad'); location.hash = '#/login'; route(); } });
 window.addEventListener('hashchange', route);
 startPwa();
 render(spinner());

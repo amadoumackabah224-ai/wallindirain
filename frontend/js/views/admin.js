@@ -215,6 +215,22 @@ export function adminDeposit() {
   });
 }
 
+/** Carte « SMS (Nimba) » : état de la connexion, solde, SMS de test. Les identifiants restent sur le serveur, jamais affichés. */
+function smsCard() {
+  return liveView(() => get('/admin/sms'), (s, refresh) => {
+    const phone = h('input', { type: 'tel', inputmode: 'tel', placeholder: 'Votre numéro, ex. 622 00 00 00', 'aria-label': 'Numéro pour le SMS de test', maxlength: 20 });
+    const test = action(async () => { if (!phone.value.trim()) { toast('Saisissez un numéro.', 'bad'); return false; } await post('/admin/sms/test', { phone: phone.value.trim() }); }, { ok: (r) => (r === false ? '' : 'SMS de test envoyé : vérifiez votre téléphone'), refresh });
+    return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'SMS (Nimba SMS)'), badge(s.configured ? 'Connecté' : 'Non configuré', s.configured ? 'ok' : 'warn')),
+      s.configured
+        ? kv([['Expéditeur', s.sender_name || 'Non précisé'], ['Solde SMS', s.balance == null ? 'Indisponible' : `${s.balance} SMS`], ['Dernières 24 h', `${s.sent_24h} envoyés · ${s.failed_24h} échoués`]])
+        : h('div', {}, h('p', { class: 'small muted' }, 'Pour connecter Nimba SMS, enregistrez ces trois valeurs dans les variables d\'environnement de votre hébergeur (jamais ici ni dans le code), puis redémarrez :'),
+          h('ul', { class: 'small' }, h('li', {}, 'NIMBA_SERVICE_ID : le SERVICE ID de votre compte'), h('li', {}, 'NIMBA_SECRET_TOKEN : le SECRET TOKEN'), h('li', {}, 'NIMBA_SENDER_NAME : le nom d\'expéditeur validé par Nimba')),
+          h('p', { class: 'small muted' }, 'Tant que ce n\'est pas fait, « Codes par SMS » reste impossible à allumer et rien ne change.')),
+      s.configured && h('div', { class: 'gap mt' }, phone, h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: test }, 'Envoyer un SMS test')),
+      s.configured && h('p', { class: 'small muted' }, s.enabled ? 'Les codes partent par SMS.' : 'Faites un SMS test puis allumez « Codes par SMS » ci-dessus.'));
+  });
+}
+
 // Réglages : rangés par section (un seul bloc affiché à la fois) pour que chaque écran reste court et lisible
 let settingsTab = 'fonctions';
 const FEATURES = [
@@ -228,7 +244,7 @@ const FEATURES = [
   ['subscription_required', 'Abonnement obligatoire pour vendre', 'Un vendeur sans abonnement à jour ne peut plus créer de commande (après sa période d\'essai).'],
   ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
-,
+  ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
   ['vehicle_check_required', 'Plaque et carte grise des livreurs obligatoires', 'Un livreur à moto ou en voiture ne reçoit pas de mission tant que sa plaque et sa carte grise ne sont pas vérifiées. Vélo et à pied : rien à fournir.']
 ];
 const FEATURE_KEYS = FEATURES.map((f) => f[0]);
@@ -319,7 +335,8 @@ function settingsSection(tab) {
               if (!(await confirmBox(on ? `Désactiver « ${title} » ?` : `Activer « ${title} » ?`, text, on ? 'Désactiver' : 'Activer', on))) return;
               await post('/admin/settings', { key: k, value: on ? 0 : 1 });
             }, { ok: on ? 'Fonction désactivée' : 'Fonction activée', refresh }) }, on ? 'Désactiver' : 'Activer')));
-        }));
+        }),
+        smsCard());
     }
     if (tab === 'tarifs' || tab === 'regles') {
       const used = new Set();

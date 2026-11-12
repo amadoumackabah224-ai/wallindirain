@@ -134,7 +134,7 @@ test('droits : la vue est en lecture seule, les fonctions internes inaccessibles
 });
 
 test('retour arrière 051 : refusé si relié, accepté sinon ; le registre est nettoyé', async () => {
-  const rb = ['062', '061', '060', '059', '058', '057', '056', '055', '054', '051'].map((n) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${n}.sql`), 'utf8')).join('\n');   // les réglages, catégories et devises se défont avant
+  const rb = ['064', '063', '062', '061', '060', '059', '058', '057', '056', '055', '054', '051'].map((n) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${n}.sql`), 'utf8')).join('\n');   // les réglages, catégories et devises se défont avant
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
   await assert.rejects(run, /sont reliés à Mes finances/);
   await db.owner.query('UPDATE pf_prefs SET wallet_linked = false');

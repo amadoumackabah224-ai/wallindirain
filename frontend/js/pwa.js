@@ -14,9 +14,9 @@ export function startPwa() {
   // bandeau quand le réseau coupe
   const bar = h('div', { class: 'offline-bar hidden', role: 'status' }, 'Vous êtes hors connexion : vous ne pouvez rien envoyer tant que le réseau n\'est pas revenu.');
   document.body.append(bar);
-  const sync = () => bar.classList.toggle('hidden', navigator.onLine !== false);
+  const sync = () => bar.classList.toggle('hidden', navigator.onLine !== false || location.hash.startsWith('#/pf'));   // Mes finances a son propre bandeau (saisie possible hors connexion)
   window.addEventListener('online', () => { sync(); toast('Connexion rétablie', 'ok'); });
-  window.addEventListener('offline', sync); sync();
+  window.addEventListener('offline', sync); window.addEventListener('hashchange', sync); sync();
   // bouton d'installation proposé par Chrome / Android
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; });
   window.addEventListener('appinstalled', () => { installEvent = null; toast('Application installée', 'ok'); });
