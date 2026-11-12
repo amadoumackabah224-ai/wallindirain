@@ -681,6 +681,27 @@ function currenciesScreen({ go }) {
 const WIDGET_INFO = [['balance_evolution', 'Évolution du solde'], ['accounts', 'Comptes'], ['cash_flow', 'Flux de trésorerie'], ['planned_payments', 'Paiements planifiés', true], ['cash_forecast', 'Prévision de trésorerie', true], ['balance', 'Solde'], ['expenses', 'Dépenses'], ['top_expense', 'Dépense principale'], ['budget', 'Budget', true], ['recent_tx', 'Dernières transactions'], ['exchange_rate', 'Taux de change']];
 const GAUGE_INFO = [['income', 'Revenus', 'Revenus d\'exploitation des 30 derniers jours ÷ ceux des 30 jours d\'avant (financements et remboursements de prêt exclus).'], ['flow', 'Flux de trésorerie', 'Flux net des 30 derniers jours ÷ celui des 30 jours d\'avant.'], ['balance', 'Solde', 'Solde actuel ÷ solde d\'il y a 30 jours.']];
 
+/** Une jauge dans Paramètres : formule en clair, seuils en grand et curseurs liés aux champs numériques (qui restent la source de vérité). */
+function gaugeSetCard(g, label, help, lowIn, highIn, def) {
+  const slider = (input, side) => {
+    const r = h('input', { type: 'range', class: `pf-gs-range ${side}`, min: '0.5', max: '2', step: '0.05', 'aria-label': side === 'low' ? `${label} : seuil faible` : `${label} : seuil élevé` });
+    const sync = () => { r.value = input.value === '' ? String(def[side === 'low' ? 0 : 1]) : input.value; };
+    sync();
+    r.addEventListener('input', () => { input.value = r.value; show(); });
+    input.addEventListener('input', () => { sync(); show(); });
+    return r;
+  };
+  const fmtN = (v) => String(v).replace('.', ',');
+  const lowBig = h('b', { class: 'pf-gs-n low' }), highBig = h('b', { class: 'pf-gs-n high' });
+  const show = () => { lowBig.textContent = fmtN(lowIn.value === '' ? def[0] : lowIn.value); highBig.textContent = fmtN(highIn.value === '' ? def[1] : highIn.value); };
+  const rl = slider(lowIn, 'low'), rh = slider(highIn, 'high');
+  show();
+  return h('section', { class: 'pf-card pf-gs' }, h('h2', {}, label), h('p', { class: 'pf-note' }, help),
+    h('div', { class: 'pf-gs-vals' }, h('div', {}, h('small', {}, 'Faible en dessous de'), lowBig), h('div', { class: 'right' }, h('small', {}, 'Élevé à partir de'), highBig)),
+    rl, rh,
+    h('div', { class: 'pf-gset-row' }, h('label', {}, 'Faible en dessous de', lowIn), h('label', {}, 'Élevé à partir de', highIn)));
+}
+
 /** Paramètres → Général : décimales, période par défaut, blocs du tableau de bord, seuils des jauges. */
 function generalScreen({ go }) {
   return liveView(() => get('/pf/settings'), (set, refresh) => {
@@ -694,7 +715,7 @@ function generalScreen({ go }) {
       await post('/pf/settings', { decimals: dec.checked, default_period: per.value, widgets: Object.fromEntries(WIDGET_INFO.map(([k]) => [k, wid[k].checked])), gauges });
       decimals = dec.checked;
     }, { ok: 'Paramètres enregistrés', refresh });
-    const reset = action(async () => { for (const el of Object.values(gin)) el.value = ''; }, {});
+    const reset = action(async () => { for (const el of Object.values(gin)) { el.value = ''; el.dispatchEvent(new Event('input')); } }, {});
     const line = (label, ctrl, hint) => h('label', { class: 'pf-opt' }, h('span', { class: 'grow' }, label, hint && h('small', {}, hint)), ctrl);
     return h('div', {}, head('Général', { back: ['Paramètres', () => go('settings')] }), h('div', { class: 'pf-pad' },
       card('Général',
@@ -703,10 +724,9 @@ function generalScreen({ go }) {
         line('Devise de base', h('b', {}, 'GNF'), 'Pour ajouter d\'autres devises : Paramètres → Devises.')),
       card('Tableau de bord', h('p', { class: 'pf-note' }, 'Choisissez les blocs à afficher. Les blocs Pro restent visibles mais verrouillés dans la formule gratuite.'),
         WIDGET_INFO.map(([k, l, pro]) => line(l, wid[k], pro ? 'Pro' : undefined))),
-      card('Jauges', h('p', { class: 'pf-note' }, 'Réglez à partir de quel rapport l\'aiguille passe de « faible » (rouge) à « élevé » (vert). Exemple : 0,9 et 1,2. Vide = valeur par défaut.'),
-        GAUGE_INFO.map(([g, l, help]) => h('div', { class: 'pf-gset' }, h('b', {}, l), h('small', {}, help),
-          h('div', { class: 'pf-gset-row' }, h('label', {}, 'Faible en dessous de', gin[`${g}_low`]), h('label', {}, 'Élevé à partir de', gin[`${g}_high`])))),
-        h('button', { class: 'pf-btn ghost block', type: 'button', onclick: reset }, 'Remettre les valeurs par défaut')),
+      h('p', { class: 'pf-note' }, 'Jauges : réglez à partir de quel rapport l\'aiguille passe de « faible » (rouge) à « élevé » (vert). Vide = valeur par défaut.'),
+      GAUGE_INFO.map(([g, l, help]) => gaugeSetCard(g, l, help, gin[`${g}_low`], gin[`${g}_high`], set.defaults.gauges[g])),
+      h('button', { class: 'pf-btn ghost', type: 'button', onclick: reset }, 'Remettre les valeurs par défaut'),
       h('button', { class: 'pf-btn block', type: 'button', onclick: save }, 'Enregistrer'),
       h('p', { class: 'pf-note' }, 'Ces réglages ne concernent que vous.')));
   });
@@ -726,19 +746,39 @@ function gaugesScreen({ go }) {
   });
 }
 function proScreen({ go, st, reload }) {
-  const sub = (plan) => action(async () => {
+  let plan = st.prices.monthly > 0 ? 'monthly' : 'yearly';
+  const sub = () => action(async () => {
     const price = plan === 'monthly' ? st.prices.monthly : st.prices.yearly;
     if (!(await confirmBox('Passer à Pro ?', `${fmtGNF(price)} seront prélevés sur votre portefeuille Wallindirain pour ${plan === 'monthly' ? '1 mois' : '12 mois'}.`, 'Payer'))) return;
     await post('/pf/subscribe', { plan });
   }, { ok: 'Vous êtes passé à Pro', refresh: reload });
   const until = st.paid_until ? new Date(st.paid_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+  const isPro = st.tier === 'pro';
+  const status = !st.priced ? 'Toutes les fonctions sont ouvertes pour le moment.' : isPro ? (until && Date.parse(st.paid_until) > Date.now() ? `Abonnement actif jusqu'au ${until}.` : `Essai Pro jusqu'au ${new Date(st.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`) : 'Vous gardez vos données. Passez à Pro pour retrouver toutes les fonctions.';
+  const li = (t) => h('li', {}, icon('check', 18), h('span', {}, t));
+  const rows = [
+    ['Comptes personnels', `${st.free_accounts}`, 'Illimités'], ['Historique consultable', `${st.free_history_days} jours`, 'Complet'], ['Tableau de bord et statistiques', '30 jours', '90 jours et 1 an'],
+    ['Budgets, objectif du mois, récurrents', false, true], ['Prévision de trésorerie à 30 jours', false, true], ['Export CSV, règles automatiques, import', false, true], ['Liaison automatique du portefeuille Wallindirain', false, true]];
+  const cell = (v) => v === true ? h('td', { class: 'pf-cmp-yes' }, icon('check', 18), h('span', { class: 'sr-only' }, 'Inclus')) : v === false ? h('td', { class: 'pf-cmp-no' }, '–', h('span', { class: 'sr-only' }, 'Non inclus')) : h('td', {}, v);
+  const price = h('div', { class: 'pf-plan-price' });
+  const seg = h('div', { class: 'pf-seg', role: 'group', 'aria-label': 'Durée de l\'abonnement' });
+  const drawPrice = () => {
+    const v = plan === 'monthly' ? st.prices.monthly : st.prices.yearly;
+    price.replaceChildren(h('b', {}, fmtGNF(v)), h('span', {}, plan === 'monthly' ? 'par mois' : 'par an'));
+    seg.replaceChildren(...[['monthly', 'Mensuel'], ['yearly', 'Annuel']].filter(([k]) => st.prices[k] > 0).map(([k, l]) => h('button', { class: 'pf-seg-b', type: 'button', 'aria-pressed': String(plan === k), onclick: () => { plan = k; drawPrice(); } }, l)));
+  };
+  drawPrice();
+  const canBuy = st.priced && (st.prices.monthly > 0 || st.prices.yearly > 0);
   return h('div', {}, head('Formule', { back: ['Plus', () => go('more')] }), h('div', { class: 'pf-pad' },
-    card(null, h('div', { class: 'pf-big' }, st.tier === 'pro' ? 'Pro' : 'Gratuite'), h('p', { class: 'pf-note' }, !st.priced ? 'Toutes les fonctions sont ouvertes pour le moment.' : st.tier === 'pro' ? (until && Date.parse(st.paid_until) > Date.now() ? `Abonnement actif jusqu'au ${until}.` : `Essai Pro jusqu'au ${new Date(st.trial_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.`) : 'Vous gardez vos données. Passez à Pro pour retrouver toutes les fonctions.')),
-    card('Gratuit', h('ul', { class: 'pf-list' }, h('li', {}, `${st.free_accounts} comptes personnels`), h('li', {}, 'Carnet de contacts (nombre limité), notes, appel, SMS, WhatsApp'), h('li', {}, 'Revenus, dépenses et virements'), h('li', {}, `Historique des ${st.free_history_days} derniers jours`), h('li', {}, 'Tableau de bord sur 30 jours'))),
-    card('Pro', h('ul', { class: 'pf-list' }, h('li', {}, 'Comptes et contacts illimités'), h('li', {}, 'Étiquettes et import de fichier de contacts'), h('li', {}, 'Historique complet'), h('li', {}, 'Statistiques sur 90 jours et 1 an'), h('li', {}, 'Budgets, objectif du mois, récurrents et prévision à 30 jours'), h('li', {}, 'Export CSV, règles automatiques de catégorie et import de transactions')),
-      st.priced ? h('div', { class: 'pf-btns' }, st.prices.monthly > 0 && h('button', { class: 'pf-btn', type: 'button', onclick: sub('monthly') }, `${fmtGNF(st.prices.monthly)} / mois`), st.prices.yearly > 0 && h('button', { class: 'pf-btn alt', type: 'button', onclick: sub('yearly') }, `${fmtGNF(st.prices.yearly)} / an`))
-        : h('p', { class: 'pf-note' }, 'Aucun prix n\'est fixé pour le moment.')),
-    h('p', { class: 'pf-note' }, 'Le paiement est prélevé sur votre portefeuille Wallindirain. Un abonnement terminé ne supprime rien : vos données restent, avec les limites de la formule gratuite.')));
+    card(null, h('div', { class: 'pf-plan-now' }, h('span', { class: 'pf-plan-lab' }, 'Votre formule'), h('b', {}, isPro ? 'Pro' : 'Gratuite')), h('p', { class: 'pf-note' }, status)),
+    h('section', { class: 'pf-plan' }, h('h2', {}, 'Gratuit'), h('p', { class: 'pf-note' }, 'Pour bien démarrer'), h('div', { class: 'pf-plan-price' }, h('b', {}, '0 GNF'), h('span', {}, 'pour toujours')),
+      h('ul', { class: 'pf-plan-list' }, li(`${st.free_accounts} comptes personnels`), li('Revenus, dépenses et virements'), li('Tableau de bord sur 30 jours'), li(`Historique des ${st.free_history_days} derniers jours`), li('Carnet de contacts (nombre limité), appel, SMS, WhatsApp'))),
+    h('section', { class: 'pf-plan pro' }, h('span', { class: 'pf-plan-badge' }, 'Recommandé'), h('h2', {}, 'Pro'), h('p', { class: 'pf-note' }, 'Pour piloter ses finances en profondeur'),
+      canBuy ? [seg, price] : h('p', { class: 'pf-note' }, 'Aucun prix n\'est fixé pour le moment.'),
+      h('ul', { class: 'pf-plan-list' }, li('Tout le plan gratuit, sans limite de comptes ni de contacts'), li('Historique complet, statistiques sur 90 jours et 1 an'), li('Budgets, objectif du mois, récurrents, prévision à 30 jours'), li('Liaison automatique avec votre portefeuille Wallindirain'), li('Export CSV, règles automatiques, import, devises multiples')),
+      canBuy && h('button', { class: 'pf-btn gold block', type: 'button', onclick: sub() }, isPro ? 'Prolonger mon abonnement' : 'Passer à Pro')),
+    card('Comparer en détail', h('table', { class: 'pf-cmp' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fonction'), h('th', {}, 'Gratuit'), h('th', {}, 'Pro'))), h('tbody', {}, rows.map(([l, f, p]) => h('tr', {}, h('th', { scope: 'row' }, l), cell(f), cell(p)))))),
+    h('p', { class: 'pf-note' }, 'Le paiement est prélevé sur votre portefeuille Wallindirain, vous confirmez avant. Un abonnement terminé ne supprime rien : vos données restent, avec les limites de la formule gratuite.')));
 }
 
 export { fmtPhone, badge };

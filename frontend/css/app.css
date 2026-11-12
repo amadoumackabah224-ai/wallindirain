@@ -652,3 +652,25 @@ div.notif { cursor: default; }
 .lock-pad button:active { background: rgba(212,175,55,.35); } .lock-pad button:disabled { opacity: .4; }
 .lock-pad .lock-aux { border-color: transparent; background: transparent; font-size: 1.3rem; }
 .lock-forgot { margin-top: 22px; background: none; border: 0; color: #9db4d8; font: inherit; font-size: .9rem; text-decoration: underline; cursor: pointer; }
+
+/* Écran Formule : offres côte à côte et comparatif */
+.pf-plan-now { display: flex; align-items: baseline; gap: 10px; } .pf-plan-now b { font-size: 28px; font-weight: 800; } .pf-plan-lab { color: var(--pf-mute); font-size: 13px; font-weight: 600; }
+.pf-plan { position: relative; background: var(--pf-card); border: 1px solid var(--pf-line); border-radius: 20px; padding: 18px; margin: 0 0 16px; }
+.pf-plan h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--pf-text); } .pf-plan.pro { border: 2px solid #D4AF37; }
+.pf-plan.pro h2 { color: #E7C766; }
+.pf-plan-badge { position: absolute; top: -12px; right: 16px; background: #D4AF37; color: #3d2f00; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; border-radius: 999px; padding: 4px 12px; }
+.pf-plan-price { display: flex; align-items: baseline; gap: 8px; margin: 12px 0; } .pf-plan-price b { font-size: 30px; font-weight: 800; letter-spacing: -.5px; } .pf-plan-price span { color: var(--pf-mute); font-size: 14px; }
+.pf-plan-list { list-style: none; margin: 8px 0 0; padding: 12px 0 0; border-top: 1px solid var(--pf-line); display: flex; flex-direction: column; gap: 8px; }
+.pf-plan-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.4; color: #d1d1d6; } .pf-plan-list li svg { flex: none; color: var(--pf-green); margin-top: 1px; } .pf-plan.pro .pf-plan-list li svg { color: #E7C766; }
+.pf-seg { display: inline-flex; background: #2c2c2e; border-radius: 12px; padding: 3px; gap: 3px; margin-top: 12px; }
+.pf-seg-b { background: transparent; color: var(--pf-mute); border: 0; border-radius: 10px; min-height: 38px; padding: 0 16px; font-weight: 700; font-size: 14px; cursor: pointer; } .pf-seg-b[aria-pressed="true"] { background: var(--pf-text); color: #000; }
+.pf-btn.gold { background: #D4AF37; color: #1f1700; } .pf-plan .pf-btn.block { width: 100%; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.pf-cmp { width: 100%; border-collapse: collapse; font-size: 14px; } .pf-cmp th, .pf-cmp td { padding: 11px 6px; border-bottom: 1px solid var(--pf-line); text-align: center; } .pf-cmp thead th { color: var(--pf-mute); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.pf-cmp tbody th { text-align: left; font-weight: 500; } .pf-cmp-yes { color: var(--pf-green); } .pf-cmp-no { color: var(--pf-mute); }
+
+/* Jauges : réglage des seuils */
+.pf-gs h2 { margin: 0 0 4px; font-size: 18px; font-weight: 800; color: var(--pf-text); } .pf-gs .pf-note { margin: 0 0 12px; }
+.pf-gs-vals { display: flex; justify-content: space-between; margin-bottom: 6px; } .pf-gs-vals small { display: block; color: var(--pf-mute); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; } .pf-gs-vals .right { text-align: right; }
+.pf-gs-n { font-size: 34px; font-weight: 800; letter-spacing: -.5px; } .pf-gs-n.low { color: #ff6b61; } .pf-gs-n.high { color: var(--pf-green); }
+.pf-gs-range { width: 100%; margin: 8px 0; height: 32px; } .pf-gs-range.low { accent-color: #ff6b61; } .pf-gs-range.high { accent-color: #20c997; }
