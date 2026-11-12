@@ -21,7 +21,7 @@ import { supplierProducts, supplierOrders, sellerProposals } from './views/suppl
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
 import { warehouseTab } from './views/warehouse.js';
-import { myInvoices, adminInvoices } from './views/invoices.js';
+import { myInvoices, adminInvoices, adminAccounting } from './views/invoices.js';
 import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminRemittances, adminSupport, adminData, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
 
 const app = document.getElementById('app');
@@ -55,7 +55,7 @@ const TABS = {
   member: [],
   warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
   admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
-    ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['invoices', 'receipt', 'Factures', () => adminInvoices(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
+    ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['invoices', 'receipt', 'Factures', () => adminInvoices(), 'Finances'], ['accounting', 'book', 'Comptabilité', () => adminAccounting(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
     ['support', 'message', 'Messages', () => adminSupport(), 'Système'], ['announce', 'megaphone', 'Annonces', () => adminAnnounce(), 'Système'], ['data', 'database', 'Données', () => adminData(), 'Système'], ['settings', 'sliders', 'Réglages', () => adminSettings(), 'Système'], ['audit', 'scroll', 'Journal', () => adminAudit(), 'Système']]
 };
 // Barre du bas sur téléphone : les onglets principaux ; le reste se trouve sous « Plus » (rien n'est retiré).
