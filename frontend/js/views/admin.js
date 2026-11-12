@@ -19,7 +19,7 @@ export function adminDashboard({ goTo }) {
     return h('div', {},
       pageHead('Tableau de bord', 'Vue d\'ensemble de la plateforme'),
       d.ledger_problems > 0 && alertRow('bad', 'alert', `${d.ledger_problems} incohérence(s) comptable(s) détectée(s). Contactez le développeur.`),
-      d.legal_missing?.length > 0 && alertRow('', 'shield', `Informations légales à compléter dans les variables Render avant la mise en service : ${d.legal_missing.join(' ; ')}.`),
+      d.legal_missing?.length > 0 && alertRow('', 'shield', `Mise en service : ${d.legal_missing.length} information${d.legal_missing.length > 1 ? 's' : ''} légale${d.legal_missing.length > 1 ? 's' : ''} à compléter (${d.legal_missing.map((x) => x.replace(/\s*\([A-Z_]+\)\s*$/, '')).join(', ')}). Elles se saisissent dans les réglages de l'hébergement (Render).`),
       h('h2', {}, 'À traiter'),
       h('div', { class: 'metrics mb' }, todo.map(([to, ico, label, n]) => metric({ ico, tone: n > 0 ? 'bad' : 'grey', label, value: String(n), onclick: to ? () => goTo(to) : undefined }))),
       h('h2', {}, 'Activité et argent'),

@@ -145,3 +145,51 @@ export function adminInvoices() {
   show();
   return host;
 }
+
+
+// ---------- Comptabilité de la société : états simples à imprimer (chiffres de l'entreprise seulement, aucune donnée personnelle) ----------
+export function adminAccounting() {
+  const now = new Date();
+  let from = iso(new Date(Date.UTC(now.getUTCFullYear(), 0, 1))), to = iso(now), picked = null;
+  const host = h('div', {});
+  const show = () => host.replaceChildren(h('div', {}, pageHead('Comptabilité de la société', 'Journal, compte de résultat et trésorerie, à imprimer. Uniquement les chiffres de l\'entreprise.'), body()));
+  const body = () => liveView(() => get(`/admin/accounting?${new URLSearchParams({ from, to, ...(picked && { accounts: picked.join(',') }) })}`), ({ accounting: a }) => {
+    if (!picked) picked = a.selected;
+    const sel = new Set(picked);
+    const lines = [...a.automatic.map((x) => ({ day: x.day, label: x.label, note: x.count > 1 ? `${x.count} opérations` : '', side: x.side, amount: x.amount })),
+      ...a.manual.map((x) => ({ day: x.day, label: x.label, note: x.note || '', side: x.side, amount: x.amount }))].sort((p, q) => String(p.day).localeCompare(String(q.day)));
+    const group = (side) => { const m = new Map(); for (const l of lines) if (l.side === side) m.set(l.label, (m.get(l.label) || 0) + Number(l.amount)); return [...m]; };
+    const rev = group('revenue'), chg = group('charge');
+    const c = a.company || {};
+    const sheet = () => h('div', { class: 'inv' },
+      h('header', { class: 'inv-head' }, h('img', { class: 'inv-logo', src: '/assets/logo-gold.png', alt: '' }),
+        h('div', { class: 'inv-issuer' }, h('b', {}, c.legal_name || 'Wallindirain'), c.address && h('div', {}, c.address), (c.nif || c.rccm) && h('div', {}, [c.nif && `NIF : ${c.nif}`, c.rccm && `RCCM : ${c.rccm}`].filter(Boolean).join(' · ')))),
+      h('h1', {}, 'États comptables simplifiés'), h('p', {}, `Période : du ${day(a.period.from)} au ${day(a.period.to)} · édité le ${day(new Date())}`),
+      h('h2', {}, 'Compte de résultat'),
+      h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Libellé'), h('th', { class: 'num' }, 'Montant'))), h('tbody', {},
+        h('tr', {}, h('th', { colspan: 2 }, 'Produits')), rev.map(([l, m]) => h('tr', {}, h('td', {}, l), h('td', { class: 'num' }, fmtGNF(m)))), h('tr', {}, h('td', {}, h('b', {}, 'Total des produits')), h('td', { class: 'num' }, h('b', {}, fmtGNF(a.revenue)))),
+        h('tr', {}, h('th', { colspan: 2 }, 'Charges')), chg.map(([l, m]) => h('tr', {}, h('td', {}, l), h('td', { class: 'num' }, fmtGNF(m)))), h('tr', {}, h('td', {}, h('b', {}, 'Total des charges')), h('td', { class: 'num' }, h('b', {}, fmtGNF(a.charges)))),
+        h('tr', {}, h('td', {}, h('b', {}, a.result >= 0 ? 'Bénéfice de la période' : 'Perte de la période')), h('td', { class: 'num' }, h('b', {}, fmtGNF(a.result)))))),
+      h('h2', {}, 'Trésorerie'),
+      h('table', {}, h('tbody', {},
+        h('tr', {}, h('td', {}, 'Comptes de l\'entreprise au début de la période'), h('td', { class: 'num' }, fmtGNF(a.treasury.accounts_open))),
+        h('tr', {}, h('td', {}, 'Comptes de l\'entreprise à la fin de la période'), h('td', { class: 'num' }, fmtGNF(a.treasury.accounts_close))),
+        h('tr', {}, h('td', {}, 'Solde du portefeuille de la plateforme à la fin'), h('td', { class: 'num' }, fmtGNF(a.treasury.platform_wallet))))),
+      h('h2', {}, 'Journal des écritures'),
+      h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Libellé'), h('th', {}, 'Détail'), h('th', { class: 'num' }, 'Produit'), h('th', { class: 'num' }, 'Charge'))),
+        h('tbody', {}, lines.map((l) => h('tr', {}, h('td', {}, day(l.day)), h('td', {}, l.label), h('td', {}, l.note), h('td', { class: 'num' }, l.side === 'revenue' ? fmtGNF(l.amount) : ''), h('td', { class: 'num' }, l.side === 'charge' ? fmtGNF(l.amount) : ''))))),
+      h('p', { class: 'small' }, 'Document établi à partir des données de la plateforme, sans aucune information personnelle sur les clients ni les utilisateurs. Aucune règle fiscale n\'y est appliquée : à faire valider par un expert-comptable avant tout dépôt officiel.'));
+    const accountBoxes = a.accounts.length ? h('div', { class: 'chips mb' }, a.accounts.map((x) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(sel.has(x.id)), onclick: () => { if (sel.has(x.id)) sel.delete(x.id); else sel.add(x.id); picked = [...sel]; show(); } }, x.name))) : h('p', { class: 'muted small' }, 'Aucun compte « Mes finances » : seuls les chiffres automatiques de la plateforme sont inclus.');
+    return h('div', {},
+      h('div', { class: 'card' }, h('div', { class: 'form-grid' },
+        h('label', { class: 'f' }, h('span', {}, 'Du'), h('input', { type: 'date', value: from, onchange: (e) => { from = e.target.value; show(); } })),
+        h('label', { class: 'f' }, h('span', {}, 'Au'), h('input', { type: 'date', value: to, onchange: (e) => { to = e.target.value; show(); } }))),
+        h('p', { class: 'small muted' }, 'Comptes de « Mes finances » à inclure (vos écritures saisies à la main) :'), accountBoxes),
+      h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Résultat de la période'), h('button', { class: 'btn btn-sm', type: 'button', onclick: () => printNode(sheet(), { invoice: true }) }, 'Imprimer / PDF')),
+        table(['Produits', 'Charges', a.result >= 0 ? 'Bénéfice' : 'Perte'], [[h('b', {}, fmtGNF(a.revenue)), h('b', {}, fmtGNF(a.charges)), h('b', {}, fmtGNF(a.result))]], { empty: empty('chart', 'Aucune donnée') }),
+        h('p', { class: 'muted small' }, 'Les revenus de la plateforme sont inscrits automatiquement en totaux par jour. Aucun nom, téléphone ni numéro de commande n\'apparaît.')),
+      h('div', { class: 'card' }, h('h2', {}, 'Journal'), table(['Date', 'Libellé', 'Détail', 'Produit', 'Charge'], lines.map((l) => [day(l.day), l.label, l.note, l.side === 'revenue' ? fmtGNF(l.amount) : '', l.side === 'charge' ? fmtGNF(l.amount) : '']), { empty: empty('chart', 'Aucune écriture sur la période') })));
+  });
+  show();
+  return host;
+}

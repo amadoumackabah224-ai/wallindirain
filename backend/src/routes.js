@@ -1537,6 +1537,12 @@ export function registerRoutes(app, { db, cfg }) {
     const today = new Date().toISOString().slice(0, 10), first = `${today.slice(0, 8)}01`;
     return { summary: await fn('fn_admin_finance_summary', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today) };
   }));
+  // Comptabilité de la société : chiffres de l'entreprise seulement (aucune donnée personnelle), à imprimer
+  app.get('/api/admin/accounting', guard(ADM, async (ctx) => {
+    const today = new Date().toISOString().slice(0, 10), first = `${today.slice(0, 8)}01`;
+    const accs = ctx.query.accounts == null ? null : String(ctx.query.accounts).split(',').filter(Boolean).slice(0, 50).map((x) => v.uuid(x, 'Compte'));
+    return { accounting: await fn('fn_admin_accounting', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today, accs) };
+  }));
   app.get('/api/admin/company', guard(ADM, async (ctx) => ({ company: await fn('fn_company_get', ctx.user.id) })));
   app.post('/api/admin/company', guard(ADM, async (ctx) => {
     const b = ctx.body;
