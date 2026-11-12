@@ -66,6 +66,14 @@ export function loadConfig() {
       whatsappLang: (env.WHATSAPP_LANG || 'fr').trim(),
       whatsappCodeButton: env.WHATSAPP_CODE_BUTTON === '1',                      // 1 si le modèle « code » est de catégorie Authentification
     },
+    // SMS Nimba (https://nimbasms.com) : identifiants gardés ici (variables d'environnement), jamais en base ni dans le code. Voir docs/SMS.md
+    sms: {
+      serviceId: (env.NIMBA_SERVICE_ID || '').trim(),
+      secretToken: (env.NIMBA_SECRET_TOKEN || '').trim(),
+      senderName: (env.NIMBA_SENDER_NAME || '').trim(),
+      baseUrl: (env.NIMBA_BASE_URL || 'https://api.nimbasms.com/v1').trim().replace(/\/$/, ''),
+      phoneFormat: (env.NIMBA_PHONE_FORMAT || 'international').trim(),   // international (224…) | local (9 chiffres)
+    },
     // e-mails (connexion par adresse e-mail, mot de passe oublié) : voir docs/EMAIL.md
     email: {
       provider: env.EMAIL_PROVIDER || 'simulated', // simulated | brevo
@@ -75,6 +83,8 @@ export function loadConfig() {
     },
   };
   const problems = [];
+  if (!['international', 'local'].includes(cfg.sms.phoneFormat)) problems.push('NIMBA_PHONE_FORMAT doit valoir international ou local');
+  if ((cfg.sms.serviceId || cfg.sms.secretToken) && !(cfg.sms.serviceId && cfg.sms.secretToken)) problems.push('NIMBA_SERVICE_ID et NIMBA_SECRET_TOKEN vont ensemble');
   if (!['simulated', 'whatsapp'].includes(cfg.messaging.provider)) problems.push('MESSAGE_PROVIDER doit valoir simulated ou whatsapp');
   if (cfg.messaging.provider === 'whatsapp' && (!cfg.messaging.whatsappToken || !cfg.messaging.whatsappPhoneId)) {
     problems.push('WHATSAPP_TOKEN et WHATSAPP_PHONE_ID sont obligatoires avec MESSAGE_PROVIDER=whatsapp');

@@ -1,6 +1,7 @@
 // Toutes les routes de l'API. Règle d'or : chaque route vérifie le rôle côté serveur,
 // et chaque requête de lecture nomme explicitement les colonnes visibles pour ce rôle
 // (cloisonnement : le fournisseur ne voit jamais le vendeur/client, et inversement).
+import { smsConfigured, sendSms, smsBalance } from './sms.js';
 import { HttpError, v, page } from './http.js';
 import crypto from 'node:crypto';
 import { parseImage, MAX_PROOF_BODY } from './proofs.js';
@@ -1669,7 +1670,23 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/admin/products/:id/category', guard(ADM, async (ctx) => { await fn('fn_set_product_category', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.category_id, 'Rayon')); }));
   app.post('/api/admin/zones/classify', guard(ADM, async (ctx) => { const b = ctx.body; await fn('fn_admin_classify_zone', ctx.user.id, v.str(b.zone, 'Zone', { max: 60 }), v.oneOf(b.kind, ['commune', 'quartier', 'ville', 'autre'], 'Nature'), b.parent ? v.str(b.parent, 'Commune', { max: 60 }) : null, v.optStr(b.pickup_point, 'Gare voiture', 120)); }));
   app.post('/api/admin/zones/use-commune-fee', guard(ADM, async (ctx) => ({ activated: await fn('fn_admin_zones_use_commune_fee', ctx.user.id, v.str(ctx.body.commune, 'Commune', { max: 60 })) })));
-  app.post('/api/admin/settings', guard(ADM, async (ctx) => { await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
+  // SMS Nimba : état (jamais les identifiants) et SMS de test
+  app.get('/api/admin/sms', guard(ADM, async () => ({
+    configured: smsConfigured((cfg.sms || {})), sender_name: (cfg.sms || {}).senderName || null, phone_format: (cfg.sms || {}).phoneFormat,
+    balance: await smsBalance((cfg.sms || {})), enabled: Number((await q(`SELECT value FROM settings WHERE key = 'sms_codes'`))[0]?.value || 0) === 1,
+    sent_24h: Number((await q(`SELECT count(*) n FROM messages WHERE channel = 'sms' AND created_at > now() - interval '24 hours'`))[0].n),
+    failed_24h: Number((await q(`SELECT count(*) n FROM messages WHERE channel = 'sms' AND status = 'failed' AND created_at > now() - interval '24 hours'`))[0].n) })));
+  app.post('/api/admin/sms/test', guard(ADM, async (ctx) => {
+    limit(`sms-test:${ctx.user.id}`, 5, 3600_000);
+    if (!smsConfigured((cfg.sms || {}))) throw new HttpError(409, 'invalid_state', 'Identifiants Nimba SMS non enregistrés sur le serveur (voir docs/SMS.md).');
+    const phone = v.phone(ctx.body.phone);
+    try { await sendSms((cfg.sms || {}), { to: phone, body: 'Wallindirain : ceci est un SMS de test. Tout fonctionne.' }); }
+    catch (e) { throw new HttpError(502, 'sms_failed', String(e.message).slice(0, 220)); }
+    return { ok: true };
+  }));
+  app.post('/api/admin/settings', guard(ADM, async (ctx) => {
+    if (ctx.body.key === 'sms_codes' && Number(ctx.body.value) === 1 && !smsConfigured((cfg.sms || {}))) throw new HttpError(409, 'invalid_state', 'Impossible d\'allumer : les identifiants Nimba SMS ne sont pas enregistrés sur le serveur (voir docs/SMS.md).');
+    await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
   // Trophées : les six montants d'un coup, positifs et strictement croissants
   app.post('/api/admin/trophies', guard(ADM, async (ctx) => {
     const tiers = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'blue_diamond'];
