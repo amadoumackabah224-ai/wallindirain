@@ -37,6 +37,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 
 export class App {
   constructor({ prod, staticDir, log }) {
+    this.onInternalError = null;   // appelé (sans jamais bloquer la réponse) à chaque erreur interne
     this.routes = []; this.prod = prod; this.staticDir = staticDir; this.log = log; this.hdr = securityHeaders(prod);
   }
   add(method, pattern, handler, opts = {}) {
@@ -81,6 +82,7 @@ export class App {
       if (he) send(he.status, { error: he.code, message: he.message }, { 'Cache-Control': 'no-store' });
       else {
         this.log({ level: 'error', msg: 'erreur interne', path: url.pathname, err: String(e?.stack || e) });
+        try { this.onInternalError?.(url.pathname.split('/').slice(0, 3).join('/')); } catch { /* l'alerte ne doit jamais gêner la réponse */ }
         send(500, { error: 'internal', message: 'Erreur interne. Réessayez ou contactez le support.' }, { 'Cache-Control': 'no-store' });
       }
     }

@@ -18,6 +18,8 @@ export async function createServer(cfg = loadConfig(), { quiet = false, worker =
   const logger = quiet ? () => {} : log;
   const app = new App({ prod: cfg.prod, staticDir: path.resolve(here, '..', '..', 'frontend'), log: logger });
   registerRoutes(app, { db, cfg });
+  // Erreur interne : prévenir les administrateurs (une fois par 30 min, sans aucune donnée personnelle : seulement le début du chemin)
+  app.onInternalError = (where) => { db.query('SELECT fn_ops_alert($1, $2)', ['error', `Erreur interne sur ${where}. Consultez les journaux du serveur (Render > Logs).`]).catch(() => {}); };
   const server = http.createServer((req, res) => app.handle(req, res));
   server.requestTimeout = 15_000;
   server.headersTimeout = 10_000;
