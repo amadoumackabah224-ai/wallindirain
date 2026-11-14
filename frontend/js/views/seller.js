@@ -46,37 +46,65 @@ function orderCard(o, refresh) {
 }
 
 let catFilter = '';   // rayon choisi (gardé tant que la page reste ouverte)
+let catSearch = '';   // recherche (gardée tant que la page reste ouverte)
+const NEW_DAYS = 30;
+
+/** Une carte produit : grande photo, prix de vente en avant, gain minimum garanti ; mêmes actions qu'avant. */
+function productCard(p, { refresh }) {
+    const setPrice = action(async () => {
+      const v = await ask({ title: p.name, text: `Prix minimum autorisé : ${fmtGNF(p.min_price)}`, submit: 'Enregistrer', fields: [{ name: 'price', label: 'Votre prix de vente (GNF)', type: 'number', inputmode: 'numeric', value: p.sale_price || '' }] });
+      if (v) await post('/seller/prices', { product_id: p.id, price: Number(v.price) });
+    }, { ok: 'Prix enregistré', refresh });
+    const link = action(async () => {
+      const r = await post('/seller/links', { product_id: p.id });
+      const url = `${location.origin}/#/c/${r.code}`;
+      try { await navigator.clipboard.writeText(url); toast('Lien copié ! Partagez-le à vos clients.', 'ok'); } catch { await ask({ title: 'Votre lien', text: url, submit: 'OK', fields: [] }); }
+      await refresh();
+    });
+    const buy = action(async () => {
+      const v = await ask({ title: `Acheter du stock : ${p.name}`, text: `Prix vendeur : ${fmtGNF(p.vendor_price)} l'unité, payé à l'avance depuis votre portefeuille. Livraison plus rapide, gardé chez Wallindirain.`, submit: 'Acheter', fields: [{ name: 'qty', label: 'Quantité', type: 'number', inputmode: 'numeric' }] });
+      if (v) { const r = await post('/seller/stock', { product_id: p.id, qty: Number(v.qty) }); toast(`Stock acheté : ${fmtGNF(r.cost)} débités`, 'ok'); }
+    }, { refresh });
+  const isNew = p.created_at && Date.now() - Date.parse(p.created_at) < NEW_DAYS * 86400_000;
+  const gain = p.sale_price ? Math.max(Number(p.sale_price) - Number(p.min_price), 0) : null;
+  return h('article', { class: 'pcard' },
+    h('div', { class: 'pcard-img' }, p.image_ids?.length ? h('img', { src: `/api/product-images/${p.image_ids[0]}`, alt: p.name, loading: 'lazy' }) : h('span', { class: 'pcard-noimg' }, icon('package', 32)),
+      h('div', { class: 'pcard-badges' }, isNew && badge('Nouveau', 'info'), p.mine && badge('Mon produit', 'ok'), p.available < 1 && badge('Épuisé', 'bad'))),
+    h('div', { class: 'pcard-body' },
+      h('h3', { class: 'pcard-name' }, p.name),
+      p.description && h('p', { class: 'pcard-desc' }, p.description),
+      p.sale_price ? h('div', { class: 'pcard-price' }, h('small', {}, 'Votre prix'), h('b', {}, fmtGNF(p.sale_price))) : h('div', { class: 'pcard-price' }, badge('Prix à fixer', 'warn')),
+      h('div', { class: 'pcard-meta' }, h('span', {}, `Prix vendeur ${fmtGNF(p.vendor_price)}`), h('span', {}, `Minimum ${fmtGNF(p.min_price)}`), h('span', {}, `${p.available} disponible${p.available > 1 ? 's' : ''}`), p.my_stock > 0 && h('span', {}, `Votre stock : ${p.my_stock}`)),
+      gain !== null && h('div', { class: 'pcard-gain' }, `Gain d'au moins ${fmtGNF(gain)} par vente`),
+      h('div', { class: 'pcard-actions' }, h('button', { class: 'btn btn-sm', type: 'button', onclick: setPrice }, p.sale_price ? 'Changer mon prix' : 'Fixer mon prix'),
+        p.sale_price && h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: link }, p.link_code ? 'Copier mon lien' : 'Créer mon lien'),
+        p.can_prepay && h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: buy }, 'Acheter du stock'))));
+}
+
 export function sellerCatalog() {
   return liveView(() => get('/seller/catalog'), ({ products, categories = [], call_fee, max_delivery_fee }, refresh) => {
     if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), empty('🛍️', 'Aucun produit validé pour le moment'));
-    const shown = catFilter ? products.filter((p) => p.category_id === catFilter) : products;
-    const sections = (catFilter ? categories.filter((c) => c.id === catFilter) : categories).map((c) => [c.name, shown.filter((p) => p.category_id === c.id)]).filter(([, l]) => l.length);
-    const rest = shown.filter((p) => !categories.some((c) => c.id === p.category_id));
-    if (rest.length) sections.push(['Autres', rest]);
+    const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const matches = (p) => (!catFilter || p.category_id === catFilter) && (!catSearch || norm(p.name).includes(norm(catSearch)) || norm(p.description).includes(norm(catSearch)));
+    const listHost = h('div'), freshHost = h('div');
+    const draw = () => {
+      const fresh = !catFilter && !catSearch ? products.filter((p) => p.created_at && Date.now() - Date.parse(p.created_at) < NEW_DAYS * 86400_000).slice(0, 8) : [];
+      freshHost.replaceChildren(...(fresh.length ? [h('section', { class: 'catalog-section' }, h('h2', { class: 'section-title' }, 'Nouveautés'), h('p', { class: 'muted small' }, 'Ajoutés récemment, encore peu de concurrence'), h('div', { class: 'prow' }, fresh.map((p) => productCard(p, { refresh }))))] : []));
+      const list = products.filter(matches);
+      const secs = categories.map((c) => [c.name, list.filter((p) => p.category_id === c.id)]).filter(([, l]) => l.length);
+      const other = list.filter((p) => !categories.some((c) => c.id === p.category_id));
+      if (other.length) secs.push(['Autres', other]);
+      listHost.replaceChildren(...(secs.length ? secs.map(([title, l]) => h('section', { class: 'catalog-section' }, h('h2', { class: 'section-title' }, title, h('span', { class: 'section-count' }, String(l.length))), h('div', { class: 'pgrid' }, l.map((p) => productCard(p, { refresh }))))) : [empty('🔎', 'Aucun produit ne correspond')]));
+    };
+    const search = h('input', { type: 'search', class: 'catalog-search', placeholder: 'Rechercher un produit…', value: catSearch, 'aria-label': 'Rechercher un produit', oninput: (e) => { catSearch = e.target.value; draw(); } });
+    draw();
+    const count = (id) => products.filter((p) => !id || p.category_id === id).length;
     return h('div', {}, h('h1', {}, 'Catalogue'),
+      h('div', { class: 'catalog-hero' }, h('b', {}, 'Choisissez, fixez votre prix, vendez.'), h('span', {}, `${products.length} produit${products.length > 1 ? 's' : ''} disponible${products.length > 1 ? 's' : ''}`), search),
+      h('div', { class: 'chips mb' }, [['', 'Tous'], ...categories.filter((c) => products.some((p) => p.category_id === c.id)).map((c) => [c.id, c.name])].map(([id, name]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(catFilter === id), onclick: () => { catFilter = id; refresh(); } }, name, h('span', { class: 'chip-n' }, String(count(id)))))),
+      freshHost,
       h('div', { class: 'notice' }, `Votre prix de vente doit couvrir le prix vendeur, le call center (${fmtGNF(call_fee)}) et la livraison la plus chère (${fmtGNF(max_delivery_fee)}) : vous ne vendez jamais à perte.`),
-      h('div', { class: 'chips mb' }, [['', 'Tous'], ...categories.filter((c) => products.some((p) => p.category_id === c.id)).map((c) => [c.id, c.name])].map(([id, name]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(catFilter === id), onclick: () => { catFilter = id; refresh(); } }, name))),
-      sections.map(([title, list]) => h('div', { class: 'catalog-section' }, h('h2', { class: 'section-title' }, title), h('div', { class: 'grid g2' }, list.map((p) => {
-        const setPrice = action(async () => {
-          const v = await ask({ title: p.name, text: `Prix minimum autorisé : ${fmtGNF(p.min_price)}`, submit: 'Enregistrer', fields: [{ name: 'price', label: 'Votre prix de vente (GNF)', type: 'number', inputmode: 'numeric', value: p.sale_price || '' }] });
-          if (v) await post('/seller/prices', { product_id: p.id, price: Number(v.price) });
-        }, { ok: 'Prix enregistré', refresh });
-        const link = action(async () => {
-          const r = await post('/seller/links', { product_id: p.id });
-          const url = `${location.origin}/#/c/${r.code}`;
-          try { await navigator.clipboard.writeText(url); toast('Lien copié ! Partagez-le à vos clients.', 'ok'); } catch { await ask({ title: 'Votre lien', text: url, submit: 'OK', fields: [] }); }
-          await refresh();
-        });
-        const buy = action(async () => {
-          const v = await ask({ title: `Acheter du stock : ${p.name}`, text: `Prix vendeur : ${fmtGNF(p.vendor_price)} l'unité, payé à l'avance depuis votre portefeuille. Livraison plus rapide, gardé chez Wallindirain.`, submit: 'Acheter', fields: [{ name: 'qty', label: 'Quantité', type: 'number', inputmode: 'numeric' }] });
-          if (v) { const r = await post('/seller/stock', { product_id: p.id, qty: Number(v.qty) }); toast(`Stock acheté : ${fmtGNF(r.cost)} débités`, 'ok'); }
-        }, { refresh });
-        return h('div', { class: 'card' }, h('h2', {}, p.name, p.mine && ' ', p.mine && badge('Mon produit', 'ok')), photoStrip(p.image_ids, { size: 96 }), p.description && h('p', { class: 'muted small' }, p.description),
-          kv([['Prix vendeur', amount(p.vendor_price)], ['Prix minimum', amount(p.min_price)], ['Votre prix', p.sale_price ? amount(p.sale_price) : badge('à fixer', 'warn')], ['Disponible', p.available], p.my_stock > 0 && ['Votre stock prépayé', p.my_stock]]),
-          h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm', onclick: setPrice }, p.sale_price ? 'Changer mon prix' : 'Fixer mon prix'),
-            p.sale_price && h('button', { class: 'btn btn-sm btn-gold', onclick: link }, p.link_code ? 'Copier mon lien' : 'Créer mon lien'),
-            p.can_prepay && h('button', { class: 'btn btn-sm btn-ghost', onclick: buy }, 'Acheter du stock')));
-      })))));
+      listHost);
   });
 }
 
