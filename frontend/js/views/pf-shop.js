@@ -5,6 +5,21 @@ import { postOffline, warmCache } from '../offline.js';
 import { icon } from '../icons.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
+const fmtDay = (d) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+// Texte propre d'un reçu ou d'un devis, prêt pour WhatsApp (aucune donnée envoyée à Wallindirain).
+export const docText = (kind, lines, total, when) => [
+  kind === 'devis' ? 'DEVIS' : 'REÇU', fmtDay(when || Date.now()), '',
+  ...lines.map((l) => `${l.qty} × ${l.name} — ${fmtGNF(l.price * l.qty)}`), '',
+  `TOTAL : ${fmtGNF(total)}`,
+  ...(kind === 'devis' ? ['', 'Devis valable 7 jours. Prix en GNF.'] : ['', 'Merci de votre confiance !'])].join('\n');
+// Propose d'envoyer le document par WhatsApp (numéro facultatif).
+const shareDoc = async (kind, text) => {
+  const v = await ask({ title: kind === 'devis' ? 'Devis' : 'Reçu', text, submit: 'Envoyer par WhatsApp', fields: [{ name: 'phone', label: 'Numéro WhatsApp du client (facultatif)', type: 'tel', inputmode: 'numeric', required: false }] });
+  if (!v) return false;
+  const ph = String(v.phone || '').replace(/\D/g, '').replace(/^224/, '');
+  window.open(`https://wa.me/${ph ? `224${ph}` : ''}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  return false;
+};
 const pct = (m, p) => (p > 0 ? `${Math.round((m * 100) / p)} %` : '—');
 
 export function shopScreen({ go, head, card }) {
@@ -27,8 +42,11 @@ export function shopScreen({ go, head, card }) {
       if (!accs.length) { toast('Créez d\'abord un compte en GNF (caisse, Orange Money…).', 'bad'); return false; }
       const v = await ask({ title: `Encaisser ${fmtGNF(cartTotal())}`, text: [...cart].map(([id, q]) => `${q}× ${byId.get(id)?.name}`).join(', '), submit: 'Encaisser', fields: [{ name: 'account_id', label: 'Argent reçu sur', type: 'select', options: accs.map((a) => [a.id, a.name]), value: accs[0].id }] });
       if (!v) return false;
+      const snap = [...cart].map(([id, q]) => ({ qty: q, name: byId.get(id)?.name, price: byId.get(id)?.price || 0 })); const snapTotal = cartTotal();
       const r = await postOffline('/pf/shop/sales', { account_id: v.account_id, occurred_on: today(), lines: [...cart].map(([item_id, qty]) => ({ item_id, qty })) }, `Vente ${fmtGNF(cartTotal())}`);
-      cart = new Map(); return r;
+      cart = new Map();
+      if (!r.queued) setTimeout(() => shareDoc('recu', docText('recu', snap, snapTotal)).catch(() => {}), 300);
+      return r;
     }, { ok: (r) => (r === false ? '' : r.queued ? 'Pas de réseau : vente gardée sur votre téléphone, envoyée dès que le réseau revient.' : `Vente enregistrée : ${fmtGNF(r.total)}`), refresh });
 
     const askItem = async (i) => {
@@ -53,6 +71,8 @@ export function shopScreen({ go, head, card }) {
       return true;
     };
     const run = (fn, ok) => action(fn, { ok: (r) => (r === false ? '' : ok), refresh });
+    const devis = action(async () => { await shareDoc('devis', docText('devis', [...cart].map(([id, q]) => ({ qty: q, name: byId.get(id)?.name, price: byId.get(id)?.price || 0 })), cartTotal())); return false; }, { ok: '' });
+    const saleReceipt = (s) => action(async () => { await shareDoc('recu', docText('recu', (s.lines || []).map((l) => ({ qty: l.qty, name: l.name, price: Number(l.price) || 0 })), s.total, s.created_at)); return false; }, { ok: '' });
     const voidSale = (s) => action(async () => { if (await confirmBox('Annuler cette vente ?', 'L\'argent est retiré du compte et les produits remis en stock.', 'Annuler la vente', true)) await post(`/pf/shop/sales/${s.id}/void`); }, { ok: 'Vente annulée', refresh });
 
     const summary = card(null, h('div', { class: 'pf-sum' }, [['Ventes du jour', fmtGNF(d.today.total)], ['Bénéfice', fmtGNF(d.today.margin)], ['Nombre', String(d.today.count)]].map(([l, n]) => h('div', {}, h('small', {}, l), h('b', {}, n)))));
@@ -65,7 +85,7 @@ export function shopScreen({ go, head, card }) {
       })),
       d.sales.length > 0 && h('h3', { class: 'pf-sub' }, 'VENTES DU JOUR'),
       d.sales.length > 0 && h('section', { class: 'pf-card flush' }, d.sales.map((s) => h('div', { class: 'pf-row' }, h('span', { class: 'pf-row-main' }, h('b', {}, (s.lines || []).map((l) => `${l.qty}× ${l.name}`).join(', ')), h('span', { class: 'pf-amt pos' }, fmtGNF(s.total)),
-        h('small', {}, `${new Date(s.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${s.account_name}`)), h('button', { class: 'pf-mini', type: 'button', onclick: voidSale(s) }, 'Annuler'))))];
+        h('small', {}, `${new Date(s.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${s.account_name}`)), h('button', { class: 'pf-mini', type: 'button', onclick: saleReceipt(s) }, 'Reçu'), h('button', { class: 'pf-mini', type: 'button', onclick: voidSale(s) }, 'Annuler'))))];
     const products = () => [d.low_stock > 0 && h('p', { class: 'pf-note warn' }, `${d.low_stock} produit(s) bientôt en rupture.`),
       h('section', { class: 'pf-card flush' }, d.items.length === 0 ? [h('p', { class: 'pf-note' }, 'Aucun produit pour le moment.')] : d.items.map((i) => h('div', { class: `pf-emp${i.archived_at ? ' dim' : ''}` },
         h('div', { class: 'pf-row' }, h('span', { class: 'pf-row-main' }, h('b', {}, i.name), h('span', { class: 'pf-amt' }, fmtGNF(i.price)),
@@ -95,7 +115,7 @@ export function shopScreen({ go, head, card }) {
       }).catch(errToast); return [box]; };
     const views = { sell, products, cash };
     const tabs = h('div', { class: 'wallet-tabs', role: 'group' }, [['sell', 'Vendre'], ['products', 'Produits'], ['cash', 'Caisse']].map(([k, l]) => h('button', { type: 'button', 'aria-pressed': String(tab === k), onclick: () => { tab = k; paint(); } }, l)));
-    const bar = tab === 'sell' && cartCount() > 0 && h('div', { class: 'shop-cart' }, h('span', {}, h('b', {}, `${cartCount()} article(s)`), ` · ${fmtGNF(cartTotal())}`), h('button', { class: 'btn btn-gold', type: 'button', onclick: checkout }, 'Encaisser'));
+    const bar = tab === 'sell' && cartCount() > 0 && h('div', { class: 'shop-cart' }, h('span', {}, h('b', {}, `${cartCount()} article(s)`), ` · ${fmtGNF(cartTotal())}`), h('button', { class: 'btn btn-ghost', type: 'button', onclick: devis }, 'Devis'), h('button', { class: 'btn btn-gold', type: 'button', onclick: checkout }, 'Encaisser'));
     host.replaceChildren(head('Boutique', { back: ['Plus', () => go('more')], eye: true }), h('div', { class: 'pf-pad' }, !pro && h('p', { class: 'pf-note' }, 'La boutique fait partie de la formule Pro.'), tabs, ...views[tab]().filter(Boolean)), bar || h('span', {}));
   };
   return liveView(() => get('/pf/shop'), (d, refresh) => { render(d, refresh); return host; });

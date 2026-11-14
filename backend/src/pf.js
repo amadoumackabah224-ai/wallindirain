@@ -663,7 +663,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
       .map((i) => ({ ...i, price: N(i.price), cost: N(i.cost) }));
     const [t] = await q('SELECT count(*)::int AS n, COALESCE(sum(total), 0)::bigint AS total, COALESCE(sum(cost_total), 0)::bigint AS cost FROM pf_sales WHERE owner_id = $1 AND occurred_on = $2::date AND voided_at IS NULL', [id, day]);
     const sales = await q(`SELECT s.id, s.total::bigint AS total, s.cost_total::bigint AS cost_total, s.created_at, a.name AS account_name,
-        (SELECT jsonb_agg(jsonb_build_object('name', l.name, 'qty', l.qty) ORDER BY l.name) FROM pf_sale_lines l WHERE l.sale_id = s.id) AS lines
+        (SELECT jsonb_agg(jsonb_build_object('name', l.name, 'qty', l.qty, 'price', l.unit_price) ORDER BY l.name) FROM pf_sale_lines l WHERE l.sale_id = s.id) AS lines
       FROM pf_sales s JOIN pf_accounts a ON a.id = s.account_id WHERE s.owner_id = $1 AND s.occurred_on = $2::date AND s.voided_at IS NULL ORDER BY s.created_at DESC LIMIT 100`, [id, day]);
     return { enabled: true, tier: (await access(id)).tier, day, items,
       low_stock: items.filter((i) => !i.archived_at && i.stock != null && i.stock <= i.low_stock).length,
