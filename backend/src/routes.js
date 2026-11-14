@@ -609,7 +609,7 @@ export function registerRoutes(app, { db, cfg }) {
     const [{ call_fee, max_fee }] = await q(`SELECT (SELECT value FROM settings WHERE key='call_fee') AS call_fee, (SELECT max(fee) FROM delivery_rates WHERE active) AS max_fee`);
     return {
       categories: await q('SELECT id, name FROM product_categories WHERE active ORDER BY position, name'),
-      products: await q(`SELECT p.id, p.name, p.description, p.category_id,
+      products: await q(`SELECT p.id, p.name, p.description, p.category_id, p.created_at,
             (p.supplier_price + CASE WHEN p.supplier_id = $1 THEN 0 ELSE p.margin_unit END) AS vendor_price,
             (p.supplier_price + CASE WHEN p.supplier_id = $1 THEN 0 ELSE p.margin_unit END + $2 + $3 + (SELECT value FROM settings WHERE key = 'fee_unit')) AS min_price,
             (p.storage = 'wallindirain' AND p.supplier_id <> $1 AND p.paused_at IS NULL AND p.retired_at IS NULL) AS can_prepay,
