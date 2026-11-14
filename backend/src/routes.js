@@ -1032,6 +1032,10 @@ export function registerRoutes(app, { db, cfg }) {
   // LIVREUR : ni prix fournisseur ni gains du vendeur
   // =========================================================================
   const COU = ['courier'];
+  // Indicateurs de performance des livreurs (lecture seule) : l'admin voit tout le monde, un livreur ne voit que lui
+  const statsRange = (ctx) => { const to = optDate(ctx.query.to, 'Date de fin') || new Date().toISOString().slice(0, 10); const from = optDate(ctx.query.from, 'Date de début') || new Date(Date.parse(to) - 29 * 86400_000).toISOString().slice(0, 10); return [from, to]; };
+  app.get('/api/admin/courier-stats', guard(['admin'], async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
+  app.get('/api/courier/my-stats', guard(COU, async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
           o.customer_name, o.customer_phone, o.commune, o.address, o.note, o.failure_reason, o.code_attempts, o.created_at, ${PICKUP_PLACE} AS pickup_place, ${PICKUP_DETAIL} AS pickup_detail, (${PICKUP_PLACE} <> 'warehouse' AND ${PICKUP_DETAIL} IS NULL) AS pickup_missing,

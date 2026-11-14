@@ -2,6 +2,7 @@
 import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, telBtn, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL, tourModeText } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
+import { courierStatsCard } from './couriers.js';
 
 const PAY = { cash: 'Espèces', orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 const OPERATOR = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo', cash: 'Espèces' };
@@ -10,6 +11,7 @@ const TRANSFER = { orange_money: 'Orange Money', mtn_momo: 'MTN MoMo' };
 export function courierOrders() {
   return liveView(() => Promise.all([get('/courier/orders'), get('/courier/profile'), get('/courier/offers'), get('/courier/tours')]).then(([o, profile, off, t]) => ({ ...o, profile, offers: off.offers, tours: t.tours })), ({ profile, offers, tours, orders, cash_to_hand_over, cash_pending_validation, max_attempts, require_code, pickup_alert_hours }, refresh) => h('div', {},
     h('h1', {}, 'Mes livraisons'),
+    courierStatsCard(),
     h('div', { class: 'card gap mb' }, h('div', { class: 'grow' }, h('b', {}, profile.availability === 'available' ? 'Vous êtes disponible' : 'Vous êtes indisponible'),
       h('div', { class: 'small muted' }, profile.zones.length ? `Zones : ${profile.zones.join(', ')}` : 'Aucune zone définie : l\'administration vous les attribue.')),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: action(() => post('/courier/availability', { available: profile.availability !== 'available' }), { ok: 'Disponibilité mise à jour', refresh }) },
