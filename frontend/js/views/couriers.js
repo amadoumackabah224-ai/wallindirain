@@ -13,17 +13,49 @@ const STATUS = { assigned: 'Affectée', picked_up: 'Récupérée', on_the_way: '
 const PAY_KIND = { team_pay: 'Livraison', tour_bonus: 'Supplément de tournée', tour_adjust: 'Ajustement de tournée', courier_prime: 'Prime du jour', failed_trip: 'Déplacement à vide', cash_shortage: 'Manque de caisse', withdrawal: 'Retrait' };
 const num = (el) => (el.value === '' ? 0 : Number(el.value));
 
+// ---------- Indicateurs de performance (lecture seule) ----------
+const fmtMin = (m) => (m == null ? '—' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`);
+const rateBadge = (r) => (r == null ? '—' : badge(`${r} %`, r >= 85 ? 'ok' : r >= 70 ? 'warn' : 'bad'));
+const PERIODS = [[7, '7 jours'], [30, '30 jours'], [90, '90 jours']];
+const statsPath = (base, days) => { const to = new Date(), from = new Date(Date.now() - (days - 1) * 86400_000); return `${base}?from=${from.toISOString().slice(0, 10)}&to=${to.toISOString().slice(0, 10)}`; };
+
+/** Tableau de performance de tous les livreurs (admin). Sert aussi à l'onglet « Performance ». */
+export function courierPerformance() {
+  let days = 30;
+  const host = h('div');
+  const show = () => host.replaceChildren(liveView(() => get(statsPath('/admin/courier-stats', days)), ({ stats }) => h('div', {},
+    h('div', { class: 'chips mb' }, PERIODS.map(([d, l]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(days === d), onclick: () => { days = d; show(); } }, l))),
+    table(['Livreur', 'Colis', 'Livrés', 'Échecs', 'Réussite', 'Délai moyen', `Retards (> ${stats.late_hours} h)`, 'Gains', 'Manques de caisse'],
+      stats.couriers.map((c) => [h('b', {}, c.name), String(c.total), String(c.delivered), String(c.failed), rateBadge(c.success_rate), fmtMin(c.avg_minutes), c.late > 0 ? badge(String(c.late), 'warn') : '0', fmtGNF(c.earnings), c.shortages > 0 ? badge(fmtGNF(c.shortages), 'bad') : '0']),
+      { empty: empty('🛵', 'Aucune livraison sur cette période') }),
+    h('p', { class: 'muted small' }, 'Réussite = livrés sur (livrés + échecs, refus et retours). Les colis encore en cours ne sont pas comptés dans le taux. Délai = de l\'affectation à la livraison.'))));
+  show();
+  return host;
+}
+
+/** Carte « Mes chiffres » du livreur : seulement les siens, sur 30 jours. */
+export function courierStatsCard() {
+  return liveView(() => get(statsPath('/courier/my-stats', 30)), ({ stats }) => {
+    const c = stats.couriers[0];
+    if (!c) return h('div');
+    return h('div', { class: 'card mb' }, h('b', {}, 'Mes chiffres (30 jours)'),
+      h('div', { class: 'row gap' }, h('div', {}, h('div', { class: 'small muted' }, 'Livrés'), h('b', {}, String(c.delivered))), h('div', {}, h('div', { class: 'small muted' }, 'Réussite'), rateBadge(c.success_rate)), h('div', {}, h('div', { class: 'small muted' }, 'Délai moyen'), h('b', {}, fmtMin(c.avg_minutes))), h('div', {}, h('div', { class: 'small muted' }, 'Retards'), h('b', {}, String(c.late)))));
+  });
+}
+
 export function adminCouriers() {
   let view = 'list', fileId = null, filter = 'all';
   const host = h('div');
-  const show = () => host.replaceChildren(fileId ? fileView() : view === 'scales' ? scalesView() : listView());
+  const show = () => host.replaceChildren(fileId ? fileView() : view === 'scales' ? scalesView() : view === 'perf' ? perfView() : listView());
   const open = (id) => { fileId = id; show(); window.scrollTo?.(0, 0); };
   const back = () => { fileId = null; show(); };
 
   function tabs() {
     const t = (key, label) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(view === key && !fileId), onclick: () => { view = key; fileId = null; show(); } }, label);
-    return h('div', { class: 'chips mb' }, t('list', 'Livreurs'), t('scales', 'Barèmes et simulation'));
+    return h('div', { class: 'chips mb' }, t('list', 'Livreurs'), t('perf', 'Performance'), t('scales', 'Barèmes et simulation'));
   }
+
+  function perfView() { return h('div', {}, pageHead('Performance des livreurs', 'Qui livre vite et bien, qui pose problème'), tabs(), courierPerformance()); }
 
   // ---------- Liste ----------
   function listView() {
