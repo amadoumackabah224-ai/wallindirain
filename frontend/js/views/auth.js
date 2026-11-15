@@ -41,7 +41,15 @@ export function loginView({ onLogin, contact }) {
 }
 
 export function registerView({ ref } = {}) {
-  const role = h('select', {}, h('option', { value: 'seller' }, 'Vendeur : je vends des produits en ligne'), h('option', { value: 'supplier' }, 'Fournisseur : je propose des produits'), flags.memberSignup && h('option', { value: 'member' }, 'Membre : je veux seulement gérer mon argent'), flags.shipperSignup && h('option', { value: 'shipper' }, 'Expéditeur : je veux faire livrer un colis'));
+  // Le rôle choisi à l'étape 1 est gardé dans ce champ (non affiché) : toute la logique du formulaire reste inchangée.
+  const ROLES = [
+    ['seller', 'bag', 'Je suis vendeur', ['Vous choisissez des produits et fixez votre prix', 'Vous gardez votre marge sur chaque vente', 'Le client paie en espèces à la livraison']],
+    ['supplier', 'package', 'Je suis fournisseur', ['Vous proposez vos produits', 'L\'administration les valide', 'Vous ne voyez ni le vendeur ni le client']],
+    flags.shipperSignup && ['shipper', 'truck', 'Je veux faire livrer un colis', ['Le prix s\'affiche avant de confirmer', 'Un livreur vient récupérer et livrer', 'Vous payez en espèces, sans vendre']],
+    flags.memberSignup && ['member', 'bank', 'Je veux gérer mon argent', ['Comptes, revenus et dépenses au même endroit', 'Budgets et objectifs', 'Gratuit, sans livraison ni commande']]
+  ].filter(Boolean);
+  const role = h('select', {}, ROLES.map(([k]) => h('option', { value: k }, k)));
+  const roleLabel = (k) => ROLES.find((r) => r[0] === k)?.[2] || '';
   const name = h('input', { type: 'text', required: true, maxlength: 100, autocomplete: 'name' });
   const phone = h('input', { type: 'tel', inputmode: 'numeric', required: true, maxlength: 24, placeholder: '6XX XX XX XX' });
   // vendeur de l'étranger : numéro international, coordonnées de versement écrites, compte activé après validation par l'administration
@@ -77,6 +85,7 @@ export function registerView({ ref } = {}) {
   const payPhone = h('input', { type: 'tel', inputmode: 'numeric', maxlength: 120, placeholder: 'Laisser vide = mon numéro de téléphone' });
   const out = h('div');
   const payBlock = h('div', {}, field('Mon argent sera versé sur', payMethod), field('Numéro de versement', payPhone), payNote);
+  const recap = h('b', {}, roleLabel(role.value));
   const form = h('form', { onsubmit: async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
@@ -87,7 +96,7 @@ export function registerView({ ref } = {}) {
       form.classList.add('hidden');
     } catch (ex) { errToast(ex); } finally { btn.disabled = false; }
   } },
-    h('h1', {}, 'Créer un compte'), field('Je suis', role), field('Nom complet', name), abroadBox, field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
+    h('h1', {}, 'Vos informations'), h('div', { class: 'reg-role' }, recap, h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => show(1) }, 'Changer')), field('Nom complet', name), abroadBox, field('Numéro de téléphone', phone, flags.email ? 'Vous pourrez vous connecter avec ce numéro.' : 'Les messages de confirmation et codes seront envoyés à ce numéro.'),
     flags.email && field('Adresse e-mail (recommandé)', email, 'Un code de confirmation y sera envoyé. Une fois confirmée, vous pourrez vous connecter avec elle et recevoir vos codes (mot de passe oublié) directement dans votre boîte e-mail.'),
     refField,
     payBlock,
@@ -95,7 +104,17 @@ export function registerView({ ref } = {}) {
     h('label', { class: 'f check' }, accept, consentText),
     h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));
   syncDoc(); syncConsent();
-  return shell(h('div', { class: 'card' }, form, out), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, '← Retour à la connexion')));
+  // Étape 1 : cartes de rôles ; étape 2 : le formulaire. Un lien de parrainage ouvre directement l'étape 2 en vendeur.
+  const pick = (k) => { role.value = k; role.dispatchEvent(new Event('change')); recap.textContent = roleLabel(k); show(2); };
+  const cards = h('div', { class: 'reg-cards' }, ROLES.map(([k, ic, title, lines]) => h('button', { class: 'reg-card', type: 'button', onclick: () => pick(k) },
+    h('span', { class: 'reg-ico', 'aria-hidden': 'true' }, icon(ic, 26)),
+    h('span', { class: 'reg-body' }, h('b', {}, title), h('ul', {}, lines.map((l) => h('li', {}, icon('check', 14), l)))),
+    h('span', { class: 'reg-go', 'aria-hidden': 'true' }, icon('chevronRight', 20)))));
+  const bar = h('div', { class: 'reg-steps', 'aria-hidden': 'true' }, h('span', {}, 'Qui vous êtes'), h('span', {}, 'Vos informations'));
+  const step1 = h('div', {}, h('h1', {}, 'Vous êtes qui ?'), h('p', { class: 'muted' }, 'Choisissez une fois : le reste de l\'application s\'adapte à votre réponse.'), cards, h('p', { class: 'reg-note' }, icon('shield', 16), 'Inscription gratuite, moins d\'une minute.'));
+  const show = (n) => { step1.classList.toggle('hidden', n !== 1); form.classList.toggle('hidden', n !== 2); [...bar.children].forEach((c, i) => c.classList.toggle('on', i + 1 === n)); window.scrollTo?.(0, 0); };
+  show(ref ? 2 : 1); if (ref) pick('seller');
+  return shell(h('div', { class: 'card' }, bar, step1, form, out), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, 'J\'ai déjà un compte')));
 }
 
 export function forgotView() {
