@@ -1035,6 +1035,12 @@ export function registerRoutes(app, { db, cfg }) {
   // Indicateurs de performance des livreurs (lecture seule) : l'admin voit tout le monde, un livreur ne voit que lui
   const statsRange = (ctx) => { const to = optDate(ctx.query.to, 'Date de fin') || new Date().toISOString().slice(0, 10); const from = optDate(ctx.query.from, 'Date de début') || new Date(Date.parse(to) - 29 * 86400_000).toISOString().slice(0, 10); return [from, to]; };
   app.get('/api/admin/courier-stats', guard(['admin'], async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
+  // Livraison à la demande : grille tarifaire (départ, groupes de quartiers d'arrivée, prix poids léger / lourd)
+  const dlvPlaces = (x) => { if (!Array.isArray(x) || x.length > 80 || x.some((p) => typeof p !== 'string')) throw new HttpError(400, 'invalid_input', 'Quartiers invalides'); return x; };
+  app.get('/api/admin/dlv-tariffs', guard(['admin'], async (ctx) => ({ grid: await fn('fn_admin_dlv_list', ctx.user.id) })));
+  app.post('/api/admin/dlv-tariffs', guard(['admin'], async (ctx) => { const b = ctx.body; return { id: await fn('fn_admin_dlv_tariff_save', ctx.user.id, b.id ? v.uuid(b.id, 'Tarif') : null, v.str(b.from, 'Départ', { max: 60 }), dlvPlaces(b.places), v.int(b.light, 'Prix léger', { max: 1e7 }), v.int(b.heavy, 'Prix lourd', { max: 1e7 }), b.active !== false) }; }));
+  app.post('/api/admin/dlv-tariffs/import', guard(['admin'], async (ctx) => { const b = ctx.body; if (!Array.isArray(b.tiers) || b.tiers.length < 1 || b.tiers.length > 40) throw new HttpError(400, 'invalid_input', 'Grille invalide'); const tiers = b.tiers.map((t) => ({ places: dlvPlaces(t.places), light: v.int(t.light, 'Prix léger', { max: 1e7 }), heavy: v.int(t.heavy, 'Prix lourd', { max: 1e7 }) })); return { imported: await fn('fn_admin_dlv_import', ctx.user.id, v.str(b.from, 'Départ', { max: 60 }), JSON.stringify(tiers)) }; }));
+  app.get('/api/admin/dlv-quote', guard(['admin'], async (ctx) => ({ quote: await fn('fn_dlv_quote', ctx.user.id, v.str(ctx.query.from, 'Départ', { max: 60 }), v.str(ctx.query.to, 'Arrivée', { max: 60 }), Number(ctx.query.kg)) })));
   app.get('/api/courier/my-stats', guard(COU, async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
