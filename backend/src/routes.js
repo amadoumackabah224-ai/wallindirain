@@ -73,7 +73,7 @@ export function registerRoutes(app, { db, cfg }) {
   const pickupHours = async () => Number((await q(`SELECT value FROM settings WHERE key = 'pickup_alert_hours'`))[0]?.value ?? 0);
 
   const ANY_ROLE = ['admin', 'seller', 'supplier', 'agent', 'call_chief', 'courier', 'warehouse'];
-  const WITH_MEMBER = [...ANY_ROLE, 'member'];   // le membre (finances seulement) n'a que le compte, la légalité et les notifications
+  const WITH_MEMBER = [...ANY_ROLE, 'member', 'shipper'];   // le membre (finances seulement) n'a que le compte, la légalité et les notifications
   // vérifie le mot de passe actuel de la personne connectée (actions sensibles)
   async function requirePassword(ctx, pw) {
     const rows = await q('SELECT * FROM fn_login_lookup($1)', [ctx.user.phone]);
@@ -96,28 +96,30 @@ export function registerRoutes(app, { db, cfg }) {
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
-    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen() }
+    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
   }));
 
   // =========================================================================
   // Authentification
   // =========================================================================
   const memberSignupOpen = async () => (await q(`SELECT count(*)::int AS n FROM settings WHERE (key = 'pf_open_signup' OR key = 'feature_finances_perso') AND value >= 1`))[0].n === 2;
+  const shipperSignupOpen = async () => (await q(`SELECT count(*)::int AS n FROM settings WHERE (key = 'dlv_open_signup' OR key = 'feature_livraison_demande') AND value >= 1`))[0].n === 2;
   app.post('/api/auth/register', async (ctx) => {
     limit(`reg:${clientIp(ctx.req)}`, 5, 3600_000);
     const b = ctx.body;
     const pwErr = passwordProblem(b.password);
     if (pwErr) throw new HttpError(400, 'weak_password', pwErr);
     if (b.accept_terms !== true) throw new HttpError(400, 'consent_required', 'Vous devez accepter les conditions d\'utilisation et la politique de confidentialité');
-    const role = v.oneOf(b.role, ['seller', 'supplier', 'member'], 'Rôle');
+    const role = v.oneOf(b.role, ['seller', 'supplier', 'member', 'shipper'], 'Rôle');
+    if (role === 'shipper' && !(await shipperSignupOpen())) throw new HttpError(403, 'forbidden', 'L\'inscription « Livraison à la demande » n\'est pas ouverte pour le moment');
     if (role === 'member' && !(await memberSignupOpen())) throw new HttpError(403, 'forbidden', 'L\'inscription « Mes finances » n\'est pas ouverte pour le moment');
     const phone = v.account(b.phone);
     const foreign = phone.startsWith('+');
-    if (foreign && role === 'member') throw new HttpError(400, 'foreign_seller_only', 'Les numéros étrangers sont acceptés pour les vendeurs seulement');
+    if (foreign && (role === 'member' || role === 'shipper')) throw new HttpError(400, 'foreign_seller_only', 'Les numéros étrangers sont acceptés pour les vendeurs seulement');
     if (foreign && role !== 'seller') throw new HttpError(400, 'foreign_seller_only', 'Les numéros étrangers sont acceptés pour les vendeurs seulement');
     if (b.email) v.email(b.email);   // validé avant la création du compte
     // numéro sur lequel l'argent sera versé : opérateur obligatoire, numéro = celui de connexion par défaut ; un vendeur de l'étranger écrit ses coordonnées (versement manuel)
-    const noPayout = role === 'member';   // un membre ne reçoit aucun versement
+    const noPayout = role === 'member' || role === 'shipper';   // un membre ou un expéditeur ne reçoit aucun versement
     const payMethod = noPayout ? null : v.oneOf(b.payout_method, foreign ? ['other', 'orange_money', 'mtn_momo'] : ['orange_money', 'mtn_momo'], 'Opérateur de versement');
     if (!noPayout && payMethod === 'other' && !foreign) throw new HttpError(400, 'invalid_input', 'Opérateur de versement invalide');
     const payPhone = noPayout ? null : payMethod === 'other' ? v.payoutTarget('other', b.payout_phone) : (b.payout_phone ? v.phone(b.payout_phone, 'Numéro de versement') : (foreign ? v.phone(b.payout_phone, 'Numéro de versement') : phone));
@@ -1041,6 +1043,14 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/admin/dlv-tariffs', guard(['admin'], async (ctx) => { const b = ctx.body; return { id: await fn('fn_admin_dlv_tariff_save', ctx.user.id, b.id ? v.uuid(b.id, 'Tarif') : null, v.str(b.from, 'Départ', { max: 60 }), dlvPlaces(b.places), v.int(b.light, 'Prix léger', { max: 1e7 }), v.int(b.heavy, 'Prix lourd', { max: 1e7 }), b.active !== false) }; }));
   app.post('/api/admin/dlv-tariffs/import', guard(['admin'], async (ctx) => { const b = ctx.body; if (!Array.isArray(b.tiers) || b.tiers.length < 1 || b.tiers.length > 40) throw new HttpError(400, 'invalid_input', 'Grille invalide'); const tiers = b.tiers.map((t) => ({ places: dlvPlaces(t.places), light: v.int(t.light, 'Prix léger', { max: 1e7 }), heavy: v.int(t.heavy, 'Prix lourd', { max: 1e7 }) })); return { imported: await fn('fn_admin_dlv_import', ctx.user.id, v.str(b.from, 'Départ', { max: 60 }), JSON.stringify(tiers)) }; }));
   app.get('/api/admin/dlv-quote', guard(['admin'], async (ctx) => ({ quote: await fn('fn_dlv_quote', ctx.user.id, v.str(ctx.query.from, 'Départ', { max: 60 }), v.str(ctx.query.to, 'Arrivée', { max: 60 }), Number(ctx.query.kg)) })));
+  // Livraison à la demande, côté expéditeur : prix, demande d'envoi (prix figé), suivi, annulation
+  const SHIP = ['shipper'];
+  app.get('/api/shipper/quote', guard(SHIP, async (ctx) => ({ quote: await fn('fn_dlv_quote', ctx.user.id, v.str(ctx.query.from, 'Départ', { max: 60 }), v.str(ctx.query.to, 'Arrivée', { max: 60 }), Number(ctx.query.kg)) })));
+  app.get('/api/shipper/places', guard(SHIP, async () => ({ places: await q(`SELECT DISTINCT t.from_place AS name, 'from' AS kind FROM dlv_tariffs t WHERE t.active UNION ALL SELECT DISTINCT p, 'to' FROM dlv_tariffs t, unnest(t.places) p WHERE t.active ORDER BY 2, 1`) })));
+  app.get('/api/shipper/requests', guard(SHIP, async (ctx) => ({ requests: await fn('fn_dlv_my_requests', ctx.user.id) })));
+  app.post('/api/shipper/requests', guard(SHIP, async (ctx) => { const b = ctx.body; ctx.status = 201; return await fn('fn_dlv_request_create', ctx.user.id, v.str(b.from, 'Départ', { max: 60 }), v.str(b.from_address, 'Adresse de ramassage', { min: 3, max: 200 }), v.str(b.to, 'Arrivée', { max: 60 }), v.str(b.to_address, 'Adresse de livraison', { min: 3, max: 200 }), v.str(b.receiver_name, 'Nom du destinataire', { min: 2, max: 100 }), v.phone(b.receiver_phone, 'Téléphone du destinataire'), v.str(b.description, 'Description du colis', { min: 3, max: 300 }), Number(b.kg), v.int(b.declared_value ?? 0, 'Valeur déclarée', { max: 1e9 }), v.oneOf(b.payer, ['sender', 'receiver'], 'Payeur'), b.ack === true); }));
+  app.post('/api/shipper/requests/:id/cancel', guard(SHIP, async (ctx) => { await fn('fn_dlv_request_cancel', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); }));
+  app.get('/api/admin/dlv-requests', guard(['admin'], async (ctx) => ({ requests: await fn('fn_admin_dlv_requests', ctx.user.id, ctx.query.status ? v.oneOf(ctx.query.status, ['new', 'assigned', 'picked_up', 'delivered', 'failed', 'cancelled'], 'Statut') : null) })));
   app.get('/api/courier/my-stats', guard(COU, async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
