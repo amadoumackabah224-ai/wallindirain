@@ -710,3 +710,21 @@ div.notif { cursor: default; }
 .reg-go { flex: none; color: var(--muted); }
 .reg-note { display: flex; gap: 8px; align-items: center; justify-content: center; font-size: 13px; color: var(--muted); }
 .reg-role { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--navy-100); border-radius: var(--r); padding: 8px 12px; margin-bottom: 12px; }
+
+.reg-steps i { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px; border-radius: 50%; background: var(--line-2); color: var(--white); font-style: normal; font-size: 11px; }
+.reg-steps span.on i { background: var(--gold); color: var(--navy); }
+.reg-ico { background: var(--navy); color: var(--gold-2); }
+.reg-card { transition: border-color .15s var(--ease), box-shadow .15s var(--ease), transform .15s var(--ease); }
+.reg-card:hover, .reg-card:focus-visible { transform: translateY(-1px); }
+.reg-card:active { transform: scale(.99); }
+.reg-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 20px; background: var(--gold-3); color: var(--gold-dark); font-size: 11px; font-weight: 700; font-style: normal; vertical-align: 2px; white-space: nowrap; }
+.reg-trust { list-style: none; margin: 16px 0 0; padding: 14px 0 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.reg-trust li { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.reg-trust li > svg { flex: none; color: var(--ok); margin-top: 2px; }
+.reg-trust b { display: block; color: var(--head); font-size: 14px; }
+.reg-trust a { color: var(--link); font-weight: 600; }
+.reg-note { margin-top: 12px; }
+.reg-note svg { color: var(--ok); }
+@keyframes reg-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.reg-cards .reg-card { animation: reg-in .35s var(--ease) both; }
+.reg-cards .reg-card:nth-child(2) { animation-delay: .06s; } .reg-cards .reg-card:nth-child(3) { animation-delay: .12s; } .reg-cards .reg-card:nth-child(4) { animation-delay: .18s; }

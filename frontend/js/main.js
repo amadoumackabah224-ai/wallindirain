@@ -143,7 +143,7 @@ async function route() {
   if (!user) { try { user = (await get('/auth/me')).user; } catch (e) { user = null; if (e?.code === 'network') return pub(offlineScreen(route)); } }
   if (user) { setOfflineUser(user.id); rememberUser(user); startSync(); initLock(user, logout); }
   if (!user) {
-    if (a === 'register') return pub(registerView({ ref: b }));
+    if (a === 'register') return pub(registerView({ ref: b, contact }));
     if (a === 'forgot') return pub(forgotView());
     return pub(loginView({ contact, onLogin: (u) => { user = u; location.hash = '#/app/'; } }));
   }

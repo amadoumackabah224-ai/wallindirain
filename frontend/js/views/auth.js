@@ -40,13 +40,13 @@ export function loginView({ onLogin, contact }) {
     h('p', { class: 'auth-foot' }, 'Besoin d\'aide ? ', telLink(contact)));
 }
 
-export function registerView({ ref } = {}) {
+export function registerView({ ref, contact } = {}) {
   // Le rôle choisi à l'étape 1 est gardé dans ce champ (non affiché) : toute la logique du formulaire reste inchangée.
   const ROLES = [
-    ['seller', 'bag', 'Je suis vendeur', ['Vous choisissez des produits et fixez votre prix', 'Vous gardez votre marge sur chaque vente', 'Le client paie en espèces à la livraison']],
-    ['supplier', 'package', 'Je suis fournisseur', ['Vous proposez vos produits', 'L\'administration les valide', 'Vous ne voyez ni le vendeur ni le client']],
-    flags.shipperSignup && ['shipper', 'truck', 'Je veux faire livrer un colis', ['Le prix s\'affiche avant de confirmer', 'Un livreur vient récupérer et livrer', 'Vous payez en espèces, sans vendre']],
-    flags.memberSignup && ['member', 'bank', 'Je veux gérer mon argent', ['Comptes, revenus et dépenses au même endroit', 'Budgets et objectifs', 'Gratuit, sans livraison ni commande']]
+    ['seller', 'bag', 'Je suis vendeur', 'Activation immédiate', ['Vous choisissez des produits et fixez votre prix', 'Vous gardez votre marge sur chaque vente', 'Le client paie en espèces à la livraison']],
+    ['supplier', 'package', 'Je suis fournisseur', 'Après validation', ['Vous proposez vos produits', 'L\'administration les valide', 'Vous ne voyez ni le vendeur ni le client']],
+    flags.shipperSignup && ['shipper', 'truck', 'Je veux faire livrer un colis', 'Sans vendre', ['Le prix s\'affiche avant de confirmer', 'Un livreur vient récupérer et livrer', 'Vous payez en espèces, sans vendre']],
+    flags.memberSignup && ['member', 'bank', 'Je veux gérer mon argent', 'Gratuit', ['Comptes, revenus et dépenses au même endroit', 'Budgets et objectifs', 'Gratuit, sans livraison ni commande']]
   ].filter(Boolean);
   const role = h('select', {}, ROLES.map(([k]) => h('option', { value: k }, k)));
   const roleLabel = (k) => ROLES.find((r) => r[0] === k)?.[2] || '';
@@ -102,16 +102,21 @@ export function registerView({ ref } = {}) {
     payBlock,
     pwField('Mot de passe', pw, '8 caractères minimum, avec des lettres et des chiffres.'),
     h('label', { class: 'f check' }, accept, consentText),
-    h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, 'Créer mon compte'));
+    h('button', { class: 'btn btn-gold btn-block', type: 'submit' }, icon('shield', 18), 'Créer mon compte'),
+    h('p', { class: 'reg-note' }, 'Vos informations sont protégées et ne sont jamais vendues.'));
   syncDoc(); syncConsent();
   // Étape 1 : cartes de rôles ; étape 2 : le formulaire. Un lien de parrainage ouvre directement l'étape 2 en vendeur.
   const pick = (k) => { role.value = k; role.dispatchEvent(new Event('change')); recap.textContent = roleLabel(k); show(2); };
-  const cards = h('div', { class: 'reg-cards' }, ROLES.map(([k, ic, title, lines]) => h('button', { class: 'reg-card', type: 'button', onclick: () => pick(k) },
+  const cards = h('div', { class: 'reg-cards' }, ROLES.map(([k, ic, title, tag, lines]) => h('button', { class: 'reg-card', type: 'button', onclick: () => pick(k) },
     h('span', { class: 'reg-ico', 'aria-hidden': 'true' }, icon(ic, 26)),
-    h('span', { class: 'reg-body' }, h('b', {}, title), h('ul', {}, lines.map((l) => h('li', {}, icon('check', 14), l)))),
+    h('span', { class: 'reg-body' }, h('b', {}, title, h('em', { class: 'reg-tag' }, tag)), h('ul', {}, lines.map((l) => h('li', {}, icon('check', 14), l)))),
     h('span', { class: 'reg-go', 'aria-hidden': 'true' }, icon('chevronRight', 20)))));
-  const bar = h('div', { class: 'reg-steps', 'aria-hidden': 'true' }, h('span', {}, 'Qui vous êtes'), h('span', {}, 'Vos informations'));
-  const step1 = h('div', {}, h('h1', {}, 'Vous êtes qui ?'), h('p', { class: 'muted' }, 'Choisissez une fois : le reste de l\'application s\'adapte à votre réponse.'), cards, h('p', { class: 'reg-note' }, icon('shield', 16), 'Inscription gratuite, moins d\'une minute.'));
+  const trust = h('ul', { class: 'reg-trust' },
+    h('li', {}, icon('shield', 20), h('span', {}, h('b', {}, 'Vos données restent privées'), 'Nous ne les vendons jamais.')),
+    h('li', {}, icon('banknote', 20), h('span', {}, h('b', {}, 'Paiement en espèces'), 'Aucune carte bancaire demandée.')),
+    contact && h('li', {}, icon('phone', 20), h('span', {}, h('b', {}, 'Une équipe qui répond'), 'Appelez le ', telLink(contact), '.')));
+  const bar = h('div', { class: 'reg-steps', 'aria-hidden': 'true' }, h('span', {}, h('i', {}, '1'), 'Qui vous êtes'), h('span', {}, h('i', {}, '2'), 'Vos informations'));
+  const step1 = h('div', {}, h('h1', {}, 'Vous êtes qui ?'), h('p', { class: 'muted' }, 'Choisissez une fois : le reste de l\'application s\'adapte à votre réponse.'), cards, h('p', { class: 'reg-note' }, icon('check', 16), 'Inscription gratuite, moins d\'une minute.'), trust);
   const show = (n) => { step1.classList.toggle('hidden', n !== 1); form.classList.toggle('hidden', n !== 2); [...bar.children].forEach((c, i) => c.classList.toggle('on', i + 1 === n)); window.scrollTo?.(0, 0); };
   show(ref ? 2 : 1); if (ref) pick('seller');
   return shell(h('div', { class: 'card' }, bar, step1, form, out), h('p', { class: 'auth-foot' }, h('a', { href: '#/login' }, 'J\'ai déjà un compte')));
