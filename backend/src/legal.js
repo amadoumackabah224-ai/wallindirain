@@ -24,17 +24,19 @@ export const DOCS = [
   { slug: 'confidentialite-livreur', title: 'Confidentialité', audience: 'courier' },
   { slug: 'conditions-membre', title: 'Conditions du membre', audience: 'member' },
   { slug: 'confidentialite-membre', title: 'Confidentialité', audience: 'member' },
+  { slug: 'conditions-expediteur', title: 'Conditions de l\'expéditeur', audience: 'shipper' },
+  { slug: 'confidentialite-expediteur', title: 'Confidentialité', audience: 'shipper' },
   { slug: 'regles-equipe', title: 'Règles de l\'équipe', audience: 'team' },
   { slug: 'confidentialite-equipe', title: 'Confidentialité', audience: 'team' }
 ];
 export const PAGES = DOCS.map((d) => [d.slug, d.title]);
-export const AUDIENCE_LABEL = { client: 'Client', seller: 'Vendeur', supplier: 'Fournisseur', member: 'Membre', courier: 'Livreur', team: 'Équipe' };
+export const AUDIENCE_LABEL = { client: 'Client', seller: 'Vendeur', supplier: 'Fournisseur', member: 'Membre', shipper: 'Expéditeur', courier: 'Livreur', team: 'Équipe' };
 // Ces trois publics lisent leurs textes AVANT d'avoir un compte (commande, inscription) : ils sont donc ouverts à tous.
 // Les textes des livreurs et de l'équipe ne sont lisibles que connecté, avec le bon rôle (ou administrateur).
-export const OPEN_AUDIENCES = ['client', 'seller', 'supplier', 'member'];
+export const OPEN_AUDIENCES = ['client', 'seller', 'supplier', 'member', 'shipper'];
 
 /** Public d'un rôle : administrateur = 'all' (voit tout), les autres rôles leur public, sinon null. */
-export const audienceOf = (role) => ({ admin: 'all', seller: 'seller', supplier: 'supplier', member: 'member', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team' })[role] || null;
+export const audienceOf = (role) => ({ admin: 'all', seller: 'seller', supplier: 'supplier', member: 'member', shipper: 'shipper', courier: 'courier', agent: 'team', call_chief: 'team', warehouse: 'team' })[role] || null;
 
 /** Textes qu'un public peut consulter : les textes publics + les siens ('all' = tous). */
 export const docsFor = (audience) => DOCS.filter((d) => d.audience === 'public' || audience === 'all' || d.audience === audience);
@@ -52,6 +54,7 @@ export const SUMMARY = {
   seller: 'Nous gardons votre nom, votre téléphone, votre numéro de versement et, avant votre premier retrait, une pièce d\'identité avec selfie. Vous gardez la différence entre votre prix de vente et vos coûts ; les frais sont affichés dans votre espace. Vous ne voyez jamais le fournisseur. Les retraits sont payés par l\'administration sur votre Orange Money ou MTN MoMo.',
   supplier: 'Nous gardons votre nom, votre téléphone, votre numéro de versement, vos produits et, avant votre premier retrait, une pièce d\'identité avec selfie. Vos produits sont validés par l\'administration. Vous ne voyez jamais le vendeur ni le client, et ils ne vous voient jamais.',
   member: 'Nous gardons votre nom, votre téléphone et ce que vous saisissez dans Mes finances (comptes, transactions, contacts). Seul vous les voyez. Nous ne nous connectons à aucun compte bancaire ou de monnaie mobile, ne lisons aucune conversation et ne détenons pas votre argent. Vous pouvez voir, corriger ou supprimer vos données.',
+  shipper: 'Nous gardons votre nom, votre téléphone et les informations de vos envois (adresses, destinataire, description du colis). Elles servent uniquement à livrer. Le prix vous est affiché avant de confirmer et la course se paie en espèces au livreur. Certains objets sont interdits. Vous pouvez voir, corriger ou supprimer vos données.',
   courier: 'Vous encaissez l\'argent à la livraison et le reversez à Wallindirain. Un manque constaté à la caisse est déduit de votre rémunération. Vous voyez les coordonnées des clients de vos colis seulement pour les livrer.',
   team: 'Les coordonnées des clients ne servent qu\'à votre travail : confirmer, préparer ou suivre les commandes. Vous ne les copiez ni ne les partagez. Vos actions sont enregistrées, et les vendeurs ne voient jamais votre nom.'
 };

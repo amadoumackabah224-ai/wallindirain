@@ -15,6 +15,7 @@ import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './v
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { adminCouriers } from './views/couriers.js';
+import { shipperSend, shipperRequests, adminDlvRequests } from './views/shipper.js';
 import { icon } from './icons.js';
 import { startPwa, offlineScreen } from './pwa.js';
 import { supplierProducts, supplierOrders, sellerProposals } from './views/supplier.js';
@@ -53,8 +54,9 @@ const TABS = {
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   member: [],
+  shipper: [['send', 'plus', 'Envoyer', (c) => shipperSend(c), ''], ['mine', 'truck', 'Mes envois', () => shipperRequests(), '']],
   warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
-  admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
+  admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['dlv', 'truck', 'À la demande', () => adminDlvRequests(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
     ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['invoices', 'receipt', 'Factures', () => adminInvoices(), 'Finances'], ['accounting', 'book', 'Comptabilité', () => adminAccounting(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
     ['support', 'message', 'Messages', () => adminSupport(), 'Système'], ['announce', 'megaphone', 'Annonces', () => adminAnnounce(), 'Système'], ['data', 'database', 'Données', () => adminData(), 'Système'], ['settings', 'sliders', 'Réglages', () => adminSettings(), 'Système'], ['audit', 'scroll', 'Journal', () => adminAudit(), 'Système']]
 };
@@ -157,4 +159,4 @@ setUnauthorizedHandler(() => { if (user) { user = null; clearCache(); stopLock()
 window.addEventListener('hashchange', route);
 startPwa();
 render(spinner());
-get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.memberSignup = !!i.features?.member_signup; }).catch(() => {}).finally(route);
+get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; }).catch(() => {}).finally(route);

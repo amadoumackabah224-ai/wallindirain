@@ -246,6 +246,7 @@ const FEATURES = [
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
   ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
   ['feature_livraison_demande', 'Livraison à la demande', 'Des personnes qui ne sont pas vendeurs peuvent faire livrer un colis. Les prix viennent de la grille (onglet « Grille livraison »). Fermé par défaut.'],
+  ['dlv_open_signup', 'Inscription « expéditeurs » (livraison à la demande)', 'Permet à des personnes de créer un compte expéditeur pour faire livrer des colis. Demande que « Livraison à la demande » soit allumée. Fermé par défaut.'],
   ['vehicle_check_required', 'Plaque et carte grise des livreurs obligatoires', 'Un livreur à moto ou en voiture ne reçoit pas de mission tant que sa plaque et sa carte grise ne sont pas vérifiées. Vélo et à pied : rien à fournir.']
 ];
 const FEATURE_KEYS = FEATURES.map((f) => f[0]);

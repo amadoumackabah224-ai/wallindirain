@@ -49,7 +49,7 @@ export const ORDER_STATUS = {
 };
 export const statusBadge = (s) => { const [t, c] = ORDER_STATUS[s] || [s, 'grey']; return h('span', { class: `badge ${c}` }, t); };
 export const badge = (text, kind = '') => h('span', { class: `badge ${kind}` }, text);
-export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier', member: 'Membre Mes finances' };
+export const ROLE_LABEL = { admin: 'Administrateur', supplier: 'Fournisseur', seller: 'Vendeur', agent: 'Agent call center', call_chief: 'Chef call center', courier: 'Livreur', warehouse: 'Magasinier', member: 'Membre Mes finances', shipper: 'Expéditeur' };
 /** Photos d'un produit (identifiants renvoyés par l'API) ; onDelete ajoute une croix de suppression (fournisseur). */
 export const photoStrip = (ids = [], { size = 88, onDelete } = {}) => ids.length ? h('div', { class: 'photo-strip' }, ids.map((id) => h('span', { class: 'photo-wrap' },
   h('img', { class: 'photo-thumb', src: `/api/product-images/${id}`, alt: 'Photo du produit', loading: 'lazy', width: size, height: size }),
