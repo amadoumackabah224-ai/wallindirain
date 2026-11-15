@@ -245,6 +245,7 @@ const FEATURES = [
   ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
   ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
+  ['feature_livraison_demande', 'Livraison à la demande', 'Des personnes qui ne sont pas vendeurs peuvent faire livrer un colis. Les prix viennent de la grille (onglet « Grille livraison »). Fermé par défaut.'],
   ['vehicle_check_required', 'Plaque et carte grise des livreurs obligatoires', 'Un livreur à moto ou en voiture ne reçoit pas de mission tant que sa plaque et sa carte grise ne sont pas vérifiées. Vélo et à pied : rien à fournir.']
 ];
 const FEATURE_KEYS = FEATURES.map((f) => f[0]);
@@ -265,7 +266,7 @@ const NUMERIC_GROUPS = {
     ['Alertes', ['pickup_alert_hours', 'alert_cash_hours', 'alert_low_stock_qty', 'alert_payout_days']]
   ]
 };
-const SETTINGS_TABS = [['fonctions', 'Fonctions'], ['tarifs', 'Tarifs et frais'], ['regles', 'Règles et alertes'], ['abonnements', 'Abonnements'], ['finances', 'Mes finances'], ['zones', 'Zones'], ['rayons', 'Rayons'], ['trophees', 'Trophées'], ['relances', 'Relances']];
+const SETTINGS_TABS = [['fonctions', 'Fonctions'], ['tarifs', 'Tarifs et frais'], ['regles', 'Règles et alertes'], ['abonnements', 'Abonnements'], ['finances', 'Mes finances'], ['zones', 'Zones'], ['rayons', 'Rayons'], ['grille', 'Grille livraison'], ['trophees', 'Trophées'], ['relances', 'Relances']];
 
 export function adminSettings() {
   const host = h('div');
@@ -355,6 +356,7 @@ function settingsSection(tab) {
     }
     if (tab === 'zones') return zonesCard(rates, settings, refresh);
     if (tab === 'rayons') return categoriesCard(categories, refresh);
+    if (tab === 'grille') return dlvGridCard();
     if (tab === 'trophees') return trophyCard(settings, refresh);
     return h('div');
   });
@@ -512,6 +514,58 @@ function categoriesCard(categories, refresh) {
   return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Rayons du catalogue'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit(null) }, '+ Rayon')),
     h('p', { class: 'small muted' }, 'Chaque produit est rangé dans un rayon que les vendeurs retrouvent dans le catalogue.'),
     table(['Rayon', 'Produits', 'État', ''], categories.map((c) => [c.name, c.products, badge(c.active ? 'Actif' : 'Désactivé', c.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: edit(c) }, 'Modifier')])));
+}
+
+const numIn = (x) => Number(String(x).replace(/\D/g, ''));
+/** Colle une grille : une ligne par groupe « léger ; lourd ; quartier, quartier… ». */
+export function parseDlvGrid(text) {
+  const tiers = [];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim(); if (!line) continue;
+    const parts = line.split(/\s*[;|\t]\s*/);
+    if (parts.length < 3) throw new Error(`Ligne incomplète : « ${line.slice(0, 40)} ». Format : léger ; lourd ; quartiers séparés par des virgules.`);
+    const places = parts.slice(2).join(',').split(',').map((x) => x.trim()).filter(Boolean);
+    const light = numIn(parts[0]); const heavy = numIn(parts[1]);
+    if (!light || !heavy || !places.length) throw new Error(`Ligne invalide : « ${line.slice(0, 40)} »`);
+    tiers.push({ light, heavy, places });
+  }
+  if (!tiers.length) throw new Error('Collez au moins une ligne.');
+  return tiers;
+}
+/** Grille de la livraison à la demande : par départ, groupes de quartiers avec prix poids léger et poids lourd. */
+function dlvGridCard() {
+  return liveView(() => get('/admin/dlv-tariffs'), ({ grid }, refresh) => {
+    const froms = [...new Set(grid.tariffs.map((t) => t.from))];
+    const edit = (t, from) => action(async () => {
+      const v = await ask({ title: t ? 'Modifier ce groupe' : 'Nouveau groupe', submit: 'Enregistrer', fields: [
+        { name: 'from', label: 'Départ', value: t?.from || from || '' },
+        { name: 'places', label: 'Quartiers d\'arrivée (séparés par des virgules)', type: 'textarea', value: (t?.places || []).join(', ') },
+        { name: 'light', label: 'Prix poids léger (GNF)', type: 'number', inputmode: 'numeric', value: t?.light || '' },
+        { name: 'heavy', label: 'Prix poids lourd (GNF)', type: 'number', inputmode: 'numeric', value: t?.heavy || '' },
+        { name: 'active', label: 'Groupe actif', type: 'checkbox', required: false, value: t ? t.active : true }] });
+      if (v) await post('/admin/dlv-tariffs', { id: t?.id, from: v.from, places: v.places.split(',').map((x) => x.trim()).filter(Boolean), light: numIn(v.light), heavy: numIn(v.heavy), active: !!v.active });
+    }, { ok: 'Groupe enregistré', refresh });
+    const paste = action(async () => {
+      const v = await ask({ title: 'Coller une grille', text: 'Un groupe par ligne : prix léger ; prix lourd ; quartiers séparés par des virgules. Les anciens groupes actifs de ce départ sont désactivés, pas supprimés.', submit: 'Importer', fields: [
+        { name: 'from', label: 'Départ (ex. Taouyah)', value: froms[0] || '' },
+        { name: 'text', label: 'Grille', type: 'textarea', value: '10000 ; 15000 ; Concasseur, Ratoma, Taouyah, Minière\n20000 ; 30000 ; Kaporo, Gbessia, Kenien' }] });
+      if (!v) return false;
+      let tiers; try { tiers = parseDlvGrid(v.text); } catch (e) { toast(e.message, 'bad'); return false; }
+      return post('/admin/dlv-tariffs/import', { from: v.from, tiers });
+    }, { ok: (r) => (r === false ? '' : `${r.imported} groupe(s) importé(s)`), refresh });
+    const test = action(async () => {
+      const v = await ask({ title: 'Tester un prix', submit: 'Calculer', fields: [{ name: 'from', label: 'Départ', value: froms[0] || '' }, { name: 'to', label: 'Arrivée', value: '' }, { name: 'kg', label: 'Poids (kg)', type: 'number', inputmode: 'decimal', value: '' }] });
+      if (!v) return false;
+      const r = (await get(`/admin/dlv-quote?from=${encodeURIComponent(v.from)}&to=${encodeURIComponent(v.to)}&kg=${encodeURIComponent(v.kg)}`)).quote;
+      toast(`${r.weight_class === 'heavy' ? 'Poids lourd' : 'Poids léger'} : ${fmtGNF(r.price)}`, 'ok'); return false;
+    }, { ok: '' });
+    const heavy = action(async () => { const v = await ask({ title: 'Seuil du poids lourd', submit: 'Enregistrer', fields: [{ name: 'kg', label: 'Poids lourd à partir de (kg)', type: 'number', inputmode: 'numeric', value: Number(grid.heavy_kg) }] }); if (v) await post('/admin/settings', { key: 'delivery_heavy_kg', value: Number(v.kg) }); }, { ok: 'Seuil enregistré', refresh });
+    return h('div', { class: 'card' }, h('div', { class: 'gap' }, h('h2', { class: 'grow' }, 'Grille de livraison à la demande'), h('button', { class: 'btn btn-sm btn-ghost', onclick: test }, 'Tester un prix'), h('button', { class: 'btn btn-sm btn-ghost', onclick: paste }, 'Coller une grille'), h('button', { class: 'btn btn-sm btn-gold', onclick: edit(null, froms[0]) }, '+ Groupe')),
+      h('p', { class: 'small muted' }, `Colis léger en dessous de ${grid.heavy_kg} kg, lourd à partir de ${grid.heavy_kg} kg. `, h('button', { class: 'btn btn-sm btn-ghost', onclick: heavy }, 'Changer le seuil')),
+      !grid.enabled && h('p', { class: 'small muted' }, 'La fonction est éteinte : rien n\'est visible des clients. Allumez-la dans l\'onglet Fonctions.'),
+      froms.length === 0 ? empty('truck', 'Aucune grille. Collez celle de votre premier départ.') : froms.map((f) => h('div', {}, h('h3', {}, `Départ : ${f}`),
+        table(['Quartiers d\'arrivée', 'Léger', 'Lourd', 'État', ''], grid.tariffs.filter((t) => t.from === f).map((t) => [t.places.join(', '), fmtGNF(t.light), fmtGNF(t.heavy), badge(t.active ? 'Actif' : 'Désactivé', t.active ? 'ok' : 'grey'), h('button', { class: 'btn btn-sm btn-ghost', onclick: edit(t) }, 'Modifier')])))));
+  });
 }
 
 const KIND_LABEL = { commune: 'Commune', quartier: 'Quartier', ville: 'Ville de l\'intérieur', autre: 'Autre' };
