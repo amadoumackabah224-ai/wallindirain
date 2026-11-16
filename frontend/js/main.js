@@ -15,7 +15,7 @@ import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './v
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { adminCouriers } from './views/couriers.js';
-import { shipperSend, shipperRequests, adminDlvRequests } from './views/shipper.js';
+import { shipperSend, shipperRequests, adminDlvRequests, courierOnDemand } from './views/shipper.js';
 import { icon } from './icons.js';
 import { startPwa, offlineScreen } from './pwa.js';
 import { supplierProducts, supplierOrders, sellerProposals } from './views/supplier.js';
@@ -52,7 +52,7 @@ const TABS = {
   supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
-  courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
+  courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['ondemand', 'truck', 'À la demande', () => courierOnDemand(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   member: [],
   shipper: [['send', 'plus', 'Envoyer', (c) => shipperSend(c), ''], ['mine', 'truck', 'Mes envois', () => shipperRequests(), '']],
   warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],

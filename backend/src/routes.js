@@ -129,7 +129,7 @@ export function registerRoutes(app, { db, cfg }) {
       payMethod, payPhone, cfg.legal.version);
     if (b.email) await fn('fn_register_email', id, v.email(b.email));   // code de vérification envoyé par e-mail
     let referral = null;
-    if (role === 'seller' && typeof b.referral_code === 'string' && b.referral_code.trim()) referral = await fn('fn_register_referral', id, v.str(b.referral_code, 'Code de parrainage', { min: 4, max: 12 }));
+    if ((role === 'seller' || role === 'shipper') && typeof b.referral_code === 'string' && b.referral_code.trim()) referral = await fn('fn_register_referral', id, v.str(b.referral_code, 'Code de parrainage', { min: 4, max: 12 }));
     ctx.status = 201;
     return { id, pending_validation: role === 'supplier' || foreign, email_pending: !!b.email, referral_applied: referral,
       message: role === 'supplier' || foreign ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
@@ -943,7 +943,7 @@ export function registerRoutes(app, { db, cfg }) {
     return await fn('fn_admin_announce', ctx.user.id, v.str(b.audience, 'Destinataires', { max: 20 }), v.str(b.title, 'Titre', { min: 3, max: 120 }), v.str(b.body, 'Message', { min: 3, max: 600 }));
   }));
 
-  app.get('/api/me/referral', guard(['seller', 'supplier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
+  app.get('/api/me/referral', guard(['seller', 'supplier', 'courier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
 
   app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {
     const id = v.uuid(ctx.params.id, 'Commande');
@@ -1051,6 +1051,17 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/shipper/requests', guard(SHIP, async (ctx) => { const b = ctx.body; ctx.status = 201; return await fn('fn_dlv_request_create', ctx.user.id, v.str(b.from, 'Départ', { max: 60 }), v.str(b.from_address, 'Adresse de ramassage', { min: 3, max: 200 }), v.str(b.to, 'Arrivée', { max: 60 }), v.str(b.to_address, 'Adresse de livraison', { min: 3, max: 200 }), v.str(b.receiver_name, 'Nom du destinataire', { min: 2, max: 100 }), v.phone(b.receiver_phone, 'Téléphone du destinataire'), v.str(b.description, 'Description du colis', { min: 3, max: 300 }), Number(b.kg), v.int(b.declared_value ?? 0, 'Valeur déclarée', { max: 1e9 }), v.oneOf(b.payer, ['sender', 'receiver'], 'Payeur'), b.ack === true); }));
   app.post('/api/shipper/requests/:id/cancel', guard(SHIP, async (ctx) => { await fn('fn_dlv_request_cancel', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); }));
   app.get('/api/admin/dlv-requests', guard(['admin'], async (ctx) => ({ requests: await fn('fn_admin_dlv_requests', ctx.user.id, ctx.query.status ? v.oneOf(ctx.query.status, ['new', 'assigned', 'picked_up', 'delivered', 'failed', 'cancelled'], 'Statut') : null) })));
+  // Livraison à la demande : désignation du livreur (admin), missions du livreur
+  app.post('/api/admin/dlv-requests/:id/assign', guard(['admin'], async (ctx) => { await fn('fn_admin_dlv_assign', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), v.uuid(ctx.body.courier_id, 'Livreur')); }));
+  app.post('/api/admin/dlv-requests/:id/unassign', guard(['admin'], async (ctx) => { await fn('fn_admin_dlv_unassign', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); }));
+  app.post('/api/admin/users/:id/referrer', guard(['admin'], async (ctx) => ({ referrer: await fn('fn_admin_set_referrer', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.str(ctx.body.code, 'Code de parrainage', { min: 4, max: 12 })) })));
+  app.get('/api/courier/dlv', guard(['courier'], async (ctx) => ({ missions: await fn('fn_courier_dlv_list', ctx.user.id) })));
+  app.post('/api/courier/dlv/:id/pickup', guard(['courier'], async (ctx) => { await fn('fn_courier_dlv_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Course')); }));
+  app.post('/api/courier/dlv/:id/deliver', guard(['courier'], async (ctx) => {
+    limit(`deliver:${ctx.user.id}`, 30, 600_000);
+    await fn('fn_courier_dlv_deliver', ctx.user.id, v.uuid(ctx.params.id, 'Course'));
+  }));
+  app.post('/api/courier/dlv/:id/fail', guard(['courier'], async (ctx) => { await fn('fn_courier_dlv_fail', ctx.user.id, v.uuid(ctx.params.id, 'Course'), v.str(ctx.body.reason, 'Raison', { min: 3, max: 200 })); }));
   app.get('/api/courier/my-stats', guard(COU, async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
@@ -1103,8 +1114,8 @@ export function registerRoutes(app, { db, cfg }) {
 
   // Reversement : encaissements en attente + historique des reversements par transfert
   app.get('/api/courier/cash', guard(COU, async (ctx) => ({
-    entries: await q(`SELECT c.order_id, o.ref, c.amount, c.created_at, (c.remittance_id IS NOT NULL) AS in_remittance
-        FROM courier_cash_entries c JOIN orders o ON o.id = c.order_id
+    entries: await q(`SELECT COALESCE(c.order_id, c.dlv_request_id) AS order_id, COALESCE(o.ref, d.ref) AS ref, c.amount, c.created_at, (c.remittance_id IS NOT NULL) AS in_remittance
+        FROM courier_cash_entries c LEFT JOIN orders o ON o.id = c.order_id LEFT JOIN dlv_requests d ON d.id = c.dlv_request_id
         WHERE c.courier_id = $1 AND c.count_id IS NULL ORDER BY c.created_at`, [ctx.user.id]),
     remittances: await q(`SELECT id, method, amount, status, received, reference, proof_id, handed_to, decision_note, created_at, decided_at
         FROM remittances WHERE courier_id = $1 ORDER BY created_at DESC LIMIT 30`, [ctx.user.id])

@@ -69,7 +69,7 @@ export function registerView({ ref, contact } = {}) {
     const sup = role.value === 'supplier', mem = role.value === 'member' || role.value === 'shipper';
     abroadBox.classList.toggle('hidden', sup || mem); if (sup || mem) abroad.checked = false; syncAbroad();
     payBlock.classList.toggle('hidden', mem);
-    refField.replaceChildren(sup || mem ? '' : field('Code de parrainage', referral, 'Si un vendeur Wallindirain vous a invité, saisissez son code.'));
+    refField.replaceChildren(sup || role.value === 'member' ? '' : field('Code de parrainage', referral, 'Si quelqu\'un de Wallindirain vous a invité, saisissez son code.'));
   };
   const accept = h('input', { type: 'checkbox', required: true });
   // les textes proposés sont ceux du rôle choisi (vendeur ou fournisseur)
@@ -90,7 +90,7 @@ export function registerView({ ref, contact } = {}) {
     e.preventDefault();
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...(role.value === 'seller' && referral.value.trim() ? { referral_code: referral.value.trim() } : {}), ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}),
+      const r = await post('/auth/register', { role: role.value, name: name.value, phone: phone.value, password: pw.value, accept_terms: accept.checked, ...((role.value === 'seller' || role.value === 'shipper') && referral.value.trim() ? { referral_code: referral.value.trim() } : {}), ...(flags.email && email.value.trim() ? { email: email.value.trim() } : {}),
         ...(role.value === 'member' || role.value === 'shipper' ? {} : { payout_method: payMethod.value, ...(payPhone.value.trim() ? { payout_phone: payPhone.value } : {}) }) });
       out.replaceChildren(h('div', { class: 'notice ok' }, r.message), r.referral_applied === false && h('div', { class: 'notice warn' }, 'Le code de parrainage n\'a pas été reconnu : votre compte est créé sans parrain.'), h('a', { class: 'btn btn-gold btn-block', href: '#/login' }, 'Aller à la connexion'));
       form.classList.add('hidden');

@@ -1,5 +1,5 @@
 // Livraison à la demande : espace de l'expéditeur (demander une course, suivre, annuler) et liste côté administration.
-import { h, fmtGNF, action, toast, errToast, empty, badge, liveView, table, confirmBox } from '../ui.js';
+import { h, fmtGNF, action, ask, toast, errToast, empty, badge, liveView, table, confirmBox, telLink } from '../ui.js';
 import { get, post } from '../api.js';
 
 const STATUS = { new: ['À prendre en charge', 'warn'], assigned: ['Livreur désigné', 'info'], picked_up: ['Colis récupéré', 'info'], delivered: ['Livré', 'ok'], failed: ['Échec', 'bad'], cancelled: ['Annulé', 'grey'] };
@@ -63,20 +63,51 @@ export function shipperRequests() {
     return h('div', {}, h('h2', {}, 'Mes envois'), requests.map((r) => h('div', { class: 'card' },
       h('div', { class: 'gap' }, h('b', { class: 'grow' }, r.ref), badge(STATUS[r.status]?.[0] || r.status, STATUS[r.status]?.[1] || 'grey')),
       h('div', {}, `${r.from} → ${r.to}`), h('div', { class: 'small muted' }, `${r.receiver_name} · ${r.to_address}`),
+      r.courier && h('div', { class: 'small' }, `Livreur : ${r.courier}`), r.fail_reason && h('div', { class: 'notice warn' }, `Non livré : ${r.fail_reason}. Contactez-nous.`),
       h('div', { class: 'small muted' }, `${r.description} · ${r.weight_kg} kg (${r.weight_class === 'heavy' ? 'lourd' : 'léger'}) · payé par ${PAYER[r.payer].toLowerCase()}`),
       h('div', { class: 'gap' }, h('b', { class: 'grow' }, fmtGNF(r.price)), h('span', { class: 'small muted' }, day(r.created_at)),
         r.status === 'new' && h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: action(async () => { if (await confirmBox('Annuler cette demande ?', 'Elle ne sera pas livrée.', 'Annuler la demande', true)) await post(`/shipper/requests/${r.id}/cancel`); }, { ok: 'Demande annulée', refresh }) }, 'Annuler')))));
   });
 }
 
-/** Administration : demandes d'envoi reçues. */
+/** Administration : demandes d'envoi reçues, désignation du livreur. */
 export function adminDlvRequests() {
   let status = '';
   const host = h('div');
-  const draw = () => host.replaceChildren(h('div', { class: 'chips' }, [['', 'Toutes'], ['new', 'À prendre'], ['delivered', 'Livrées'], ['cancelled', 'Annulées']].map(([k, l]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(status === k), onclick: () => { status = k; draw(); } }, l))),
-    liveView(() => get(`/admin/dlv-requests${status ? `?status=${status}` : ''}`), ({ requests }) => (requests.length === 0 ? empty('truck', 'Aucune demande.') : h('div', { class: 'card' }, h('h2', {}, 'Livraisons à la demande'),
-      table(['Réf.', 'Expéditeur', 'Trajet', 'Colis', 'Prix', 'État'], requests.map((r) => [r.ref, h('div', {}, r.shipper, h('div', { class: 'small muted' }, r.shipper_phone)), h('div', {}, `${r.from} → ${r.to}`, h('div', { class: 'small muted' }, `${r.receiver_name} · ${r.receiver_phone}`)),
-        h('div', {}, r.description, h('div', { class: 'small muted' }, `${r.weight_kg} kg (${r.weight_class === 'heavy' ? 'lourd' : 'léger'}) · valeur ${fmtGNF(r.declared_value)}`)), h('div', {}, fmtGNF(r.price), h('div', { class: 'small muted' }, PAYER[r.payer])), badge(STATUS[r.status]?.[0] || r.status, STATUS[r.status]?.[1] || 'grey')]))))));
+  const draw = () => host.replaceChildren(h('div', { class: 'chips' }, [['', 'Toutes'], ['new', 'À prendre'], ['assigned', 'Livreur désigné'], ['picked_up', 'En route'], ['delivered', 'Livrées'], ['failed', 'Échecs'], ['cancelled', 'Annulées']].map(([k, l]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(status === k), onclick: () => { status = k; draw(); } }, l))),
+    liveView(() => get(`/admin/dlv-requests${status ? `?status=${status}` : ''}`), ({ requests }, refresh) => {
+      const assign = (r) => action(async () => {
+        const { couriers } = await get('/admin/couriers');
+        const v = await ask({ title: `Désigner un livreur (${r.ref})`, text: `${r.from} → ${r.to}`, submit: 'Désigner', fields: [{ name: 'courier', label: 'Livreur', type: 'select', options: couriers.filter((c) => c.status !== 'suspended').map((c) => [c.id, c.full_name]), value: r.courier_id }] });
+        if (v) await post(`/admin/dlv-requests/${r.id}/assign`, { courier_id: v.courier });
+      }, { ok: 'Livreur désigné', refresh });
+      const unassign = (r) => action(async () => { if (await confirmBox('Retirer le livreur ?', 'La course redevient « à prendre en charge ».', 'Retirer')) await post(`/admin/dlv-requests/${r.id}/unassign`); }, { ok: 'Livreur retiré', refresh });
+      return requests.length === 0 ? empty('truck', 'Aucune demande.') : h('div', { class: 'card' }, h('h2', {}, 'Livraisons à la demande'),
+        table(['Réf.', 'Expéditeur', 'Trajet', 'Colis', 'Prix', 'Livreur', 'État'], requests.map((r) => [r.ref, h('div', {}, r.shipper, h('div', { class: 'small muted' }, r.shipper_phone)), h('div', {}, `${r.from} → ${r.to}`, h('div', { class: 'small muted' }, `${r.receiver_name} · ${r.receiver_phone}`)),
+          h('div', {}, r.description, h('div', { class: 'small muted' }, `${r.weight_kg} kg (${r.weight_class === 'heavy' ? 'lourd' : 'léger'}) · valeur ${fmtGNF(r.declared_value)}`)), h('div', {}, fmtGNF(r.price), h('div', { class: 'small muted' }, PAYER[r.payer])),
+          h('div', {}, r.courier || '—', Number(r.courier_pay) > 0 && h('div', { class: 'small muted' }, `paie ${fmtGNF(r.courier_pay)}`),
+            ['new', 'assigned'].includes(r.status) && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: assign(r) }, r.courier ? 'Changer' : 'Désigner'), r.status === 'assigned' && h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: unassign(r) }, 'Retirer'))),
+          h('div', {}, badge(STATUS[r.status]?.[0] || r.status, STATUS[r.status]?.[1] || 'grey'), r.fail_reason && h('div', { class: 'small muted' }, r.fail_reason))])));
+    }));
   draw();
   return host;
+}
+
+/** Livreur : courses à la demande qui lui sont confiées (ramasser, livrer, signaler un échec). */
+export function courierOnDemand() {
+  return liveView(() => get('/courier/dlv'), ({ missions }, refresh) => {
+    if (!missions.length) return h('div', {}, h('h1', {}, 'Courses à la demande'), h('div', { class: 'card' }, empty('truck', 'Aucune course pour le moment.')));
+    const pickup = (m) => action(async () => { if (await confirmBox('Colis récupéré ?', m.payer === 'sender' ? `Encaissez ${fmtGNF(m.price)} auprès de l'expéditeur avant de partir.` : 'Confirmez que vous avez le colis en main.', 'Colis récupéré')) await post(`/courier/dlv/${m.id}/pickup`); }, { ok: 'Colis récupéré : en route', refresh });
+    const deliver = (m) => action(async () => { if (await confirmBox('Colis livré ?', m.to_collect > 0 ? `Encaissez ${fmtGNF(m.to_collect)} auprès du destinataire avant de valider.` : 'Confirmez que le colis a été remis au destinataire.', 'Colis livré')) await post(`/courier/dlv/${m.id}/deliver`); }, { ok: 'Livraison validée', refresh });
+    const fail = (m) => action(async () => { const v = await ask({ title: `Échec de livraison (${m.ref})`, submit: 'Signaler', danger: true, fields: [{ name: 'reason', label: 'Raison (destinataire absent, refus…)', maxlength: 200 }] }); if (v) await post(`/courier/dlv/${m.id}/fail`, { reason: v.reason }); }, { ok: 'Échec enregistré', refresh });
+    return h('div', {}, h('h1', {}, 'Courses à la demande'), missions.map((m) => h('div', { class: 'card' },
+      h('div', { class: 'gap' }, h('b', { class: 'grow' }, m.ref), badge(STATUS[m.status]?.[0] || m.status, STATUS[m.status]?.[1] || 'grey')),
+      h('div', {}, h('b', {}, 'Ramassage : '), `${m.from}, ${m.from_address} · `, m.shipper, ' ', telLink(m.shipper_phone)),
+      h('div', {}, h('b', {}, 'Livraison : '), `${m.to}, ${m.to_address} · ${m.receiver_name} `, telLink(m.receiver_phone)),
+      h('div', { class: 'small muted' }, `${m.description} · ${m.weight_kg} kg (${m.weight_class === 'heavy' ? 'lourd' : 'léger'}) · course ${fmtGNF(m.price)}, payée par ${PAYER[m.payer].toLowerCase()}`),
+      m.fail_reason && h('div', { class: 'notice warn' }, `Échec : ${m.fail_reason}`),
+      m.status === 'delivered' && Number(m.courier_pay) > 0 && h('div', { class: 'notice ok' }, `Votre paie : ${fmtGNF(m.courier_pay)}`),
+      m.status === 'assigned' && h('button', { class: 'btn btn-gold btn-block', type: 'button', onclick: pickup(m) }, 'Colis récupéré'),
+      m.status === 'picked_up' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-gold grow', type: 'button', onclick: deliver(m) }, 'Livrer'), h('button', { class: 'btn btn-ghost', type: 'button', onclick: fail(m) }, 'Échec')))));
+  });
 }

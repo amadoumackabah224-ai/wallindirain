@@ -79,6 +79,7 @@ export function adminCouriers() {
     const id = fileId;
     return liveView(() => get(`/admin/couriers/${id}/file`), (f, refresh) => {
       const c = f.courier;
+      const setReferrer = (c) => action(async () => { const v = await ask({ title: `Parrain de ${c.full_name}`, text: 'Code de parrainage du vendeur, fournisseur ou livreur qui a recommandé ce livreur.', submit: 'Enregistrer', fields: [{ name: 'code', label: 'Code de parrainage', maxlength: 12 }] }); if (v) { const r = await post(`/admin/users/${c.id}/referrer`, { code: v.code }); toast(`Parrain : ${r.referrer}`, 'ok'); } }, { ok: '', refresh });
       const changeKind = action(async () => {
         const to = c.kind === 'company' ? 'independent' : 'company';
         const v = await ask({ title: `Passer ${c.full_name} en « ${KIND[to]} »`, submit: 'Changer la catégorie', text: to === 'company'
@@ -104,6 +105,7 @@ export function adminCouriers() {
           ...(['moto', 'voiture'].includes(c.vehicle) ? [['Plaque et carte grise', c.vehicle_status === 'verified' ? `Vérifiées · ${c.plate}` : ({ submitted: `À examiner · ${c.plate}`, rejected: 'Refusées', draft: 'Incomplètes' }[c.vehicle_status] || 'Pas encore envoyées')]] : []),
           ['Versement', c.payout_phone ? `${c.payout_method === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} · ${fmtPhone(c.payout_phone)}` : 'Non défini'], ['Solde du portefeuille', fmtGNF(f.balance)], ['Argent à reverser', fmtGNF(f.cash_pending)]]),
           h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-gold', onclick: changeKind }, c.kind === 'company' ? 'Passer en indépendant' : 'Passer en livreur de Wallindirain'),
+            h('button', { class: 'btn btn-sm btn-ghost', onclick: setReferrer(c) }, 'Parrain'),
             c.kyc_status === 'submitted' && h('button', { class: 'btn btn-sm btn-ghost', onclick: () => reviewIdentity({ id: c.id, full_name: c.full_name }, refresh) }, 'Examiner la pièce'),
             c.vehicle_status && h('button', { class: 'btn btn-sm btn-ghost', onclick: () => reviewVehicle({ id: c.id, full_name: c.full_name, plate: c.plate }, refresh) }, c.vehicle_status === 'verified' ? 'Revoir le véhicule' : 'Examiner le véhicule'))),
         agreementCard({ id: c.id, full_name: c.full_name }, refresh),

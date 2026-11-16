@@ -256,7 +256,8 @@ const NUMERIC_GROUPS = {
     ['Rémunérations', ['agent_pay', 'courier_pay', 'courier_share_bps']],
     ['Tournées groupées', ['tour_share_bps', 'tour_extra_share_bps', 'tour_bonus_per_extra_order']],
     ['Retraits et gains', ['min_withdrawal', 'unlock_hours']],
-    ['Parrainage', ['referral_bonus', 'referral_orders_required']]
+    ['Parrainage', ['referral_bonus', 'referral_orders_required', 'referral_bonus_shipper', 'referral_dlv_required', 'referral_bonus_courier', 'referral_courier_required']],
+    ['Livraison à la demande', ['dlv_courier_share', 'dlv_failed_pay_pct', 'dlv_daily_limit', 'dlv_max_declared', 'delivery_heavy_kg']]
   ],
   finances: [
     ['Prix de la formule Pro', ['pf_price_monthly', 'pf_price_yearly', 'pf_trial_days']],

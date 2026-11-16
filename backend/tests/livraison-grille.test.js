@@ -55,7 +55,7 @@ test('contrôles : lourd < léger refusé, quartier en double refusé, désactiv
 });
 
 test('retour arrière 068 : refusé si la fonction est allumée, accepté sinon', async () => {
-  const rb = ['070', '068'].map((n) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${n}.sql`), 'utf8')).join('\n');   // la 070 dépend de la grille
+  const rb = ['072', '071', '070', '068'].map((n) => fs.readFileSync(path.join(root, 'docs', `retour-arriere-${n}.sql`), 'utf8')).join('\n');   // la 070 dépend de la grille
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
   await assert.rejects(run, /Éteignez d'abord/);
   await db.owner.query("UPDATE settings SET value = 0 WHERE key = 'feature_livraison_demande'");
