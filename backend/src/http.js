@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { PgError } from './pg.js';
 import { securityHeaders } from './security.js';
 
@@ -32,6 +33,7 @@ export function toHttpError(e) {
   return null;
 }
 
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.svg', '.json', '.webmanifest', '.txt']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8' };
 
@@ -47,6 +49,8 @@ export class App {
   }
   get(p, h, o) { this.add('GET', p, h, o); }
   post(p, h, o) { this.add('POST', p, h, o); }
+
+  #cache = new Map();
 
   async handle(req, res) {
     const started = Date.now();
@@ -100,12 +104,23 @@ export class App {
     const ext = path.extname(file);
     // pages, scripts et styles : le navigateur revalide à chaque fois (ETag), donc une mise à jour est visible tout de suite
     const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(ext);
-    const body = fs.readFileSync(file);
-    const etag = '"' + crypto.createHash('sha1').update(body).digest('base64url') + '"';
-    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream', ETag: etag,
+    const st = fs.statSync(file);
+    let hit = this.#cache.get(file);
+    if (!hit || hit.mtime !== st.mtimeMs || hit.size !== st.size) {   // lu, empreinte et compression calculés une seule fois par version du fichier
+      const raw = fs.readFileSync(file);
+      const etag = crypto.createHash('sha1').update(raw).digest('base64url');
+      const text = COMPRESSIBLE.has(ext) && raw.length > 512;
+      hit = { mtime: st.mtimeMs, size: st.size, etag, raw, br: text ? zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }) : null, gz: text ? zlib.gzipSync(raw, { level: 9 }) : null };
+      this.#cache.set(file, hit);
+    }
+    const accept = String(req.headers['accept-encoding'] || '');
+    const enc = hit.br && /\bbr\b/.test(accept) ? 'br' : hit.gz && /\bgzip\b/.test(accept) ? 'gzip' : null;
+    const etag = `"${hit.etag}${enc ? '-' + enc : ''}"`;
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream', ETag: etag, Vary: 'Accept-Encoding',
       'Cache-Control': revalidate ? 'no-cache' : 'public, max-age=86400' };
+    if (enc) headers['Content-Encoding'] = enc;
     if (req.headers['if-none-match'] === etag) return send(304, Buffer.alloc(0), headers);
-    send(200, body, headers);
+    send(200, enc === 'br' ? hit.br : enc === 'gzip' ? hit.gz : hit.raw, headers);
   }
 }
 

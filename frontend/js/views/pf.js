@@ -35,7 +35,7 @@ const fmtCur = (minor, code) => (!code || code === 'GNF' ? fmtGNF(minor) : `${fr
 const curMoney = (n, code, signed = false) => `${signed && n > 0 ? '+' : ''}${fmtCur(n, code)}`;
 const money = (n, signed = false) => `${signed && n > 0 ? '+' : ''}${fmtGNF(n)}`;
 
-const TABS = [['home', 'dashboard', 'Tableau de bord'], ['plan', 'clock', 'Plan financier'], ['contacts', 'users', 'Contacts'], ['stats', 'chart', 'Statistiques'], ['more', 'more', 'Plus']];
+const TABS = [['home', 'dashboard', 'Accueil'], ['plan', 'clock', 'Plan'], ['contacts', 'users', 'Contacts'], ['stats', 'chart', 'Stats'], ['more', 'more', 'Plus']];
 
 /** Point d'entrée : `#/pf/<écran>`. */
 export function pfApp(user, screen = '') {
@@ -759,7 +759,7 @@ function proScreen({ go, st, reload }) {
   const rows = [
     ['Comptes personnels', `${st.free_accounts}`, 'Illimités'], ['Historique consultable', `${st.free_history_days} jours`, 'Complet'], ['Tableau de bord et statistiques', '30 jours', '90 jours et 1 an'],
     ['Budgets, objectif du mois, récurrents', false, true], ['Prévision de trésorerie à 30 jours', false, true], ['Export CSV, règles automatiques, import', false, true], ['Liaison automatique du portefeuille Wallindirain', false, true]];
-  const cell = (v) => v === true ? h('td', { class: 'pf-cmp-yes' }, icon('check', 18), h('span', { class: 'sr-only' }, 'Inclus')) : v === false ? h('td', { class: 'pf-cmp-no' }, '–', h('span', { class: 'sr-only' }, 'Non inclus')) : h('td', {}, v);
+  const cell = (v) => v === true ? h('span', { class: 'pf-cmp-yes' }, icon('check', 18), h('span', { class: 'sr-only' }, 'Inclus')) : v === false ? h('span', { class: 'pf-cmp-no' }, '–', h('span', { class: 'sr-only' }, 'Non inclus')) : h('span', {}, v);
   const price = h('div', { class: 'pf-plan-price' });
   const seg = h('div', { class: 'pf-seg', role: 'group', 'aria-label': 'Durée de l\'abonnement' });
   const drawPrice = () => {
@@ -777,7 +777,8 @@ function proScreen({ go, st, reload }) {
       canBuy ? [seg, price] : h('p', { class: 'pf-note' }, 'Aucun prix n\'est fixé pour le moment.'),
       h('ul', { class: 'pf-plan-list' }, li('Tout le plan gratuit, sans limite de comptes ni de contacts'), li('Historique complet, statistiques sur 90 jours et 1 an'), li('Budgets, objectif du mois, récurrents, prévision à 30 jours'), li('Liaison automatique avec votre portefeuille Wallindirain'), li('Export CSV, règles automatiques, import, devises multiples')),
       canBuy && h('button', { class: 'pf-btn gold block', type: 'button', onclick: sub() }, isPro ? 'Prolonger mon abonnement' : 'Passer à Pro')),
-    card('Comparer en détail', h('table', { class: 'pf-cmp' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fonction'), h('th', {}, 'Gratuit'), h('th', {}, 'Pro'))), h('tbody', {}, rows.map(([l, f, p]) => h('tr', {}, h('th', { scope: 'row' }, l), cell(f), cell(p)))))),
+    card('Comparer en détail', h('div', { class: 'pf-cmp', role: 'table' }, h('div', { class: 'pf-cmp-row head', role: 'row' }, h('span', { role: 'columnheader' }, 'Fonction'), h('span', { role: 'columnheader' }, 'Gratuit'), h('span', { role: 'columnheader' }, 'Pro')),
+      rows.map(([l, f, p]) => h('div', { class: 'pf-cmp-row', role: 'row' }, h('span', { class: 'pf-cmp-l', role: 'rowheader' }, l), cell(f), cell(p))))),
     h('p', { class: 'pf-note' }, 'Le paiement est prélevé sur votre portefeuille Wallindirain, vous confirmez avant. Un abonnement terminé ne supprime rien : vos données restent, avec les limites de la formule gratuite.')));
 }
 

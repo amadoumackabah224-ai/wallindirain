@@ -10,7 +10,6 @@ import { walletView } from './views/wallet.js';
 import { sellerStats, adminStats, trackView } from './views/stats.js';
 import { sellerCustomers, sellerProfit, sellerReturns } from './views/outils.js';
 import { sellerRelances } from './views/relances.js';
-import { pfApp } from './views/pf.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
@@ -23,7 +22,17 @@ import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
 import { warehouseTab } from './views/warehouse.js';
 import { myInvoices, adminInvoices, adminAccounting } from './views/invoices.js';
-import { adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminRemittances, adminSupport, adminData, adminWithdrawals, adminDeposit, adminSettings, adminAudit } from './views/admin.js';
+
+// Les gros écrans (administration, Mes finances) ne sont téléchargés que lorsqu'on les ouvre : l'ouverture de l'application est plus rapide.
+const lazy = (load, pick) => (...a) => {
+  const box = h('div', { class: 'lazy' }, spinner());
+  load().then((m) => box.replaceChildren(pick(m)(...a))).catch(() => box.replaceChildren(h('div', { class: 'card' }, h('p', {}, 'Chargement impossible. Vérifiez votre connexion puis rouvrez cet écran.'))));
+  return box;
+};
+const adm = (name) => lazy(() => import('./views/admin.js'), (m) => m[name]);
+const [adminDashboard, adminUsers, adminProducts, adminOrders, adminCash, adminRemittances, adminSupport, adminData, adminWithdrawals, adminDeposit, adminSettings, adminAudit] =
+  ['adminDashboard', 'adminUsers', 'adminProducts', 'adminOrders', 'adminCash', 'adminRemittances', 'adminSupport', 'adminData', 'adminWithdrawals', 'adminDeposit', 'adminSettings', 'adminAudit'].map(adm);
+const pfApp = lazy(() => import('./views/pf.js'), (m) => m.pfApp);
 
 const app = document.getElementById('app');
 let user = null;
