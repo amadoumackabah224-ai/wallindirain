@@ -138,7 +138,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   app.get('/api/pf/status', guard(ALL, async (ctx) => {
     if (!(await featureOn())) return { enabled: false };
     const [link] = await q('SELECT wallet_linked, wallet_account FROM pf_prefs WHERE owner_id = $1', [ctx.user.id]);
-    return { enabled: true, spaces_enabled: await spaceFlag(), ...(await access(ctx.user.id)), wallet: { eligible: WALLET_ROLES.includes(ctx.user.role), linked: !!link?.wallet_linked || ctx.user.role === 'admin', company: ctx.user.role === 'admin', account: link?.wallet_account || null } };
+    return { enabled: true, spaces_enabled: await spaceFlag(), ...(await access(ctx.user.id)), wallet: { eligible: WALLET_ROLES.includes(ctx.user.role), linked: !!link?.wallet_linked || ctx.user.role === 'admin', ...(ctx.user.role === 'admin' ? { company: true } : {}), account: link?.wallet_account || null } };
   }));
 
   /** Tout l'écran « Tableau de bord » en un seul appel. */

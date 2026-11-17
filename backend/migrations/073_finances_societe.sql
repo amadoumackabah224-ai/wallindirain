@@ -3,7 +3,6 @@
 --  1) relie automatiquement le portefeuille de la plateforme au « Mes finances » de chaque administrateur (aucune liaison à faire, aucune saisie),
 --     en lecture seule : une vue lit les écritures du portefeuille, rien n'est copié ni écrit dans le portefeuille, et le grand livre n'est pas touché ;
 --  2) ajoute les catégories propres à l'entreprise (serveur, SMS, motos, carburant, publicité, frais Mobile Money, cotisations, patente...) ;
---  3) met le profil « entreprise » aux administrateurs qui n'en ont pas encore choisi un.
 -- Les comptes et transactions saisis à la main ne changent pas. Aucune suppression de données.
 
 INSERT INTO pf_cat_system(key, parent_key, kind, label, icon, profile, operating, position) VALUES
@@ -30,11 +29,6 @@ INSERT INTO pf_cat_system(key, parent_key, kind, label, icon, profile, operating
   ('co_local_tax', 'tax', 'expense', 'Patente et taxes locales', '🏛️', 'business', true, 120),
   ('co_delivery_income', 'sales', 'income', 'Livraisons et frais de service', '🚚', 'business', true, 121),
   ('co_subscription_income', 'sales', 'income', 'Abonnements', '🔁', 'business', true, 122);
-
--- Les administrateurs voient leur activité d'entreprise (profil « entreprise ») sans avoir à le choisir
-INSERT INTO pf_prefs(owner_id, profile)
-  SELECT id, 'business' FROM users WHERE role = 'admin'
-  ON CONFLICT (owner_id) DO UPDATE SET profile = COALESCE(pf_prefs.profile, 'business');
 
 -- (la vue n'appelle aucune fonction interne : l'application n'a pas le droit de les exécuter)
 -- Vue des transactions : on ajoute, pour chaque administrateur, les écritures du portefeuille de la plateforme (disponibles), classées par nature
