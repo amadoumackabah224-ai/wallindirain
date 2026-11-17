@@ -111,7 +111,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
 
   const PLATFORM = '00000000-0000-0000-0000-000000000001';
   /** Portefeuille qui alimente automatiquement Mes finances : celui de la plateforme pour l'administrateur, le sien pour les autres. */
-  const isAdminUser = async (id) => (await q('SELECT 1 FROM users WHERE id = $1 AND role = $2', [id, 'admin'])).length > 0;
+  const isAdminUser = async (id) => (await q("SELECT 1 FROM users WHERE id = $1 AND role = 'admin'", [id])).length > 0;
 
   async function accountsOf(id, acc) {
     const rows = await q(`SELECT a.id, a.name, a.kind, a.color, a.currency, COALESCE(c.decimals, 0)::int AS decimals, c.rate::float8 AS rate, a.opening_balance::bigint AS opening_balance, a.created_at, a.archived_at,

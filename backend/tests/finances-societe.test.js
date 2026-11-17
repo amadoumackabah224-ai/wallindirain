@@ -13,7 +13,7 @@ after(async () => { await db.owner.end(); await db.app.end(); });
 
 const PLATFORM = '00000000-0000-0000-0000-000000000001';
 const put = (kind, amount, when = 'now()') => db.owner.query(`INSERT INTO wallet_entries(user_id, kind, amount, available_at, description) VALUES ($1, $2, $3, ${when}, 'test')`, [PLATFORM, kind, amount]);
-const rows = async (owner) => (await db.owner.query("SELECT kind, category, amount::bigint AS amount, source, account_id FROM pf_all_tx WHERE owner_id = $1 AND source = 'wallindirain' ORDER BY amount DESC", [owner])).rows;
+const rows = async (owner) => (await db.app.query("SELECT kind, category, amount::bigint AS amount, source, account_id FROM pf_all_tx WHERE owner_id = $1 AND source = 'wallindirain' ORDER BY amount DESC", [owner])).rows;
 
 test('les écritures de la plateforme apparaissent chez l\'administrateur, classées par nature, sans rien faire', async () => {
   await put('platform_revenue', 50000); await put('team_pay', -12000); await put('courier_prime', -3000); await put('referral_bonus', -2000);

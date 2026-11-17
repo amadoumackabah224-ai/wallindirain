@@ -36,6 +36,7 @@ INSERT INTO pf_prefs(owner_id, profile)
   SELECT id, 'business' FROM users WHERE role = 'admin'
   ON CONFLICT (owner_id) DO UPDATE SET profile = COALESCE(pf_prefs.profile, 'business');
 
+-- (la vue n'appelle aucune fonction interne : l'application n'a pas le droit de les exécuter)
 -- Vue des transactions : on ajoute, pour chaque administrateur, les écritures du portefeuille de la plateforme (disponibles), classées par nature
 DO $$
 DECLARE d text;
@@ -58,8 +59,11 @@ BEGIN
           WHEN 'return_fees' THEN 'svc_logistics' WHEN 'return_fee_supplier' THEN 'svc_logistics' WHEN 'cash_shortage' THEN 'svc_logistics'
           WHEN 'transport_loss' THEN 'co_compensation'
           ELSE CASE WHEN e.amount > 0 THEN 'misc_income' ELSE 'other_cost' END END AS category,
-        _acc_label(e.kind) AS note) m
-   WHERE e.user_id = _platform() AND u.role = 'admin' AND e.available_at <= now()
+        CASE e.kind WHEN 'platform_revenue' THEN 'Livraisons : frais, call center et marge' WHEN 'subscription' THEN 'Abonnements vendeurs' WHEN 'pf_subscription' THEN 'Abonnements Mes finances'
+          WHEN 'team_pay' THEN 'Rémunération de l''équipe' WHEN 'courier_prime' THEN 'Primes livreurs' WHEN 'tour_bonus' THEN 'Primes de tournée' WHEN 'tour_adjust' THEN 'Ajustements de tournée'
+          WHEN 'failed_trip' THEN 'Courses non abouties' WHEN 'referral_bonus' THEN 'Bonus de parrainage' WHEN 'return_fees' THEN 'Frais de retour' WHEN 'return_fee_supplier' THEN 'Frais de retour (produit défectueux)'
+          WHEN 'cash_shortage' THEN 'Manques de caisse' WHEN 'transport_loss' THEN 'Compensations de transport' ELSE 'Autres mouvements' END AS note) m
+   WHERE e.user_id = '00000000-0000-0000-0000-000000000001'::uuid AND u.role = 'admin' AND e.available_at <= now()
   $v$;
 END $$;
 
