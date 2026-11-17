@@ -14,6 +14,7 @@ import { pfApp } from './views/pf.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
+import { showPopupIfAny, resetPopupCheck } from './views/popup.js';
 import { adminCouriers } from './views/couriers.js';
 import { shipperSend, shipperRequests, adminDlvRequests, courierOnDemand } from './views/shipper.js';
 import { icon } from './icons.js';
@@ -129,10 +130,10 @@ let gateOpen = false;
 async function askLegal() {
   gateOpen = true;
   const { legalGate } = await import('./views/legal.js');
-  legalGate({ onAccepted: () => { gateOpen = false; if (user) user.legal_pending = false; }, onQuit: () => { gateOpen = false; logout(); } });
+  legalGate({ onAccepted: () => { gateOpen = false; if (user) user.legal_pending = false; showPopupIfAny(); }, onQuit: () => { gateOpen = false; logout(); } });
 }
 
-async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; setOfflineUser(null); clearCache(); clearLock(); stopLock(); location.hash = '#/login'; }
+async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; resetPopupCheck(); setOfflineUser(null); clearCache(); clearLock(); stopLock(); location.hash = '#/login'; }
 
 async function route() {
   const [, a, b] = location.hash.split('/');
@@ -148,10 +149,10 @@ async function route() {
     return pub(loginView({ contact, onLogin: (u) => { user = u; location.hash = '#/app/'; } }));
   }
   if (user.pf === undefined) { try { user.pf = (await get('/pf/status')).enabled === true; } catch { user.pf = false; } }
-  if (a === 'pf') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); return render(pfApp(user, b || '')); }
+  if (a === 'pf') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(pfApp(user, b || '')); if (!user.legal_pending) showPopupIfAny(); return; }
   // un membre (finances seulement) n'a que Mes finances ; le profil et les notifications restent accessibles
   if (a === 'app' && user.role === 'member' && user.pf && b !== 'profile' && b !== 'notifications') { location.replace('#/pf/'); return; }
-  if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); return; }
+  if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); else if (!user.legal_pending) showPopupIfAny(); return; }
   location.hash = '#/app/';
 }
 

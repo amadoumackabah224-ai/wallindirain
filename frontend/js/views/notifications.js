@@ -2,6 +2,7 @@
 import { h, liveView, empty, pageHead, action, confirmBox, fmtDate, toast } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
+import { adminPopups } from './popup.js';
 
 const KIND_ICON = { order: 'package', money: 'wallet', account: 'shield', product: 'package', support: 'message', announcement: 'megaphone' };
 const KIND_TONE = { order: 'info', money: 'ok', account: 'warn', product: 'info', support: 'info', announcement: 'gold' };
@@ -60,7 +61,7 @@ export function adminAnnounce() {
       toast(`Annonce envoyée à ${res.recipients} personne(s)`, 'ok');
       await refresh();
     });
-    return h('div', {}, pageHead('Annonces', 'Un message dans les notifications de vos équipes et de vos vendeurs.'),
+    return h('div', {}, pageHead('Annonces', 'Fenêtres à l\'ouverture de l\'application et messages dans les notifications.'), adminPopups(),
       h('div', { class: 'card' }, h('h2', {}, 'Nouvelle annonce'),
         h('label', { class: 'f' }, h('span', {}, 'Pour qui ?'), audience), h('label', { class: 'f' }, h('span', {}, 'Titre'), title),
         h('label', { class: 'f' }, h('span', {}, 'Message'), body, count),

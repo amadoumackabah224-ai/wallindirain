@@ -936,6 +936,30 @@ export function registerRoutes(app, { db, cfg }) {
     return { marked: await fn('fn_notifications_read', ctx.user.id, ids) };
   }));
   app.get('/api/admin/announcements', guard(['admin'], async (ctx) => ({ announcements: await fn('fn_admin_announcements', ctx.user.id) })));
+  // Annonces en fenêtre (migration 074) : l'administrateur les prépare et les publie, chaque utilisateur reçoit la sienne à l'ouverture
+  const POPUP_ROLES = [...ANY_ROLE, 'member', 'shipper'];
+  app.get('/api/admin/popups', guard(['admin'], async (ctx) => await fn('fn_admin_popups', ctx.user.id)));
+  app.post('/api/admin/popups', guard(['admin'], async (ctx) => {
+    limit(`popup:${ctx.user.id}`, 30, 3600_000);
+    const b = ctx.body || {}; let mime = null, buf = null;
+    if (b.image) { ({ mime, buf } = parseImage(b.image)); if (buf.length > 600_000) throw new HttpError(413, 'too_large', 'Image trop lourde : choisissez une image plus petite'); }
+    const opt = (x, name, max) => (x == null || String(x).trim() === '' ? null : v.str(x, name, { max }));
+    const when = (x, name) => { if (x == null || x === '') return null; const d = new Date(x); if (Number.isNaN(d.getTime())) throw new HttpError(400, 'invalid_input', `${name} : date invalide`); return d.toISOString(); };
+    ctx.status = 201;
+    return { id: await fn('fn_admin_popup_save', ctx.user.id, b.id ? v.uuid(b.id, 'Annonce') : null, v.str(b.title, 'Titre', { min: 3, max: 120 }), opt(b.body, 'Texte', 400),
+      v.str(b.audience || 'all', 'Public', { max: 20 }), opt(b.cta_label, 'Texte du bouton', 30), opt(b.cta_target, 'Destination du bouton', 260), when(b.starts_at, 'Début'), when(b.ends_at, 'Fin'),
+      b.frequency === 'daily' ? 'daily' : 'once', mime, buf) };
+  }), { maxBody: MAX_PROOF_BODY });
+  app.post('/api/admin/popups/:id/active', guard(['admin'], async (ctx) => { await fn('fn_admin_popup_active', ctx.user.id, v.uuid(ctx.params.id, 'Annonce'), ctx.body?.active === true); return { ok: true }; }));
+  app.post('/api/admin/popups/:id/archive', guard(['admin'], async (ctx) => { await fn('fn_admin_popup_archive', ctx.user.id, v.uuid(ctx.params.id, 'Annonce')); return { ok: true }; }));
+  app.get('/api/popup/next', guard(POPUP_ROLES, async (ctx) => ({ popup: await fn('fn_popup_next', ctx.user.id) })));
+  app.post('/api/popup/:id/event', guard(POPUP_ROLES, async (ctx) => { limit(`popupev:${ctx.user.id}`, 60, 3600_000); await fn('fn_popup_event', ctx.user.id, v.uuid(ctx.params.id, 'Annonce'), v.str(ctx.body?.event, 'Événement', { max: 10 })); return { ok: true }; }));
+  app.get('/api/popup/:id/image', guard(POPUP_ROLES, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_popup_image_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Annonce')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Image introuvable');
+    ctx.headers['Content-Type'] = rows[0].mime; ctx.headers['Cache-Control'] = 'private, max-age=3600'; ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
+  }));
   app.post('/api/admin/announcements', guard(['admin'], async (ctx) => {
     limit(`announce:${ctx.user.id}`, 10, 3600_000);
     const b = ctx.body;

@@ -90,7 +90,26 @@ export function adminDlvRequests() {
           h('div', {}, badge(STATUS[r.status]?.[0] || r.status, STATUS[r.status]?.[1] || 'grey'), r.fail_reason && h('div', { class: 'small muted' }, r.fail_reason))])));
     }));
   draw();
-  return host;
+  return h('div', {}, dlvActivation(), host);
+}
+
+/** Activation de l'espace « Je veux faire livrer un colis » : deux interrupteurs bien visibles, au même endroit que les courses. */
+function dlvActivation() {
+  return liveView(() => get('/admin/settings'), ({ settings }, refresh) => {
+    const by = Object.fromEntries(settings.map((x) => [x.key, x]));
+    const on = (k) => Number(by[k]?.value ?? 0) >= 1;
+    const open = on('feature_livraison_demande') && on('dlv_open_signup');
+    const row = (k, title, text) => h('div', { class: 'gap' }, h('div', { class: 'grow' }, h('b', {}, title), ' ', badge(on(k) ? 'Activé' : 'Désactivé', on(k) ? 'ok' : 'warn'), h('div', { class: 'small muted' }, text)),
+      h('button', { class: `btn btn-sm ${on(k) ? 'btn-ghost' : 'btn-gold'}`, type: 'button', onclick: action(async () => {
+        if (!(await confirmBox(on(k) ? `Désactiver : ${title} ?` : `Activer : ${title} ?`, text, on(k) ? 'Désactiver' : 'Activer', on(k)))) return;
+        await post('/admin/settings', { key: k, value: on(k) ? 0 : 1 });
+      }, { ok: on(k) ? 'Désactivé' : 'Activé', refresh }) }, on(k) ? 'Désactiver' : 'Activer'));
+    return h('div', { class: 'card' }, h('h2', {}, 'Espace « Je veux faire livrer un colis »'),
+      h('div', { class: open ? 'notice ok' : 'notice warn' }, open ? 'Ouvert : la carte « Je veux faire livrer un colis » est visible sur la page d\'inscription.' : 'Fermé : personne ne peut encore s\'inscrire pour faire livrer un colis. Il faut allumer les deux interrupteurs ci-dessous.'),
+      row('feature_livraison_demande', '1. Livraison à la demande', 'Allume la fonction pour toute la plateforme. Les prix viennent de la grille (onglet « Grille livraison »).'),
+      row('dlv_open_signup', '2. Inscription des expéditeurs', 'Fait apparaître la carte « Je veux faire livrer un colis » sur la page d\'inscription.'),
+      h('div', { class: 'small muted' }, 'Avant d\'ouvrir : grille tarifaire remplie, essai réel avec 2 ou 3 courses, textes légaux relus.'));
+  });
 }
 
 /** Livreur : courses à la demande qui lui sont confiées (ramasser, livrer, signaler un échec). */
