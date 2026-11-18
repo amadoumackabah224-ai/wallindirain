@@ -61,6 +61,8 @@ export function registerRoutes(app, { db, cfg }) {
     if (roles && !roles.includes(u.role)) throw new HttpError(403, 'forbidden', 'Action non autorisée pour votre rôle');
     ctx.user = u;
     ctx.token = token;
+    // Session longue (076) : prolongée à l'usage, au plus une fois par heure ; le cookie suit la nouvelle échéance
+    try { const ext = await q('SELECT fn_session_touch($1) AS e', [tokenHash(token)]); if (ext[0]?.e) setCookie(ctx, token, Math.floor((new Date(ext[0].e) - Date.now()) / 1000)); } catch { /* sans gravité : la session actuelle reste valable */ }
     return u;
   }
   const guard = (roles, handler) => async (ctx) => { await auth(ctx, roles); return handler(ctx); };
@@ -153,8 +155,8 @@ export function registerRoutes(app, { db, cfg }) {
     if (u.status === 'suspended') throw new HttpError(403, 'suspended', 'Compte suspendu. Contactez Wallindirain.');
     await fn('fn_login_ok', u.id);
     const token = newToken();
-    await fn('fn_session_create', u.id, tokenHash(token));
-    setCookie(ctx, token, 12 * 3600);
+    const exp = await fn('fn_session_create', u.id, tokenHash(token));
+    setCookie(ctx, token, Math.floor((new Date(exp) - Date.now()) / 1000));
     return { user: { id: u.id, role: u.role, name: u.full_name, legal_pending: await legalPending(u) } };
   });
 
