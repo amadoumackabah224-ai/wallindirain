@@ -748,3 +748,7 @@ div.notif { cursor: default; }
 .today-n { font-weight: 800; font-size: 1.25rem; min-width: 2.2ch; } .today-l { font-weight: 600; }
 .tl-p { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
 .tl-p li { display: flex; gap: 10px; align-items: flex-start; font-size: .92rem; } .tl-p time { color: var(--muted, #667); font-size: .8rem; white-space: nowrap; }
+.perf-chart { width: 100%; height: auto; display: block; } .perf-chart .bar { fill: var(--gold-2, #c9a24a); cursor: pointer; } .perf-chart .bar.zero { fill: rgba(150,160,185,.35); } .perf-chart .bar:focus-visible { outline: none; fill: var(--gold, #e0b850); }
+.empty.guide { padding: 28px 18px; text-align: center; }
+.guide-k { display: block; margin-top: 10px; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
+.guide-t { margin: 6px 0 4px; font-size: 1.15rem; } .empty.guide p { max-width: 34ch; margin: 0 auto 12px; }

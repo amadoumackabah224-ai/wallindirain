@@ -1,6 +1,6 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
 import { orderDossierButton } from './pilotage.js';
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, guide, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
 import { lowStockNotice } from './outils.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
@@ -14,7 +14,7 @@ export function sellerOrders({ goTo } = {}) {
   const chips = h('div', { class: 'chips' }, FILTERS.map(([v, l]) => h('button', { class: 'chip', 'aria-pressed': String(v === filter), onclick: (e) => {
     filter = v; chips.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', 'false')); e.currentTarget.setAttribute('aria-pressed', 'true'); load(); } }, l)));
   function load() {
-    host.replaceChildren(liveView(() => get(`/seller/orders${filter ? `?status=${filter}` : ''}`), ({ orders }, refresh) => orders.length ? h('div', {}, orders.map((o) => orderCard(o, refresh))) : empty('📦', 'Aucune commande pour le moment'), { poll: 20000 }));
+    host.replaceChildren(liveView(() => get(`/seller/orders${filter ? `?status=${filter}` : ''}`), ({ orders }, refresh) => orders.length ? h('div', {}, orders.map((o) => orderCard(o, refresh))) : guide('package', 'Vos ventes, bien organisées', 'Votre première commande commence ici', 'Créez une commande : elle sera confirmée par téléphone, livrée, puis votre gain arrivera dans votre portefeuille.'), { poll: 20000 }));
   }
   load();
   return h('div', {}, h('h1', {}, 'Mes commandes'), startCard(goTo), chips, host);
@@ -84,7 +84,7 @@ function productCard(p, { refresh }) {
 
 export function sellerCatalog() {
   return liveView(() => get('/seller/catalog'), ({ products, categories = [], call_fee, max_delivery_fee }, refresh) => {
-    if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), empty('🛍️', 'Aucun produit validé pour le moment'));
+    if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), guide('bag', 'Votre catalogue', 'Aucun produit disponible pour le moment', 'Les produits validés par Wallindirain apparaissent ici. Vous pouvez aussi proposer le vôtre depuis « Mes produits ».'));
     const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const matches = (p) => (!catFilter || p.category_id === catFilter) && (!catSearch || norm(p.name).includes(norm(catSearch)) || norm(p.description).includes(norm(catSearch)));
     const listHost = h('div'), freshHost = h('div');

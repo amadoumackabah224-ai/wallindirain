@@ -1,6 +1,6 @@
 // Espace fournisseur : jamais de vendeur, de client ni de prix de vente.
 import { productHistoryButton } from './pilotage.js';
-import { h, ask, fmtDate, liveView, statusBadge, amount, action, kv, empty, badge, table, toast, photoStrip, confirmBox } from '../ui.js';
+import { h, ask, fmtDate, liveView, statusBadge, amount, action, kv, empty, guide, badge, table, toast, photoStrip, confirmBox } from '../ui.js';
 import { get, post } from '../api.js';
 
 const PSTATUS = { pending: ['En attente de validation', 'warn'], approved: ['Validé', 'ok'], rejected: ['Refusé', 'bad'], archived: ['Archivé', 'grey'] };
@@ -50,7 +50,7 @@ export function supplierProducts({ seller = false } = {}) {
           p.status === 'approved' && h('div', { class: 'gap mt' }, p.storage === 'wallindirain' ? h('button', { class: 'btn btn-sm', onclick: arrive }, 'Annoncer un arrivage') : h('button', { class: 'btn btn-sm', onclick: setStock }, 'Mettre à jour mon stock'), p.storage === 'supplier' && h('button', { class: 'btn btn-sm btn-ghost', onclick: setPickup }, 'Adresse de récupération'), h('button', { class: 'btn btn-sm btn-ghost', onclick: setCat }, 'Changer de rayon')),
           seller && p.status === 'approved' && !p.retired_at && h('div', { class: 'gap mt' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: pause }, p.paused_at ? 'Reprendre le partage' : 'Suspendre le partage'), p.storage === 'wallindirain' && !p.open_return && h('button', { class: 'btn btn-sm btn-ghost', onclick: askReturn }, 'Récupérer du stock'), h('button', { class: 'btn btn-sm btn-ghost', onclick: retire }, 'Retirer')),
           seller && p.status === 'approved' && !p.retired_at && h('div', { class: 'small muted mt' }, 'Vous pouvez aussi vendre ce produit vous-même depuis le Catalogue.'));
-      })) : empty('📦', 'Proposez votre premier produit'),
+      })) : guide('package', 'Votre catalogue, bien organisé', 'Votre premier produit commence ici', 'Proposez un produit : son prix, son stock et sa disponibilité se suivront ensuite depuis cette liste, après validation par Wallindirain.'),
       arrivals.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Arrivages'), table(['Date', 'Produit', 'Annoncé', 'Compté'], arrivals.map((a) => [fmtDate(a.created_at), a.product_name, a.announced_qty, a.counted_qty ?? badge('en attente de comptage', 'warn')]))));
   });
 }

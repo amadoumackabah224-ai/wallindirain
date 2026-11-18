@@ -1,10 +1,12 @@
 // Pilotage (migration 075) : « Aujourd'hui » par rôle, alertes, rapports, dettes et créances, performances, historique produit, dossiers.
 // Tout est en lecture ; les droits sont revérifiés par le serveur.
-import { h, fmtGNF, fmtDate, liveView, action, table, badge, empty, pageHead, kv, alertRow, statusBadge, toast, showProof } from '../ui.js';
+import { h, fmtGNF as rawGNF, secret, eyeToggle, fmtDate, liveView, action, table, badge, empty, guide, pageHead, kv, alertRow, statusBadge, toast, showProof } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { openInvoice } from './invoices.js';
 
+const fmtGNF = (n) => secret(rawGNF(n));   // les montants suivent l'œil (masquer / afficher)
+const eyeRow = (...kids) => h('div', { class: 'row-top' }, h('div', { class: 'grow' }, kids), eyeToggle());
 const dayFr = (d) => d ? new Date(`${String(d).slice(0, 10)}T12:00:00Z`).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 const iso = (d) => d.toISOString().slice(0, 10);
 
@@ -26,7 +28,7 @@ export function todayView(ctx) {
   return liveView(() => get('/today'), ({ items }) => h('div', {},
     pageHead('Aujourd\'hui', new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })),
     items.length === 0
-      ? empty('checkCircle', 'Rien d\'urgent pour le moment. Revenez plus tard : cette page se met à jour toute seule.')
+      ? guide('checkCircle', 'Votre journée', 'Rien d\'urgent pour le moment', 'Les actions à faire aujourd\'hui s\'afficheront ici, avec un bouton pour les ouvrir. Cette page se met à jour toute seule.')
       : h('div', { class: 'today-list' }, items.map((it) => h('button', { class: `today-card ${it.tone}`, type: 'button', onclick: () => ctx.goTo(it.tab) },
           icon(TONE_ICO[it.tone] || 'inbox', 22), h('span', { class: 'today-n' }, it.key === 'cash' ? fmtGNF(it.n) : String(it.n)), h('span', { class: 'grow today-l' }, it.key === 'cash' ? it.label.replace(' (GNF)', '') : it.label), icon('chevronRight', 18))))), { poll: 60000 });
 }
@@ -36,7 +38,7 @@ export function adminAlerts() {
   return liveView(() => get('/admin/anomalies'), ({ anomalies }) => h('div', {},
     pageHead('Alertes', 'Anomalies comptables et retards. Les administrateurs sont aussi prévenus par la cloche.'),
     anomalies.length === 0
-      ? empty('shield', 'Aucune anomalie : les comptes sont cohérents.')
+      ? guide('shield', 'Surveillance des comptes', 'Aucune anomalie', 'Les comptes sont cohérents. Les écarts et les retards seront signalés ici, et vous serez prévenu par la cloche.')
       : h('div', { class: 'alert-list' }, anomalies.map((a) => alertRow(a.severity === 'bad' ? 'bad' : '', a.severity === 'bad' ? 'alert' : 'clock', `${a.label}${a.detail ? ` — ${a.detail}` : ''}`)))), { poll: 60000 });
 }
 
@@ -49,7 +51,7 @@ export function adminReports() {
       return post('/admin/reports', { kind, day: iso(d) });
     }, { ok: (r) => (r.created ? 'Rapport créé' : 'Ce rapport existe déjà'), refresh }) }, label);
     return h('div', {},
-      pageHead('Rapports financiers', 'Archivés, non modifiables. Activez la génération automatique dans Réglages > Fonctions.'),
+      eyeRow(pageHead('Rapports financiers', 'Archivés, non modifiables. Activez la génération automatique dans Réglages > Fonctions.')),
       h('div', { class: 'gap wrap' }, make('daily', 'Rapport d\'hier'), make('weekly', 'Semaine dernière'), make('monthly', 'Mois dernier')),
       table(['Type', 'Période', 'Livrées', 'Ventes livrées', 'Revenu plateforme', 'Charges', 'Origine'], reports.map((r) => {
         const d = r.data;
@@ -62,38 +64,60 @@ export function adminReports() {
 const ROLES = { seller: 'Vendeurs', supplier: 'Fournisseurs', courier: 'Livreurs', agent: 'Agents', call_chief: 'Chefs d\'équipe', warehouse: 'Magasiniers', member: 'Membres', shipper: 'Expéditeurs' };
 export function adminDebts() {
   return liveView(() => get('/admin/debts'), (d) => h('div', {},
-    pageHead('Dettes et créances', 'Ce que Wallindirain doit, et ce qu\'elle attend.'),
+    eyeRow(pageHead('Dettes et créances', 'Ce que Wallindirain doit, et ce qu\'elle attend.')),
     h('div', { class: 'card' }, h('h3', {}, 'À payer (soldes des portefeuilles)'),
       kv([['Total dû', fmtGNF(d.owed.total), 'key'], ['dont retraits déjà demandés', `${d.owed.withdrawals_waiting.count} · ${fmtGNF(d.owed.withdrawals_waiting.total)}`]]),
       table(['Catégorie', 'Personnes', 'Disponible', 'En attente'], d.owed.by_role.map((x) => [ROLES[x.role] || x.role, String(x.people), fmtGNF(x.available), fmtGNF(x.pending)]), { empty: empty('wallet', 'Aucun solde positif.') })),
     h('div', { class: 'card mt' }, h('h3', {}, 'À recevoir (argent encaissé par les livreurs)'),
       kv([['Total attendu', fmtGNF(d.receivable.total), 'key'], ['reversements à contrôler', `${d.receivable.remittances_pending.count} · ${fmtGNF(d.receivable.remittances_pending.total)}`]]),
       table(['Livreur', 'Colis', 'Montant', 'Depuis'], d.receivable.couriers.map((x) => [x.courier, String(x.orders), fmtGNF(x.amount), fmtDate(x.since)]), { empty: empty('checkCircle', 'Aucun argent en attente.') })),
-    h('p', { class: 'hint' }, `Solde du portefeuille de la plateforme : ${fmtGNF(d.platform_balance)}`)));
+    h('p', { class: 'hint' }, 'Solde du portefeuille de la plateforme : ', fmtGNF(d.platform_balance))));
 }
 
 // ---------- Performances commerciales (administrateur et vendeur) ----------
+const NS = 'http://www.w3.org/2000/svg';
+const svgEl = (name, attrs = {}, ...kids) => { const n = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v)); n.append(...kids); return n; };
+/** Courbe en barres (SVG, sans style en ligne) : ventes livrées par jour ou par semaine, avec la valeur au toucher. */
+function evolution(series, weekly, onPick) {
+  const W = 320, H = 120, pad = 4, max = Math.max(1, ...series.map((x) => x.sales)), bw = Math.max(2, Math.min(18, (W - pad * 2) / Math.max(series.length, 1) - 2));
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'perf-chart', role: 'img', 'aria-label': `Ventes livrées ${weekly ? 'par semaine' : 'par jour'}` });
+  series.forEach((x, i) => {
+    const bh = Math.max(x.sales ? 3 : 1, (x.sales / max) * (H - 14)), cx = pad + (i + 0.5) * ((W - pad * 2) / series.length);
+    const r = svgEl('rect', { x: cx - bw / 2, y: H - bh, width: bw, height: bh, rx: 2, class: x.sales ? 'bar' : 'bar zero', tabindex: 0 });
+    const pick = () => onPick(x); r.addEventListener('click', pick); r.addEventListener('focus', pick); svg.append(r);
+  });
+  return svg;
+}
+const SORTS = { sales: ['Ventes', (a, b) => b.sales - a.sales], qty: ['Quantité', (a, b) => b.qty - a.qty || b.sales - a.sales], rate: ['Taux de livraison', (a, b) => (b.orders ? b.delivered / b.orders : 0) - (a.orders ? a.delivered / a.orders : 0) || b.delivered - a.delivered] };
 export function performanceView() {
   const body = h('div', {});
-  const range = { days: 30 };
-  const load = async () => {
-    const to = new Date(), from = new Date(); from.setDate(from.getDate() - range.days + 1);
-    try {
-      const p = await get(`/performance?from=${iso(from)}&to=${iso(to)}`);
-      const t = p.totals, rate = t.orders ? Math.round((100 * t.delivered) / t.orders) : 0;
-      const rows = (list, key) => list.map((x) => [x[key], String(x.orders), String(x.delivered), String(x.lost), x.sales != null ? fmtGNF(x.sales) : '']);
-      body.replaceChildren(
-        kv([['Commandes', String(t.orders)], ['Livrées', `${t.delivered} (${rate} %)`, 'key'], ['Perdues (retour, refus, annulation)', String(t.lost)], ['En cours', String(t.in_progress)], ['Ventes livrées', fmtGNF(t.sales)],
-          p.scope === 'admin' ? ['Revenu de la plateforme', fmtGNF(t.platform_revenue)] : ['Mes gains', fmtGNF(t.gains)]]),
-        p.scope === 'admin' ? h('div', {}, h('h3', {}, 'Par vendeur'), table(['Vendeur', 'Commandes', 'Livrées', 'Perdues', 'Ventes'], rows(p.sellers, 'name'))) : null,
-        h('h3', {}, 'Par produit'), table(['Produit', 'Commandes', 'Livrées', 'Perdues', 'Ventes'], rows(p.products, 'name'), { empty: empty('package', 'Aucune commande sur la période.') }),
-        h('h3', {}, 'Par zone'), table(['Zone', 'Commandes', 'Livrées', 'Perdues'], p.zones.map((x) => [x.commune, String(x.orders), String(x.delivered), String(x.lost)]), { empty: empty('pin', 'Aucune commande sur la période.') }));
-    } catch (e) { body.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
+  const state = { days: 30, sort: 'sales', data: null };
+  const draw = () => {
+    const p = state.data; if (!p) return;
+    const t = p.totals, rate = t.orders ? Math.round((100 * t.delivered) / t.orders) : 0;
+    const pick = h('p', { class: 'hint' }, 'Touchez une barre pour voir le détail.');
+    const prods = [...p.products].sort(SORTS[state.sort][1]);
+    const sortBar = h('div', { class: 'wallet-tabs', role: 'group', 'aria-label': 'Classer les produits par' }, Object.entries(SORTS).map(([k, [l]]) =>
+      h('button', { type: 'button', 'aria-pressed': String(k === state.sort), onclick: () => { state.sort = k; draw(); } }, l)));
+    body.replaceChildren(...[
+      kv([['Commandes', String(t.orders)], ['Livrées', `${t.delivered} (${rate} %)`, 'key'], ['Perdues (retour, refus, annulation)', String(t.lost)], ['En cours', String(t.in_progress)], ['Ventes livrées', fmtGNF(t.sales)],
+        p.scope === 'admin' ? ['Revenu de la plateforme', fmtGNF(t.platform_revenue)] : ['Mes gains', fmtGNF(t.gains)]]),
+      h('h3', {}, p.weekly ? 'Évolution par semaine' : 'Évolution par jour'),
+      p.series.length ? h('div', { class: 'card' }, evolution(p.series, p.weekly, (x) => pick.replaceChildren(`${p.weekly ? 'Semaine du ' : ''}${dayFr(x.d)} : ${x.orders} commande(s), ${x.delivered} livrée(s), `, fmtGNF(x.sales))), pick) : empty('chart', 'Aucune commande sur la période.'),
+      p.scope === 'admin' ? h('div', {}, h('h3', {}, 'Par vendeur'), table(['Vendeur', 'Commandes', 'Livrées', 'Perdues', 'Ventes'], p.sellers.map((x) => [x.name, String(x.orders), String(x.delivered), String(x.lost), fmtGNF(x.sales)]))) : null,
+      h('h3', {}, 'Meilleurs produits'), sortBar,
+      table(['Produit', 'Commandes', 'Livrées', 'Quantité', 'Taux', 'Ventes'], prods.map((x) => [x.name, String(x.orders), String(x.delivered), String(x.qty), `${x.orders ? Math.round((100 * x.delivered) / x.orders) : 0} %`, fmtGNF(x.sales)]),
+        { empty: empty('package', 'Vos meilleurs produits apparaîtront ici après les premières commandes.') }),
+      h('h3', {}, 'Par zone'), table(['Zone', 'Commandes', 'Livrées', 'Perdues'], p.zones.map((x) => [x.commune, String(x.orders), String(x.delivered), String(x.lost)]), { empty: empty('pin', 'Aucune commande sur la période.') })].filter(Boolean));
   };
-  const bar = h('div', { class: 'wallet-tabs', role: 'group' }, [[7, '7 jours'], [30, '30 jours'], [90, '90 jours']].map(([n, l]) =>
-    h('button', { type: 'button', 'aria-pressed': String(n === range.days), onclick: (e) => { range.days = n; [...bar.children].forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); load(); } }, l)));
+  const load = async () => {
+    const to = new Date(), from = new Date(); from.setDate(from.getDate() - state.days + 1);
+    try { state.data = await get(`/performance?from=${iso(from)}&to=${iso(to)}`); draw(); } catch (e) { body.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
+  };
+  const bar = h('div', { class: 'wallet-tabs', role: 'group', 'aria-label': 'Période' }, [[7, '7 j'], [30, '1 M'], [90, '3 M'], [364, '1 A']].map(([n, l]) =>
+    h('button', { type: 'button', 'aria-pressed': String(n === state.days), onclick: (e) => { state.days = n; [...bar.children].forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); load(); } }, l)));
   load();
-  return h('div', {}, pageHead('Performances', 'Livraisons réussies, pertes, ventes.'), bar, body);
+  return h('div', {}, eyeRow(pageHead('Performances', 'Livraisons réussies, pertes, ventes.')), bar, body);
 }
 
 // ---------- Historique d'un produit ----------

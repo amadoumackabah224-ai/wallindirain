@@ -151,8 +151,14 @@ test('performances : l\'administrateur voit tout, le vendeur seulement les sienn
   assert.ok(a.totals.orders > s.totals.orders);
   assert.equal(s2.totals.orders, 1); assert.equal(s2.totals.delivered, 0);
   assert.ok('platform_revenue' in a.totals); assert.ok(!('platform_revenue' in s.totals)); assert.ok('gains' in s.totals);
-  assert.ok(!JSON.stringify(s).includes('platform_revenue')); assert.deepEqual(s.sellers, []);
+  assert.ok(!JSON.stringify(s).includes('platform_revenue')); assert.ok(!JSON.stringify(s).includes('margin')); assert.deepEqual(s.sellers, []);
   assert.ok(a.sellers.length >= 2); assert.ok(a.zones.length >= 1); assert.ok(a.products.length >= 1);
+  assert.ok(Array.isArray(a.series) && a.series.length >= 1); assert.equal(a.weekly, false);
+  assert.equal(a.series.reduce((t, x) => t + x.orders, 0), a.totals.orders);                                   // la courbe retombe sur le total
+  assert.ok(a.products.every((x) => 'qty' in x)); assert.ok(a.products.some((x) => x.qty >= 1));
+  assert.equal(s2.series.reduce((t, x) => t + x.orders, 0), 1);                                                // chacun sa courbe
+  const year = await call(db.app, 'fn_performance', w.admin, new Date(Date.now() - 364 * 864e5).toISOString().slice(0, 10), to);
+  assert.equal(year.weekly, true); assert.equal(year.series.reduce((t, x) => t + x.orders, 0), year.totals.orders);
   await expectErr(call(db.app, 'fn_performance', w.supplier, from, to), 'forbidden');
   await expectErr(call(db.app, 'fn_performance', w.admin, to, from), 'invalid_input');
   await expectErr(call(db.app, 'fn_performance', w.admin, '2010-01-01', to), 'invalid_input');
