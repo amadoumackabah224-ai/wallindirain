@@ -1,4 +1,5 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
+import { productHistoryButton, orderDossierButton, withdrawalDossierButton } from './pilotage.js';
 import { h, ask, payoutText, PAYOUT_LABEL, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER, pageHead, metric, alertRow } from '../ui.js';
 import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
@@ -138,7 +139,7 @@ export function adminProducts() {
       const setCat = action(async () => { const v = await ask({ title: `Rayon : ${p.name}`, submit: 'Enregistrer', fields: [{ name: 'category_id', label: 'Rayon du catalogue', type: 'select', value: p.category_id, options: categories.map((c) => [c.id, c.name]) }] }); if (v) await post(`/admin/products/${p.id}/category`, { category_id: v.category_id }); }, { ok: 'Rayon modifié', refresh });
       return [h('div', {}, h('b', {}, p.name), photoStrip(p.image_ids, { size: 56 }), !p.image_ids.length && h('div', { class: 'small muted' }, 'Sans photo')), h('button', { class: 'btn btn-sm btn-ghost', onclick: setCat }, categories.find((c) => c.id === p.category_id)?.name || 'Autres'), p.supplier_name, amount(p.supplier_price), p.margin_unit != null ? amount(p.margin_unit) : '—', p.storage === 'wallindirain' ? 'Wallindirain' : 'Fournisseur', `${p.stock_qty} (${p.reserved_qty} rés.)`,
         badge({ pending: 'À valider', approved: 'Validé', rejected: 'Refusé', archived: 'Archivé' }[p.status], { pending: 'warn', approved: 'ok', rejected: 'bad', archived: 'grey' }[p.status]),
-        h('div', { class: 'gap' }, p.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: review(true) }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: review(false) }, 'Refuser')], p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: margin }, 'Marge'), ['pending', 'approved'].includes(p.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: editP }, 'Modifier'), p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: priceP }, 'Prix'))];
+        h('div', { class: 'gap' }, productHistoryButton(p.id, p.name), p.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: review(true) }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: review(false) }, 'Refuser')], p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: margin }, 'Marge'), ['pending', 'approved'].includes(p.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: editP }, 'Modifier'), p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: priceP }, 'Prix'))];
     }), { empty: empty('🛍️', 'Aucun produit') }))));
 }
 
@@ -148,7 +149,7 @@ export function adminOrders() {
   const load = () => host.replaceChildren(liveView(() => get(`/admin/orders?${new URLSearchParams({ ...(status && { status }), ...(search && { search }) })}`), ({ orders }, refresh) => h('div', { class: 'card' }, table(
     ['Référence', 'Statut', 'Produit', 'Client', 'Vendeur', 'Fournisseur', 'Livreur', 'Total', ''], orders.map((o) => [h('b', {}, o.ref), statusBadge(o.status), `${o.product_name} × ${o.qty}`, `${o.customer_name} · ${fmtPhone(o.customer_phone)}`,
       o.seller_name, o.supplier_name || '—', o.courier_name || '—', amount(o.sale_total),
-      h('button', { class: 'btn btn-sm btn-ghost', onclick: () => detail(o.id, refresh) }, 'Détail')]), { empty: empty('📋', 'Aucune commande') })), { poll: 30000 }));
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: () => detail(o.id, refresh) }, 'Détail'), orderDossierButton(o.id)]), { empty: empty('📋', 'Aucune commande') })), { poll: 30000 }));
   async function detail(id, refresh) {
     const d = await get(`/admin/orders/${id}`).catch((e) => { toast(e.message, 'bad'); return null; }); if (!d) return;
     const o = d.order;
@@ -197,7 +198,7 @@ export function adminWithdrawals() {
       const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
       return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), payoutText(w.method, w.account_number),
         badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
-        w.status === 'paid' && receiptButton(w.id),
+        h('span', {}, w.status === 'paid' && receiptButton(w.id), withdrawalDossierButton(w.id)),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
     }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6], r[7]), r[8]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
 }

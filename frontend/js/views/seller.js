@@ -1,4 +1,5 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
+import { orderDossierButton } from './pilotage.js';
 import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
 import { lowStockNotice } from './outils.js';
 import { get, post } from '../api.js';
@@ -42,7 +43,7 @@ function orderCard(o, refresh) {
     kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', h('span', { class: 'gap' }, `${o.customer_name} · `, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, c'est votre vendeur. Suivez votre commande ${o.ref} ici : ${trackUrl}`))], ['Colis à récupérer', pickupText(o)], ['Livraison', `${o.commune}, ${o.address}`],
       ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain), 'key'],
       o.failure_reason && ['Dernier échec', o.failure_reason]]),
-    h('div', { class: 'gap mt actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
+    h('div', { class: 'gap mt actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), orderDossierButton(o.id), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
 }
 
 let catFilter = '';   // rayon choisi (gardé tant que la page reste ouverte)

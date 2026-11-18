@@ -84,6 +84,8 @@ export function startWorker({ db, cfg, log }) {
   const pickupReminders = () => db.query('SELECT fn_pickup_reminders() AS n');
   const runAlerts = async () => { const r = await db.query('SELECT fn_run_alerts() AS r'); const x = r.rows[0].r; if (x && !x.skipped && Object.values(x).some((n) => n > 0)) log({ level: 'info', msg: 'alertes de la cloche', ...x }); };
   const opsChecks = () => { if (!stopped) db.query('SELECT fn_run_ops_checks()').catch((e) => log({ level: 'error', msg: 'contrôles techniques', err: String(e) })); };
+  const anomalyChecks = () => { if (!stopped) db.query('SELECT fn_run_anomaly_checks()').catch((e) => log({ level: 'error', msg: 'contrôle des anomalies', err: String(e) })); };
+  const reportsSafe = () => { if (!stopped) db.query('SELECT fn_run_reports()').catch((e) => log({ level: 'error', msg: 'rapports financiers', err: String(e) })); };
   const alertsSafe = () => { if (!stopped) runAlerts().catch((e) => log({ level: 'error', msg: 'alertes de la cloche', err: String(e) })); };
 
   // Conservation limitée : purge des données périmées (voir politique de confidentialité), au démarrage puis toutes les 6 h
@@ -99,6 +101,10 @@ export function startWorker({ db, cfg, log }) {
     setInterval(alertsSafe, 15 * 60_000),
     setTimeout(opsChecks, 90_000),
     setInterval(opsChecks, 10 * 60_000),
+    setTimeout(anomalyChecks, 100_000),
+    setInterval(anomalyChecks, 10 * 60_000),
+    setTimeout(reportsSafe, 150_000),
+    setInterval(reportsSafe, 3600_000),
     setInterval(() => { if (!stopped) releaseLocks().catch((e) => log({ level: 'error', msg: 'worker verrous', err: String(e) })); }, 60_000)
   ];
   timers.forEach((t) => t.unref());

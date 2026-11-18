@@ -1598,6 +1598,19 @@ export function registerRoutes(app, { db, cfg }) {
     const accs = ctx.query.accounts == null ? null : String(ctx.query.accounts).split(',').filter(Boolean).slice(0, 50).map((x) => v.uuid(x, 'Compte'));
     return { accounting: await fn('fn_admin_accounting', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today, accs) };
   }));
+  // Pilotage (migration 075) : tout est en lecture sauf la génération manuelle d'un rapport ; les droits sont revérifiés dans chaque fonction SQL
+  app.get('/api/admin/anomalies', guard(ADM, async (ctx) => ({ anomalies: await fn('fn_accounting_anomalies', ctx.user.id) })));
+  app.get('/api/today', guard(WITH_MEMBER, async (ctx) => await fn('fn_today', ctx.user.id)));
+  app.get('/api/products/:id/history', guard(['admin', 'supplier', 'warehouse'], async (ctx) => await fn('fn_product_history', ctx.user.id, v.uuid(ctx.params.id, 'Produit'))));
+  app.get('/api/admin/reports', guard(ADM, async (ctx) => ({ reports: await fn('fn_admin_reports', ctx.user.id, ctx.query.kind ? v.oneOf(ctx.query.kind, ['daily', 'weekly', 'monthly'], 'Type') : null) })));
+  app.post('/api/admin/reports', guard(ADM, async (ctx) => ({ created: await fn('fn_admin_report_make', ctx.user.id, v.oneOf(ctx.body.kind, ['daily', 'weekly', 'monthly'], 'Type'), isoDate(ctx.body.day, 'Jour')) })));
+  app.get('/api/admin/debts', guard(ADM, async (ctx) => await fn('fn_admin_debts', ctx.user.id)));
+  app.get('/api/performance', guard(['admin', 'seller'], async (ctx) => {
+    const today = new Date().toISOString().slice(0, 10), first = `${today.slice(0, 8)}01`;
+    return await fn('fn_performance', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today);
+  }));
+  app.get('/api/orders/:id/dossier', guard(null, async (ctx) => await fn('fn_order_dossier', ctx.user.id, v.uuid(ctx.params.id, 'Commande'))));
+  app.get('/api/withdrawals/:id/dossier', guard(null, async (ctx) => await fn('fn_withdrawal_dossier', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'))));
   app.get('/api/admin/company', guard(ADM, async (ctx) => ({ company: await fn('fn_company_get', ctx.user.id) })));
   app.post('/api/admin/company', guard(ADM, async (ctx) => {
     const b = ctx.body;
