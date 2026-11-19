@@ -1,4 +1,5 @@
 // Espace administrateur : tout est visible, chaque action sensible est tracée dans le journal.
+import { productHistoryButton, orderDossierButton, withdrawalDossierButton } from './pilotage.js';
 import { h, ask, payoutText, PAYOUT_LABEL, photoStrip, telLink, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, badge, table, confirmBox, proofButton, ROLE_LABEL, ORDER_STATUS, CAUSE_LABEL, WALLET_KIND, trophy, TROPHY, TROPHY_ORDER, pageHead, metric, alertRow } from '../ui.js';
 import { segmentBar } from '../charts.js';
 import { get, post } from '../api.js';
@@ -138,7 +139,7 @@ export function adminProducts() {
       const setCat = action(async () => { const v = await ask({ title: `Rayon : ${p.name}`, submit: 'Enregistrer', fields: [{ name: 'category_id', label: 'Rayon du catalogue', type: 'select', value: p.category_id, options: categories.map((c) => [c.id, c.name]) }] }); if (v) await post(`/admin/products/${p.id}/category`, { category_id: v.category_id }); }, { ok: 'Rayon modifié', refresh });
       return [h('div', {}, h('b', {}, p.name), photoStrip(p.image_ids, { size: 56 }), !p.image_ids.length && h('div', { class: 'small muted' }, 'Sans photo')), h('button', { class: 'btn btn-sm btn-ghost', onclick: setCat }, categories.find((c) => c.id === p.category_id)?.name || 'Autres'), p.supplier_name, amount(p.supplier_price), p.margin_unit != null ? amount(p.margin_unit) : '—', p.storage === 'wallindirain' ? 'Wallindirain' : 'Fournisseur', `${p.stock_qty} (${p.reserved_qty} rés.)`,
         badge({ pending: 'À valider', approved: 'Validé', rejected: 'Refusé', archived: 'Archivé' }[p.status], { pending: 'warn', approved: 'ok', rejected: 'bad', archived: 'grey' }[p.status]),
-        h('div', { class: 'gap' }, p.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: review(true) }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: review(false) }, 'Refuser')], p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: margin }, 'Marge'), ['pending', 'approved'].includes(p.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: editP }, 'Modifier'), p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: priceP }, 'Prix'))];
+        h('div', { class: 'gap' }, productHistoryButton(p.id, p.name), p.status === 'pending' && [h('button', { class: 'btn btn-sm btn-ok', onclick: review(true) }, 'Valider'), h('button', { class: 'btn btn-sm btn-ghost', onclick: review(false) }, 'Refuser')], p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: margin }, 'Marge'), ['pending', 'approved'].includes(p.status) && h('button', { class: 'btn btn-sm btn-ghost', onclick: editP }, 'Modifier'), p.status === 'approved' && h('button', { class: 'btn btn-sm btn-ghost', onclick: priceP }, 'Prix'))];
     }), { empty: empty('🛍️', 'Aucun produit') }))));
 }
 
@@ -148,7 +149,7 @@ export function adminOrders() {
   const load = () => host.replaceChildren(liveView(() => get(`/admin/orders?${new URLSearchParams({ ...(status && { status }), ...(search && { search }) })}`), ({ orders }, refresh) => h('div', { class: 'card' }, table(
     ['Référence', 'Statut', 'Produit', 'Client', 'Vendeur', 'Fournisseur', 'Livreur', 'Total', ''], orders.map((o) => [h('b', {}, o.ref), statusBadge(o.status), `${o.product_name} × ${o.qty}`, `${o.customer_name} · ${fmtPhone(o.customer_phone)}`,
       o.seller_name, o.supplier_name || '—', o.courier_name || '—', amount(o.sale_total),
-      h('button', { class: 'btn btn-sm btn-ghost', onclick: () => detail(o.id, refresh) }, 'Détail')]), { empty: empty('📋', 'Aucune commande') })), { poll: 30000 }));
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: () => detail(o.id, refresh) }, 'Détail'), orderDossierButton(o.id)]), { empty: empty('📋', 'Aucune commande') })), { poll: 30000 }));
   async function detail(id, refresh) {
     const d = await get(`/admin/orders/${id}`).catch((e) => { toast(e.message, 'bad'); return null; }); if (!d) return;
     const o = d.order;
@@ -197,7 +198,7 @@ export function adminWithdrawals() {
       const reject = action(async () => { const v = await ask({ title: 'Refuser le retrait', text: 'Rien n\'a été débité : la personne garde son solde.', submit: 'Refuser', danger: true, fields: [{ name: 'reason', label: 'Motif' }] }); if (v) await post(`/admin/withdrawals/${w.id}/reject`, { reason: v.reason }); }, { ok: 'Retrait refusé et remboursé', refresh });
       return [fmtDate(w.created_at), h('div', {}, h('b', {}, w.full_name), h('div', { class: 'small muted' }, `${ROLE_LABEL[w.role]} · ${fmtPhone(w.phone)}`, !w.identity_verified && ' · identité non vérifiée')), amount(w.amount), payoutText(w.method, w.account_number),
         badge({ requested: 'À valider et payer', paid: 'Payé', rejected: 'Refusé', expired: 'Expiré' }[w.status], { requested: 'warn', paid: 'ok', rejected: 'bad', expired: 'grey' }[w.status]) , w.payment_ref && h('div', { class: 'small muted' }, w.payment_ref), proofButton(w.proof_id, 'Capture'),
-        w.status === 'paid' && receiptButton(w.id),
+        h('span', {}, w.status === 'paid' && receiptButton(w.id), withdrawalDossierButton(w.id)),
         w.status === 'requested' && h('div', { class: 'gap' }, h('button', { class: 'btn btn-sm btn-ok', onclick: pay }, 'Payer'), h('button', { class: 'btn btn-sm btn-ghost', onclick: reject }, 'Refuser'))];
     }).map((r) => [r[0], r[1], r[2], r[3], h('div', {}, r[4], r[5], r[6], r[7]), r[8]]), { empty: empty('💸', 'Aucune demande de retrait') }))), { poll: 20000 });
 }
@@ -245,6 +246,9 @@ const FEATURES = [
   ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
   ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
+  ['feature_pickup_points', 'Points de retrait multiples', 'Les fournisseurs et vendeurs peuvent déclarer plusieurs lieux de retrait et les appliquer à leurs produits (aucun effet sur le stock, les frais ni l\'argent). Éteint par défaut.'],
+  ['feature_proformas', 'Proformas', 'Les vendeurs peuvent créer un devis pour un client (aucun effet sur le stock ni l\'argent) puis le transformer en commande à la confirmation. Éteint par défaut.'],
+  ['feature_popups', 'Annonces en fenêtre', 'Des annonces avec image et bouton s\'affichent à l\'ouverture de l\'application (préparées dans l\'onglet Annonces). Éteint par défaut.'],
   ['feature_livraison_demande', 'Livraison à la demande', 'Des personnes qui ne sont pas vendeurs peuvent faire livrer un colis. Les prix viennent de la grille (onglet « Grille livraison »). Fermé par défaut.'],
   ['dlv_open_signup', 'Inscription « expéditeurs » (livraison à la demande)', 'Permet à des personnes de créer un compte expéditeur pour faire livrer des colis. Demande que « Livraison à la demande » soit allumée. Fermé par défaut.'],
   ['vehicle_check_required', 'Plaque et carte grise des livreurs obligatoires', 'Un livreur à moto ou en voiture ne reçoit pas de mission tant que sa plaque et sa carte grise ne sont pas vérifiées. Vélo et à pied : rien à fournir.']
@@ -256,7 +260,8 @@ const NUMERIC_GROUPS = {
     ['Rémunérations', ['agent_pay', 'courier_pay', 'courier_share_bps']],
     ['Tournées groupées', ['tour_share_bps', 'tour_extra_share_bps', 'tour_bonus_per_extra_order']],
     ['Retraits et gains', ['min_withdrawal', 'unlock_hours']],
-    ['Parrainage', ['referral_bonus', 'referral_orders_required']]
+    ['Parrainage', ['referral_bonus', 'referral_orders_required', 'referral_bonus_shipper', 'referral_dlv_required', 'referral_bonus_courier', 'referral_courier_required']],
+    ['Livraison à la demande', ['dlv_courier_share', 'dlv_failed_pay_pct', 'dlv_daily_limit', 'dlv_max_declared', 'delivery_heavy_kg']]
   ],
   finances: [
     ['Prix de la formule Pro', ['pf_price_monthly', 'pf_price_yearly', 'pf_trial_days']],

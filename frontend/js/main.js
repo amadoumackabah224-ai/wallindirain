@@ -14,8 +14,12 @@ import { pfApp } from './views/pf.js';
 import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './views/seller.js';
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
+import { showPopupIfAny, resetPopupCheck } from './views/popup.js';
+import { sellerProformas, adminProformas } from './views/proformas.js';
+import { pickupPointsView } from './views/points.js';
+import { todayView, adminAlerts, adminReports, adminDebts, performanceView } from './views/pilotage.js';
 import { adminCouriers } from './views/couriers.js';
-import { shipperSend, shipperRequests, adminDlvRequests } from './views/shipper.js';
+import { shipperSend, shipperRequests, adminDlvRequests, courierOnDemand } from './views/shipper.js';
 import { icon } from './icons.js';
 import { startPwa, offlineScreen } from './pwa.js';
 import { supplierProducts, supplierOrders, sellerProposals } from './views/supplier.js';
@@ -47,16 +51,16 @@ function combo(c, start, parts) {
 
 // Onglets par rôle : [clé, icône, libellé, fonction de vue, groupe du menu latéral]
 const TABS = {
-  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c, i) => combo(c, i, [['Commandes', sellerOrders], ['Retours', sellerReturns]]), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', (c, i) => combo(c, i, [['Catalogue', sellerCatalog], ['Proposer un produit', sellerProposals]]), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
-    ['contacts', 'users', 'Contacts', (c, i) => combo(c, i, [['Mes clients', sellerCustomers], ['Relances', sellerRelances]]), 'Mon activité'], ['stats', 'chart', 'Statistiques', (c, i) => combo(c, i, [['Mes chiffres', sellerStats], ['Mon bénéfice', sellerProfit]]), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', (c, i) => combo(c, i, [['Portefeuille', walletView], ['Factures', () => myInvoices('seller')]]), 'Mon activité']],
-  supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
-  agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
-  call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
-  courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
+  seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c, i) => combo(c, i, [['Commandes', sellerOrders], ['Retours', sellerReturns], ...(flags.proformas ? [['Proformas', sellerProformas]] : [])]), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', (c, i) => combo(c, i, [['Catalogue', sellerCatalog], ['Proposer un produit', sellerProposals]]), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
+    ['contacts', 'users', 'Contacts', (c, i) => combo(c, i, [['Mes clients', sellerCustomers], ['Relances', sellerRelances]]), 'Mon activité'], ['stats', 'chart', 'Statistiques', (c, i) => combo(c, i, [['Mes chiffres', sellerStats], ['Mon bénéfice', sellerProfit], ['Performances', performanceView]]), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', (c, i) => combo(c, i, [['Portefeuille', walletView], ['Factures', () => myInvoices('seller')]]), 'Mon activité']],
+  supplier: [['products', 'package', 'Produits', (c, i) => (flags.pickupPoints ? combo(c, i, [['Produits', () => supplierProducts()], ['Points de retrait', pickupPointsView]]) : supplierProducts()), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
+  agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
+  call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
+  courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['ondemand', 'truck', 'À la demande', () => courierOnDemand(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   member: [],
   shipper: [['send', 'plus', 'Envoyer', (c) => shipperSend(c), ''], ['mine', 'truck', 'Mes envois', () => shipperRequests(), '']],
-  warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
-  admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['dlv', 'truck', 'À la demande', () => adminDlvRequests(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
+  warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
+  admin: [['dash', 'dashboard', 'Tableau', (c) => adminDashboard(c), 'Pilotage'], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), 'Pilotage'], ['pilot', 'shield', 'Suivi', (c, i) => combo(c, i, [['Alertes', adminAlerts], ['Performances', performanceView], ...(flags.proformas ? [['Proformas', adminProformas]] : [])]), 'Pilotage'], ['reports', 'book', 'Rapports', (c, i) => combo(c, i, [['Rapports', adminReports], ['Dettes et créances', adminDebts]]), 'Pilotage'], ['stats', 'trend', 'Statistiques', () => adminStats(), 'Pilotage'], ['orders', 'package', 'Commandes', () => adminOrders(), 'Opérations'], ['dlv', 'truck', 'À la demande', () => adminDlvRequests(), 'Opérations'], ['users', 'users', 'Utilisateurs', () => adminUsers(), 'Opérations'], ['couriers', 'bike', 'Livreurs', () => adminCouriers(), 'Opérations'], ['products', 'bag', 'Produits', () => adminProducts(), 'Opérations'],
     ['cash', 'bank', 'Caisses', () => adminCash(), 'Finances'], ['invoices', 'receipt', 'Factures', () => adminInvoices(), 'Finances'], ['accounting', 'book', 'Comptabilité', () => adminAccounting(), 'Finances'], ['remit', 'phoneMoney', 'Reversements', () => adminRemittances(), 'Finances'], ['withdrawals', 'banknote', 'Retraits', () => adminWithdrawals(), 'Finances'], ['deposit', 'plus', 'Dépôts', () => adminDeposit(), 'Finances'],
     ['support', 'message', 'Messages', () => adminSupport(), 'Système'], ['announce', 'megaphone', 'Annonces', () => adminAnnounce(), 'Système'], ['data', 'database', 'Données', () => adminData(), 'Système'], ['settings', 'sliders', 'Réglages', () => adminSettings(), 'Système'], ['audit', 'scroll', 'Journal', () => adminAudit(), 'Système']]
 };
@@ -129,10 +133,10 @@ let gateOpen = false;
 async function askLegal() {
   gateOpen = true;
   const { legalGate } = await import('./views/legal.js');
-  legalGate({ onAccepted: () => { gateOpen = false; if (user) user.legal_pending = false; }, onQuit: () => { gateOpen = false; logout(); } });
+  legalGate({ onAccepted: () => { gateOpen = false; if (user) user.legal_pending = false; showPopupIfAny(); }, onQuit: () => { gateOpen = false; logout(); } });
 }
 
-async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; setOfflineUser(null); clearCache(); clearLock(); stopLock(); location.hash = '#/login'; }
+async function logout() { try { await post('/auth/logout'); } catch { /* déjà déconnecté */ } user = null; resetPopupCheck(); setOfflineUser(null); clearCache(); clearLock(); stopLock(); location.hash = '#/login'; }
 
 async function route() {
   const [, a, b] = location.hash.split('/');
@@ -148,10 +152,10 @@ async function route() {
     return pub(loginView({ contact, onLogin: (u) => { user = u; location.hash = '#/app/'; } }));
   }
   if (user.pf === undefined) { try { user.pf = (await get('/pf/status')).enabled === true; } catch { user.pf = false; } }
-  if (a === 'pf') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); return render(pfApp(user, b || '')); }
+  if (a === 'pf') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(pfApp(user, b || '')); if (!user.legal_pending) showPopupIfAny(); return; }
   // un membre (finances seulement) n'a que Mes finances ; le profil et les notifications restent accessibles
   if (a === 'app' && user.role === 'member' && user.pf && b !== 'profile' && b !== 'notifications') { location.replace('#/pf/'); return; }
-  if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); return; }
+  if (a === 'app') { setLegalAudience(AUDIENCE_OF_ROLE[user.role]); render(appShell(b)); if (user.legal_pending && !gateOpen) askLegal(); else if (!user.legal_pending) showPopupIfAny(); return; }
   location.hash = '#/app/';
 }
 
@@ -159,4 +163,4 @@ setUnauthorizedHandler(() => { if (user) { user = null; clearCache(); stopLock()
 window.addEventListener('hashchange', route);
 startPwa();
 render(spinner());
-get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; }).catch(() => {}).finally(route);
+get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.pickupPoints = !!i.features?.pickup_points; flags.proformas = !!i.features?.proformas; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; flags.proformas = !!i.features?.proformas; }).catch(() => {}).finally(route);

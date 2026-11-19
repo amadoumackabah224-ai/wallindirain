@@ -1,5 +1,6 @@
 // Espace vendeur : le fournisseur n'apparaît jamais ici.
-import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
+import { orderDossierButton } from './pilotage.js';
+import { h, ask, fmtGNF, fmtDate, fmtPhone, liveView, statusBadge, amount, action, kv, empty, guide, toast, confirmBox, badge, telLink, waLink, newRequestKey, pickupText, photoStrip, zoneOptions, zoneHint, CHANNEL_LABEL, table } from '../ui.js';
 import { lowStockNotice } from './outils.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
@@ -13,7 +14,7 @@ export function sellerOrders({ goTo } = {}) {
   const chips = h('div', { class: 'chips' }, FILTERS.map(([v, l]) => h('button', { class: 'chip', 'aria-pressed': String(v === filter), onclick: (e) => {
     filter = v; chips.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', 'false')); e.currentTarget.setAttribute('aria-pressed', 'true'); load(); } }, l)));
   function load() {
-    host.replaceChildren(liveView(() => get(`/seller/orders${filter ? `?status=${filter}` : ''}`), ({ orders }, refresh) => orders.length ? h('div', {}, orders.map((o) => orderCard(o, refresh))) : empty('📦', 'Aucune commande pour le moment'), { poll: 20000 }));
+    host.replaceChildren(liveView(() => get(`/seller/orders${filter ? `?status=${filter}` : ''}`), ({ orders }, refresh) => orders.length ? h('div', {}, orders.map((o) => orderCard(o, refresh))) : guide('package', 'Vos ventes, bien organisées', 'Votre première commande commence ici', 'Créez une commande : elle sera confirmée par téléphone, livrée, puis votre gain arrivera dans votre portefeuille.'), { poll: 20000 }));
   }
   load();
   return h('div', {}, h('h1', {}, 'Mes commandes'), startCard(goTo), chips, host);
@@ -42,7 +43,7 @@ function orderCard(o, refresh) {
     kv([['Produit', `${o.product_name} × ${o.qty}`], ['Client', h('span', { class: 'gap' }, `${o.customer_name} · `, telLink(o.customer_phone), waLink(o.customer_phone, `Bonjour ${o.customer_name}, c'est votre vendeur. Suivez votre commande ${o.ref} ici : ${trackUrl}`))], ['Colis à récupérer', pickupText(o)], ['Livraison', `${o.commune}, ${o.address}`],
       ['Total client', amount(o.sale_total)], [o.status === 'delivered' ? 'Votre gain' : 'Gain attendu', amount(o.expected_gain), 'key'],
       o.failure_reason && ['Dernier échec', o.failure_reason]]),
-    h('div', { class: 'gap mt actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
+    h('div', { class: 'gap mt actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: showDetail }, 'Appels et suivi'), orderDossierButton(o.id), h('button', { class: 'btn btn-sm btn-ghost', onclick: copyTrack }, 'Copier le lien de suivi client'), o.cancellable && h('button', { class: 'btn btn-sm btn-ghost', onclick: cancel }, 'Annuler')));
 }
 
 let catFilter = '';   // rayon choisi (gardé tant que la page reste ouverte)
@@ -83,7 +84,7 @@ function productCard(p, { refresh }) {
 
 export function sellerCatalog() {
   return liveView(() => get('/seller/catalog'), ({ products, categories = [], call_fee, max_delivery_fee }, refresh) => {
-    if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), empty('🛍️', 'Aucun produit validé pour le moment'));
+    if (!products.length) return h('div', {}, h('h1', {}, 'Catalogue'), guide('bag', 'Votre catalogue', 'Aucun produit disponible pour le moment', 'Les produits validés par Wallindirain apparaissent ici. Vous pouvez aussi proposer le vôtre depuis « Mes produits ».'));
     const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const matches = (p) => (!catFilter || p.category_id === catFilter) && (!catSearch || norm(p.name).includes(norm(catSearch)) || norm(p.description).includes(norm(catSearch)));
     const listHost = h('div'), freshHost = h('div');

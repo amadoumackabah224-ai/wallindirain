@@ -236,6 +236,7 @@ test('retour arrière 019 : retire propositions et réglages ajoutés, restaure 
   assert.deepEqual(await snap(), before);
   assert.equal(await count(`SELECT (SELECT count(*) FROM pg_class WHERE relname = 'mission_offers') + (SELECT count(*) FROM settings WHERE key IN ('mission_offer_minutes','mission_max_offers','courier_max_open'))
      + (SELECT count(*) FROM schema_migrations WHERE name = '019_missions.sql') + (SELECT count(*) FROM pg_proc WHERE prosrc LIKE '%mission_offers%') AS n`), 0);
+  await db.owner.query('DROP TABLE IF EXISTS proformas CASCADE');                                                // table plus récente (078) qui référence les commandes : hors du périmètre de ce retour arrière
   await call(db.app, 'fn_admin_reset_activity', w.admin, 'REINITIALISER');                              // la version restaurée fonctionne
   await migrate({ ...TEST_DB, database: 'wld_missions' }, APP_PW, () => {});
   assert.equal(await count(`SELECT count(*)::int AS n FROM schema_migrations WHERE name = '019_missions.sql'`), 1);

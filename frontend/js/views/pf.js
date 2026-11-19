@@ -8,6 +8,7 @@ import { gaugeSvg, areaChart } from './pf-charts.js';
 import { spacesScreen, spaceScreen } from './pf-spaces.js';
 import { toolsScreen } from './pf-tools.js';
 import { payrollScreen } from './pf-payroll.js';
+import { chargesScreen } from './pf-charges.js';
 import { shopScreen } from './pf-shop.js';
 import { postOffline, offlineBar, warmCache } from '../offline.js';
 import { loadCats, catLabel, catOptions, profile as pfProfile, profileChooser, categoriesScreen } from './pf-cats.js';
@@ -42,7 +43,7 @@ export function pfApp(user, screen = '') {
   memberOnly = user.role === 'member';
   warmCache();
   const go = (s) => { location.hash = `#/pf/${s}`; };
-  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), shop: (a) => shopScreen({ ...a, head, card }), payroll: (a) => payrollScreen({ ...a, head, card, isAdmin: user.role === 'admin' }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
+  const SCREENS = { '': homeScreen, home: homeScreen, plan: planScreen, recurring: recurringScreen, wallet: walletScreen, contacts: contactsScreen, stats: statsScreen, more: moreScreen, accounts: accountsScreen, tx: txScreen, pro: proScreen, settings: settingsScreen, gauges: gaugesScreen, general: generalScreen, currencies: currenciesScreen, categories: (a) => categoriesScreen({ ...a, head, card }), tools: (a) => toolsScreen({ ...a, head, card }), shop: (a) => shopScreen({ ...a, head, card }), payroll: (a) => payrollScreen({ ...a, head, card, isAdmin: user.role === 'admin' }), charges: (a) => chargesScreen({ ...a, head, card }), privacy: (a) => privacyScreen({ ...a, head, card }), spaces: (a) => spacesScreen({ ...a, head, card }) };
   const spaceId = /^space-[0-9a-f-]{36}$/.test(screen) ? screen.slice(6) : null;
   if (spaceId) SCREENS[screen] = (a) => spaceScreen({ ...a, head, card, id: spaceId });
   const accId = /^account-[0-9a-f-]{36}$/.test(screen) ? screen.slice(8) : null;
@@ -595,6 +596,7 @@ function moreScreen({ go, st, user }) {
     tile('bank', 'Comptes', null, () => go('accounts')), tile('receipt', 'Transactions', null, () => go('tx')),
     (pfProfile() === 'business' || pfProfile() === 'both') && tile('bag', 'Boutique', 'Vendre, stock, caisse', () => go('shop')),
     (pfProfile() === 'business' || pfProfile() === 'both') && tile('user', 'Paie des employés', 'Salaires du mois', () => go('payroll')),
+    st.wallet?.company && tile('receipt', 'Charges de l\'entreprise', 'Loyer, serveur, SMS, motos...', () => go('charges')),
     (pfProfile() === 'business' || pfProfile() === 'both') && st.spaces_enabled && tile('users', 'Espaces de groupe', 'Budget partagé', () => go('spaces')),
     tile('star', 'Formule', st.tier === 'pro' ? 'Pro' : 'Gratuite', () => go('pro')), tile('settings', 'Paramètres', null, () => go('settings')),
     st.wallet?.eligible && tile('wallet', 'Portefeuille', 'Wallindirain', null, '#/app/wallet'), tile('user', 'Mon profil', null, null, '#/app/profile')),
@@ -603,6 +605,14 @@ function moreScreen({ go, st, user }) {
 // ---------- Compte Wallindirain relié ----------
 const AUTO_LINES = [['Gains de vente et rémunérations', 'revenus'], ['Achats de stock, frais et abonnements', 'dépenses'], ['Dépôts et retraits', 'virements avec votre compte Mobile Money']];
 function walletScreen({ go, st, reload }) {
+  if (st.wallet?.company) return liveView(() => get('/pf/accounts'), (o) => {
+    const a = o.accounts.find((x) => x.auto);
+    return h('div', {}, head('Wallindirain (société)', { back: ['Accueil', () => go('home')] }), h('div', { class: 'pf-pad' },
+      card(null, h('div', { class: 'pf-start' }, h('span', { class: 'pf-ico pf-c-teal' }, icon('wallet', 26)), h('div', {}, h('b', {}, 'Relié d\'office : tout arrive tout seul'),
+        h('p', {}, 'L\'argent de la plateforme (frais de livraison, abonnements, paie de l\'équipe, primes des livreurs, parrainage, retours) est classé automatiquement, en lecture seule. Rien à saisir ni à relier.'))),
+        h('div', { class: 'pf-big' }, fmtGNF(a ? a.balance : 0)), h('div', { class: 'pf-sub' }, 'disponible dans le portefeuille de la plateforme')),
+      h('button', { class: 'pf-btn', type: 'button', onclick: () => go('charges') }, 'Charges de l\'entreprise')));
+  });
   return liveView(() => get('/pf/accounts'), (o, refresh) => {
     const linked = st.wallet?.linked, pro = st.tier === 'pro';
     const real = o.accounts.filter((a) => !a.auto && !a.archived_at);

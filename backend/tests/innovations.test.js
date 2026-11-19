@@ -106,8 +106,8 @@ test('parrainage : désactivé par défaut, bonus unique, écriture double, cons
   assert.ok(before !== undefined);
   // on ne peut pas se parrainer soi-même
   assert.equal((await call(db.app, 'fn_register_referral', w.seller, code)), false);
-  // le fournisseur n'a pas de parrainage client : seuls vendeurs et fournisseurs ont un code
-  await expectErr(call(db.app, 'fn_my_referral', w.courier), 'forbidden');
+  // l'administration n'a pas de parrainage ; depuis la 072 les livreurs et expéditeurs en ont un
+  await expectErr(call(db.app, 'fn_my_referral', w.admin), 'forbidden');
 });
 
 test('tableau de bord vendeur et statistiques administrateur', async () => {

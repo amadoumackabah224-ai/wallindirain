@@ -1,5 +1,5 @@
 // Espace livreur : récupérer, livrer avec le code du client, signaler un échec.
-import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, toast, telLink, waLink, telBtn, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL, tourModeText } from '../ui.js';
+import { h, ask, confirmBox, fmtGNF, fmtDate, liveView, statusBadge, amount, action, kv, empty, guide, toast, telLink, waLink, telBtn, badge, table, since, pickupText, pickupLate, proofButton, FAIL_LABEL, tourModeText } from '../ui.js';
 import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 import { courierStatsCard } from './couriers.js';
@@ -79,7 +79,7 @@ export function courierOrders() {
           o.status === 'on_the_way' && h('button', { class: 'btn btn-ok', onclick: deliver }, require_code ? 'Livrer avec le code' : 'Colis livré'),
           h('button', { class: 'btn btn-ghost', onclick: fail }, 'Échec')),
         require_code && o.code_attempts > 0 && h('div', { class: 'notice warn mt' }, `${o.code_attempts} essai(s) de code déjà utilisé(s) sur ${max_attempts}.`));
-    }) : empty('🏍️', 'Aucune livraison affectée pour le moment')), { poll: 15000 });
+    }) : guide('bike', 'Vos livraisons du jour', 'Rien à livrer pour le moment', 'Les colis qui vous sont affectés apparaissent ici tout seuls. Vous serez prévenu dès qu\'un nouveau colis arrive.')), { poll: 15000 });
 }
 
 const REMIT_STATUS = { pending: ['En attente de validation', 'warn'], confirmed: ['Validé', 'ok'], rejected: ['Refusé', 'bad'] };

@@ -105,7 +105,7 @@ export function profileView({ onChanged }) {
           h('p', { class: 'small' }, 'Vous pouvez demander l\'accès à vos données, leur correction ou la suppression de votre compte.'),
           h('a', { class: 'btn btn-sm btn-ghost', href: '#/demande-donnees' }, 'Exercer mes droits'))),
       installCard(),
-      ['seller', 'supplier'].includes(p.role) && referralCard());
+      ['seller', 'supplier', 'courier'].includes(p.role) && referralCard());
   });
 }
 

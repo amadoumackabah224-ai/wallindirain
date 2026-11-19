@@ -109,6 +109,10 @@ export function registerPf(app, { q, fn, guard, limit }) {
       prices: { monthly: Number(s.monthly), yearly: Number(s.yearly) }, trial_days: s.trial_days, free_accounts: s.free_accounts, free_history_days: s.free_history_days };
   }
 
+  const PLATFORM = '00000000-0000-0000-0000-000000000001';
+  /** Portefeuille qui alimente automatiquement Mes finances : celui de la plateforme pour l'administrateur, le sien pour les autres. */
+  const isAdminUser = async (id) => (await q("SELECT 1 FROM users WHERE id = $1 AND role = 'admin'", [id])).length > 0;
+
   async function accountsOf(id, acc) {
     const rows = await q(`SELECT a.id, a.name, a.kind, a.color, a.currency, COALESCE(c.decimals, 0)::int AS decimals, c.rate::float8 AS rate, a.opening_balance::bigint AS opening_balance, a.created_at, a.archived_at,
         (a.opening_balance + COALESCE((SELECT sum(CASE WHEN t.kind IN ('income','transfer_in') THEN t.amount_orig ELSE -t.amount_orig END) FROM pf_all_tx t WHERE t.account_id = a.id AND t.voided_at IS NULL), 0))::bigint AS balance,
@@ -122,9 +126,10 @@ export function registerPf(app, { q, fn, guard, limit }) {
     const list = rows.map((a) => ({ ...a, writable: a.open && (acc.tier === 'pro' || ++rank <= acc.free_accounts) }));
     // compte Wallindirain automatique (si relié) : lecture seule, solde = argent disponible du portefeuille
     const [link] = await q('SELECT wallet_linked, wallet_account FROM pf_prefs WHERE owner_id = $1', [id]);
-    if (link?.wallet_linked) {
-      const [w] = await q('SELECT COALESCE(sum(amount), 0)::bigint AS bal FROM wallet_entries WHERE user_id = $1 AND available_at <= now()', [id]);
-      list.push({ id: 'wallindirain', name: 'Wallindirain', kind: 'wallindirain', color: 'teal', opening_balance: 0, created_at: null, archived_at: null, balance: Number(w.bal), balance_base: Number(w.bal), currency: 'GNF', decimals: 0, rate: null, open: true, writable: false, auto: true, receives: link.wallet_account });
+    const company = await isAdminUser(id);   // administrateur : le portefeuille de la plateforme est relié d'office
+    if (link?.wallet_linked || company) {
+      const [w] = await q('SELECT COALESCE(sum(amount), 0)::bigint AS bal FROM wallet_entries WHERE user_id = $1 AND available_at <= now()', [company ? PLATFORM : id]);
+      list.push({ id: 'wallindirain', name: company ? 'Wallindirain (société)' : 'Wallindirain', kind: 'wallindirain', color: 'teal', opening_balance: 0, created_at: null, archived_at: null, balance: Number(w.bal), balance_base: Number(w.bal), currency: 'GNF', decimals: 0, rate: null, open: true, writable: false, auto: true, company, receives: link?.wallet_account || null });
     }
     return list;
   }
@@ -133,7 +138,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
   app.get('/api/pf/status', guard(ALL, async (ctx) => {
     if (!(await featureOn())) return { enabled: false };
     const [link] = await q('SELECT wallet_linked, wallet_account FROM pf_prefs WHERE owner_id = $1', [ctx.user.id]);
-    return { enabled: true, spaces_enabled: await spaceFlag(), ...(await access(ctx.user.id)), wallet: { eligible: WALLET_ROLES.includes(ctx.user.role), linked: !!link?.wallet_linked, account: link?.wallet_account || null } };
+    return { enabled: true, spaces_enabled: await spaceFlag(), ...(await access(ctx.user.id)), wallet: { eligible: WALLET_ROLES.includes(ctx.user.role), linked: !!link?.wallet_linked || ctx.user.role === 'admin', ...(ctx.user.role === 'admin' ? { company: true } : {}), account: link?.wallet_account || null } };
   }));
 
   /** Tout l'écran « Tableau de bord » en un seul appel. */
@@ -206,7 +211,7 @@ export function registerPf(app, { q, fn, guard, limit }) {
     for (let i = 0; i < seriesDays; i++) { const d = dayStr(Date.now() - i * DAY); series.unshift({ day: d, balance: run }); run -= net.get(d) || 0; }
     const byCategory = (kinds) => Object.entries(inRange.filter((f) => kinds.includes(f.kind)).reduce((m, f) => { m[f.category] = (m[f.category] || 0) + Number(f.total); return m; }, {}))
       .map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total);
-    const [w] = await q(`SELECT COALESCE(sum(amount) FILTER (WHERE available_at <= now()), 0)::bigint AS available, COALESCE(sum(amount) FILTER (WHERE available_at > now()), 0)::bigint AS pending FROM wallet_entries WHERE user_id = $1`, [id]);
+    const [w] = await q(`SELECT COALESCE(sum(amount) FILTER (WHERE available_at <= now()), 0)::bigint AS available, COALESCE(sum(amount) FILTER (WHERE available_at > now()), 0)::bigint AS pending FROM wallet_entries WHERE user_id = $1`, [(await isAdminUser(id)) ? PLATFORM : id]);
     const recent = await q(`SELECT t.id, t.kind, t.amount_orig::bigint AS amount, t.currency, t.category, t.note, t.occurred_on::text AS occurred_on, COALESCE(a.name, 'Wallindirain') AS account_name, COALESCE(a.color, 'teal') AS color, t.source
         FROM pf_all_tx t LEFT JOIN pf_accounts a ON a.id = t.account_id WHERE t.owner_id = $1 AND t.voided_at IS NULL AND t.occurred_on >= current_date - $2::int
         ORDER BY t.occurred_on DESC, t.created_at DESC LIMIT 6`, [id, acc.tier === 'pro' ? 100000 : acc.free_history_days]);

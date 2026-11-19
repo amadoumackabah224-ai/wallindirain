@@ -61,6 +61,8 @@ export function registerRoutes(app, { db, cfg }) {
     if (roles && !roles.includes(u.role)) throw new HttpError(403, 'forbidden', 'Action non autorisée pour votre rôle');
     ctx.user = u;
     ctx.token = token;
+    // Session longue (076) : prolongée à l'usage, au plus une fois par heure ; le cookie suit la nouvelle échéance
+    try { const ext = await q('SELECT fn_session_touch($1) AS e', [tokenHash(token)]); if (ext[0]?.e) setCookie(ctx, token, Math.floor((new Date(ext[0].e) - Date.now()) / 1000)); } catch { /* sans gravité : la session actuelle reste valable */ }
     return u;
   }
   const guard = (roles, handler) => async (ctx) => { await auth(ctx, roles); return handler(ctx); };
@@ -96,7 +98,7 @@ export function registerRoutes(app, { db, cfg }) {
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
-    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
+    features: { pickup_points: (await q(`SELECT value FROM settings WHERE key = 'feature_pickup_points'`))[0]?.value >= 1, proformas: (await q(`SELECT value FROM settings WHERE key = 'feature_proformas'`))[0]?.value >= 1, order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
   }));
 
   // =========================================================================
@@ -129,7 +131,7 @@ export function registerRoutes(app, { db, cfg }) {
       payMethod, payPhone, cfg.legal.version);
     if (b.email) await fn('fn_register_email', id, v.email(b.email));   // code de vérification envoyé par e-mail
     let referral = null;
-    if (role === 'seller' && typeof b.referral_code === 'string' && b.referral_code.trim()) referral = await fn('fn_register_referral', id, v.str(b.referral_code, 'Code de parrainage', { min: 4, max: 12 }));
+    if ((role === 'seller' || role === 'shipper') && typeof b.referral_code === 'string' && b.referral_code.trim()) referral = await fn('fn_register_referral', id, v.str(b.referral_code, 'Code de parrainage', { min: 4, max: 12 }));
     ctx.status = 201;
     return { id, pending_validation: role === 'supplier' || foreign, email_pending: !!b.email, referral_applied: referral,
       message: role === 'supplier' || foreign ? 'Compte créé. Il sera activé après validation par l\'administration.' : 'Compte créé. Vous pouvez vous connecter.' };
@@ -153,8 +155,8 @@ export function registerRoutes(app, { db, cfg }) {
     if (u.status === 'suspended') throw new HttpError(403, 'suspended', 'Compte suspendu. Contactez Wallindirain.');
     await fn('fn_login_ok', u.id);
     const token = newToken();
-    await fn('fn_session_create', u.id, tokenHash(token));
-    setCookie(ctx, token, 12 * 3600);
+    const exp = await fn('fn_session_create', u.id, tokenHash(token));
+    setCookie(ctx, token, Math.floor((new Date(exp) - Date.now()) / 1000));
     return { user: { id: u.id, role: u.role, name: u.full_name, legal_pending: await legalPending(u) } };
   });
 
@@ -936,6 +938,30 @@ export function registerRoutes(app, { db, cfg }) {
     return { marked: await fn('fn_notifications_read', ctx.user.id, ids) };
   }));
   app.get('/api/admin/announcements', guard(['admin'], async (ctx) => ({ announcements: await fn('fn_admin_announcements', ctx.user.id) })));
+  // Annonces en fenêtre (migration 074) : l'administrateur les prépare et les publie, chaque utilisateur reçoit la sienne à l'ouverture
+  const POPUP_ROLES = [...ANY_ROLE, 'member', 'shipper'];
+  app.get('/api/admin/popups', guard(['admin'], async (ctx) => await fn('fn_admin_popups', ctx.user.id)));
+  app.post('/api/admin/popups', guard(['admin'], async (ctx) => {
+    limit(`popup:${ctx.user.id}`, 30, 3600_000);
+    const b = ctx.body || {}; let mime = null, buf = null;
+    if (b.image) { ({ mime, buf } = parseImage(b.image)); if (buf.length > 600_000) throw new HttpError(413, 'too_large', 'Image trop lourde : choisissez une image plus petite'); }
+    const opt = (x, name, max) => (x == null || String(x).trim() === '' ? null : v.str(x, name, { max }));
+    const when = (x, name) => { if (x == null || x === '') return null; const d = new Date(x); if (Number.isNaN(d.getTime())) throw new HttpError(400, 'invalid_input', `${name} : date invalide`); return d.toISOString(); };
+    ctx.status = 201;
+    return { id: await fn('fn_admin_popup_save', ctx.user.id, b.id ? v.uuid(b.id, 'Annonce') : null, v.str(b.title, 'Titre', { min: 3, max: 120 }), opt(b.body, 'Texte', 400),
+      v.str(b.audience || 'all', 'Public', { max: 20 }), opt(b.cta_label, 'Texte du bouton', 30), opt(b.cta_target, 'Destination du bouton', 260), when(b.starts_at, 'Début'), when(b.ends_at, 'Fin'),
+      b.frequency === 'daily' ? 'daily' : 'once', mime, buf) };
+  }), { maxBody: MAX_PROOF_BODY });
+  app.post('/api/admin/popups/:id/active', guard(['admin'], async (ctx) => { await fn('fn_admin_popup_active', ctx.user.id, v.uuid(ctx.params.id, 'Annonce'), ctx.body?.active === true); return { ok: true }; }));
+  app.post('/api/admin/popups/:id/archive', guard(['admin'], async (ctx) => { await fn('fn_admin_popup_archive', ctx.user.id, v.uuid(ctx.params.id, 'Annonce')); return { ok: true }; }));
+  app.get('/api/popup/next', guard(POPUP_ROLES, async (ctx) => ({ popup: await fn('fn_popup_next', ctx.user.id) })));
+  app.post('/api/popup/:id/event', guard(POPUP_ROLES, async (ctx) => { limit(`popupev:${ctx.user.id}`, 60, 3600_000); await fn('fn_popup_event', ctx.user.id, v.uuid(ctx.params.id, 'Annonce'), v.str(ctx.body?.event, 'Événement', { max: 10 })); return { ok: true }; }));
+  app.get('/api/popup/:id/image', guard(POPUP_ROLES, async (ctx) => {
+    const rows = await q('SELECT * FROM fn_popup_image_get($1, $2)', [ctx.user.id, v.uuid(ctx.params.id, 'Annonce')]);
+    if (!rows.length) throw new HttpError(404, 'not_found', 'Image introuvable');
+    ctx.headers['Content-Type'] = rows[0].mime; ctx.headers['Cache-Control'] = 'private, max-age=3600'; ctx.headers['Content-Disposition'] = 'inline';
+    return rows[0].data;
+  }));
   app.post('/api/admin/announcements', guard(['admin'], async (ctx) => {
     limit(`announce:${ctx.user.id}`, 10, 3600_000);
     const b = ctx.body;
@@ -943,7 +969,7 @@ export function registerRoutes(app, { db, cfg }) {
     return await fn('fn_admin_announce', ctx.user.id, v.str(b.audience, 'Destinataires', { max: 20 }), v.str(b.title, 'Titre', { min: 3, max: 120 }), v.str(b.body, 'Message', { min: 3, max: 600 }));
   }));
 
-  app.get('/api/me/referral', guard(['seller', 'supplier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
+  app.get('/api/me/referral', guard(['seller', 'supplier', 'courier'], async (ctx) => (await q('SELECT fn_my_referral($1) AS r', [ctx.user.id]))[0].r));
 
   app.get('/api/seller/orders/:id', guard(SEL, async (ctx) => {
     const id = v.uuid(ctx.params.id, 'Commande');
@@ -1051,6 +1077,17 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/shipper/requests', guard(SHIP, async (ctx) => { const b = ctx.body; ctx.status = 201; return await fn('fn_dlv_request_create', ctx.user.id, v.str(b.from, 'Départ', { max: 60 }), v.str(b.from_address, 'Adresse de ramassage', { min: 3, max: 200 }), v.str(b.to, 'Arrivée', { max: 60 }), v.str(b.to_address, 'Adresse de livraison', { min: 3, max: 200 }), v.str(b.receiver_name, 'Nom du destinataire', { min: 2, max: 100 }), v.phone(b.receiver_phone, 'Téléphone du destinataire'), v.str(b.description, 'Description du colis', { min: 3, max: 300 }), Number(b.kg), v.int(b.declared_value ?? 0, 'Valeur déclarée', { max: 1e9 }), v.oneOf(b.payer, ['sender', 'receiver'], 'Payeur'), b.ack === true); }));
   app.post('/api/shipper/requests/:id/cancel', guard(SHIP, async (ctx) => { await fn('fn_dlv_request_cancel', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); }));
   app.get('/api/admin/dlv-requests', guard(['admin'], async (ctx) => ({ requests: await fn('fn_admin_dlv_requests', ctx.user.id, ctx.query.status ? v.oneOf(ctx.query.status, ['new', 'assigned', 'picked_up', 'delivered', 'failed', 'cancelled'], 'Statut') : null) })));
+  // Livraison à la demande : désignation du livreur (admin), missions du livreur
+  app.post('/api/admin/dlv-requests/:id/assign', guard(['admin'], async (ctx) => { await fn('fn_admin_dlv_assign', ctx.user.id, v.uuid(ctx.params.id, 'Demande'), v.uuid(ctx.body.courier_id, 'Livreur')); }));
+  app.post('/api/admin/dlv-requests/:id/unassign', guard(['admin'], async (ctx) => { await fn('fn_admin_dlv_unassign', ctx.user.id, v.uuid(ctx.params.id, 'Demande')); }));
+  app.post('/api/admin/users/:id/referrer', guard(['admin'], async (ctx) => ({ referrer: await fn('fn_admin_set_referrer', ctx.user.id, v.uuid(ctx.params.id, 'Livreur'), v.str(ctx.body.code, 'Code de parrainage', { min: 4, max: 12 })) })));
+  app.get('/api/courier/dlv', guard(['courier'], async (ctx) => ({ missions: await fn('fn_courier_dlv_list', ctx.user.id) })));
+  app.post('/api/courier/dlv/:id/pickup', guard(['courier'], async (ctx) => { await fn('fn_courier_dlv_pickup', ctx.user.id, v.uuid(ctx.params.id, 'Course')); }));
+  app.post('/api/courier/dlv/:id/deliver', guard(['courier'], async (ctx) => {
+    limit(`deliver:${ctx.user.id}`, 30, 600_000);
+    await fn('fn_courier_dlv_deliver', ctx.user.id, v.uuid(ctx.params.id, 'Course'));
+  }));
+  app.post('/api/courier/dlv/:id/fail', guard(['courier'], async (ctx) => { await fn('fn_courier_dlv_fail', ctx.user.id, v.uuid(ctx.params.id, 'Course'), v.str(ctx.body.reason, 'Raison', { min: 3, max: 200 })); }));
   app.get('/api/courier/my-stats', guard(COU, async (ctx) => ({ stats: await fn('fn_courier_stats', ctx.user.id, ...statsRange(ctx)) })));
   app.get('/api/courier/orders', guard(COU, async (ctx) => ({
     orders: await q(`SELECT o.id, o.ref, o.status, COALESCE(p.name, o.own_product_name) AS product_name, o.qty, o.sale_total AS amount_to_collect,
@@ -1103,8 +1140,8 @@ export function registerRoutes(app, { db, cfg }) {
 
   // Reversement : encaissements en attente + historique des reversements par transfert
   app.get('/api/courier/cash', guard(COU, async (ctx) => ({
-    entries: await q(`SELECT c.order_id, o.ref, c.amount, c.created_at, (c.remittance_id IS NOT NULL) AS in_remittance
-        FROM courier_cash_entries c JOIN orders o ON o.id = c.order_id
+    entries: await q(`SELECT COALESCE(c.order_id, c.dlv_request_id) AS order_id, COALESCE(o.ref, d.ref) AS ref, c.amount, c.created_at, (c.remittance_id IS NOT NULL) AS in_remittance
+        FROM courier_cash_entries c LEFT JOIN orders o ON o.id = c.order_id LEFT JOIN dlv_requests d ON d.id = c.dlv_request_id
         WHERE c.courier_id = $1 AND c.count_id IS NULL ORDER BY c.created_at`, [ctx.user.id]),
     remittances: await q(`SELECT id, method, amount, status, received, reference, proof_id, handed_to, decision_note, created_at, decided_at
         FROM remittances WHERE courier_id = $1 ORDER BY created_at DESC LIMIT 30`, [ctx.user.id])
@@ -1563,6 +1600,43 @@ export function registerRoutes(app, { db, cfg }) {
     const accs = ctx.query.accounts == null ? null : String(ctx.query.accounts).split(',').filter(Boolean).slice(0, 50).map((x) => v.uuid(x, 'Compte'));
     return { accounting: await fn('fn_admin_accounting', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today, accs) };
   }));
+  // Proformas (migration 078) : devis du vendeur, sans effet sur le stock ni l'argent ; la transformation passe par la création de commande existante
+  app.get('/api/seller/proformas', guard(SEL, async (ctx) => await fn('fn_proformas_mine', ctx.user.id)));
+  app.post('/api/seller/proformas', guard(SEL, async (ctx) => {
+    const b = ctx.body;
+    const r = await fn('fn_proforma_create', ctx.user.id, v.uuid(b.product_id, 'Produit'), v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }), v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
+      v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'), v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }),
+      v.optStr(b.note, 'Note', 300), b.days == null || b.days === '' ? 15 : v.int(b.days, 'Validité (jours)', { min: 1, max: 60 }));
+    ctx.status = 201; return r;
+  }));
+  app.post('/api/seller/proformas/:id/cancel', guard(SEL, async (ctx) => { await fn('fn_proforma_cancel', ctx.user.id, v.uuid(ctx.params.id, 'Proforma')); return { ok: true }; }));
+  app.post('/api/seller/proformas/:id/convert', guard(SEL, async (ctx) => await fn('fn_proforma_convert', ctx.user.id, v.uuid(ctx.params.id, 'Proforma'))));
+  app.get('/api/admin/proformas', guard(ADM, async (ctx) => await fn('fn_admin_proformas', ctx.user.id)));
+
+  // Points de retrait multiples (migration 079) : lieux déclarés, sans stock ni argent ; droits et réglage revérifiés en base
+  app.get('/api/pickup-points', guard(SUP, async (ctx) => await fn('fn_pickup_points_mine', ctx.user.id)));
+  app.post('/api/pickup-points', guard(SUP, async (ctx) => {
+    const b = ctx.body;
+    const r = await fn('fn_pickup_point_save', ctx.user.id, b.id ? v.uuid(b.id, 'Point de retrait') : null, v.str(b.name, 'Nom', { min: 2, max: 80 }), v.str(b.zone, 'Zone', { min: 2, max: 80 }), v.str(b.address, 'Adresse', { min: 3, max: 200 }), b.contact ? v.phone(b.contact, 'Contact') : null);
+    ctx.status = b.id ? 200 : 201; return r;
+  }));
+  app.post('/api/pickup-points/:id/remove', guard(SUP, async (ctx) => { await fn('fn_pickup_point_remove', ctx.user.id, v.uuid(ctx.params.id, 'Point de retrait')); return { ok: true }; }));
+  app.post('/api/supplier/products/:id/pickup-point', guard(['supplier'], async (ctx) => { await fn('fn_product_use_pickup_point', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.point_id, 'Point de retrait')); return { ok: true }; }));
+  app.get('/api/pickup-suggest', guard(['admin', 'seller', 'warehouse'], async (ctx) => await fn('fn_pickup_suggest', ctx.user.id, v.uuid(ctx.query.product_id, 'Produit'), v.optStr(ctx.query.zone, 'Zone', 80))));
+
+  // Pilotage (migration 075) : tout est en lecture sauf la génération manuelle d'un rapport ; les droits sont revérifiés dans chaque fonction SQL
+  app.get('/api/admin/anomalies', guard(ADM, async (ctx) => ({ anomalies: await fn('fn_accounting_anomalies', ctx.user.id) })));
+  app.get('/api/today', guard(WITH_MEMBER, async (ctx) => await fn('fn_today', ctx.user.id)));
+  app.get('/api/products/:id/history', guard(['admin', 'supplier', 'warehouse'], async (ctx) => await fn('fn_product_history', ctx.user.id, v.uuid(ctx.params.id, 'Produit'))));
+  app.get('/api/admin/reports', guard(ADM, async (ctx) => ({ reports: await fn('fn_admin_reports', ctx.user.id, ctx.query.kind ? v.oneOf(ctx.query.kind, ['daily', 'weekly', 'monthly'], 'Type') : null) })));
+  app.post('/api/admin/reports', guard(ADM, async (ctx) => ({ created: await fn('fn_admin_report_make', ctx.user.id, v.oneOf(ctx.body.kind, ['daily', 'weekly', 'monthly'], 'Type'), isoDate(ctx.body.day, 'Jour')) })));
+  app.get('/api/admin/debts', guard(ADM, async (ctx) => await fn('fn_admin_debts', ctx.user.id)));
+  app.get('/api/performance', guard(['admin', 'seller'], async (ctx) => {
+    const today = new Date().toISOString().slice(0, 10), first = `${today.slice(0, 8)}01`;
+    return await fn('fn_performance', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today);
+  }));
+  app.get('/api/orders/:id/dossier', guard(null, async (ctx) => await fn('fn_order_dossier', ctx.user.id, v.uuid(ctx.params.id, 'Commande'))));
+  app.get('/api/withdrawals/:id/dossier', guard(null, async (ctx) => await fn('fn_withdrawal_dossier', ctx.user.id, v.uuid(ctx.params.id, 'Retrait'))));
   app.get('/api/admin/company', guard(ADM, async (ctx) => ({ company: await fn('fn_company_get', ctx.user.id) })));
   app.post('/api/admin/company', guard(ADM, async (ctx) => {
     const b = ctx.body;

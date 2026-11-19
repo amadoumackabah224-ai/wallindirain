@@ -1,4 +1,5 @@
 // Portefeuille et retraits : commun au vendeur, fournisseur, agent, chef et livreur.
+import { withdrawalDossierButton } from './pilotage.js';
 import { h, ask, secret, eyeToggle, fmtGNF, fmtDate, fmtPhone, payoutText, liveView, table, badge, amount, action, WALLET_KIND, empty, toast, proofButton } from '../ui.js';
 import { get, post } from '../api.js';
 import { startIdentityFlow } from './kyc.js';
@@ -43,7 +44,7 @@ export function walletView() {
           fmtDate(e.created_at), h('div', {}, WALLET_KIND[e.kind] || e.kind, e.description && h('div', { class: 'small muted' }, e.description)), secret(amount(e.amount, true)),
           e.locked ? badge(`le ${fmtDate(e.available_at)}`, 'warn') : badge('Oui', 'ok')]), { empty: empty('📒', 'Aucun mouvement') }))
         : h('div', { class: 'card' }, table(['Date', 'Montant', 'Via', 'Statut', 'Référence', ''], w.withdrawals.map((x) => [
-          fmtDate(x.created_at), secret(amount(x.amount)), payoutText(x.method, x.account_number), badge(...WD_STATUS[x.status]), x.payment_ref || '', h('div', { class: 'gap' }, proofButton(x.proof_id, 'Preuve du transfert'), x.status === 'paid' && receiptButton(x.id))]),
+          fmtDate(x.created_at), secret(amount(x.amount)), payoutText(x.method, x.account_number), badge(...WD_STATUS[x.status]), x.payment_ref || '', h('div', { class: 'gap' }, proofButton(x.proof_id, 'Preuve du transfert'), x.status === 'paid' && receiptButton(x.id), withdrawalDossierButton(x.id))]),
           { empty: empty('💸', 'Aucun retrait pour le moment') })));
     };
     const tabBtn = (k, label) => h('button', { type: 'button', 'aria-pressed': String(tab === k), onclick: (e) => { tab = k; e.currentTarget.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === e.currentTarget))); paintLists(); } }, label);

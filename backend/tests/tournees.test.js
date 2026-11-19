@@ -210,6 +210,7 @@ test('retour arrière 020 : retire les tournées, restaure la remise à zéro de
   assert.deepEqual(await snapAll(), before);
   assert.equal(await count(`SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('tours','tour_stops')) + (SELECT count(*) FROM schema_migrations WHERE name = '020_tournees.sql')
      + (SELECT count(*) FROM pg_proc WHERE prosrc LIKE '%tour_stops%') AS n`), 0);
+  await db.owner.query('DROP TABLE IF EXISTS proformas CASCADE');                                       // table plus récente (078) hors du périmètre de ce retour arrière
   await call(db.app, 'fn_admin_reset_activity', w.admin, 'REINITIALISER');                              // la version restaurée (019) fonctionne
   await migrate({ ...TEST_DB, database: 'wld_tournees' }, APP_PW, () => {});
   assert.equal(await count(`SELECT count(*)::int AS n FROM schema_migrations WHERE name = '020_tournees.sql'`), 1);

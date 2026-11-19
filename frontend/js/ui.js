@@ -104,6 +104,8 @@ export function alertRow(tone, ico, text, btnLabel, onclick) {
 }
 export const spinner = () => h('div', { class: 'spinner', role: 'status', 'aria-label': 'Chargement' });
 /** État vide : icône dans une pastille, message, et action facultative. `ico` peut être un nom d'icône ou un ancien emoji. */
+/** Écran vide qui explique : à quoi sert la liste, ce qui va s'y afficher, et (facultatif) le bouton pour commencer. */
+export const guide = (ico, kicker, title, text, actionNode) => h('div', { class: 'empty guide' }, h('span', { class: 'ico' }, icon(ico, 28)), h('small', { class: 'guide-k' }, kicker), h('h3', { class: 'guide-t' }, title), h('p', {}, text), actionNode);
 export const empty = (ico, text, actionNode) => h('div', { class: 'empty' }, h('span', { class: 'ico' }, icon(ico, 26)), h('p', {}, text), actionNode);
 /** En-tête de page : titre, sous-titre et actions alignées à droite. */
 export const pageHead = (title, sub, ...actions) => h('div', { class: 'page-head' }, h('div', { class: 'grow' }, h('h1', {}, title), sub && h('p', { class: 'page-sub' }, sub)), actions.length > 0 && h('div', { class: 'gap' }, ...actions));
