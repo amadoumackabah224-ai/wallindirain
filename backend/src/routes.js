@@ -98,7 +98,7 @@ export function registerRoutes(app, { db, cfg }) {
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
-    features: { order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
+    features: { proformas: (await q(`SELECT value FROM settings WHERE key = 'feature_proformas'`))[0]?.value >= 1, order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
   }));
 
   // =========================================================================
@@ -1600,6 +1600,19 @@ export function registerRoutes(app, { db, cfg }) {
     const accs = ctx.query.accounts == null ? null : String(ctx.query.accounts).split(',').filter(Boolean).slice(0, 50).map((x) => v.uuid(x, 'Compte'));
     return { accounting: await fn('fn_admin_accounting', ctx.user.id, optDate(ctx.query.from, 'Date de début') || first, optDate(ctx.query.to, 'Date de fin') || today, accs) };
   }));
+  // Proformas (migration 078) : devis du vendeur, sans effet sur le stock ni l'argent ; la transformation passe par la création de commande existante
+  app.get('/api/seller/proformas', guard(SEL, async (ctx) => await fn('fn_proformas_mine', ctx.user.id)));
+  app.post('/api/seller/proformas', guard(SEL, async (ctx) => {
+    const b = ctx.body;
+    const r = await fn('fn_proforma_create', ctx.user.id, v.uuid(b.product_id, 'Produit'), v.int(b.unit_price, 'Prix unitaire', { min: 1, max: 1e10 }), v.int(b.qty, 'Quantité', { min: 1, max: 100 }),
+      v.str(b.customer_name, 'Nom du client', { min: 2, max: 100 }), v.phone(b.customer_phone, 'Numéro du client'), v.str(b.commune, 'Quartier ou ville', { max: 60 }), v.str(b.address, 'Adresse', { min: 3, max: 300 }),
+      v.optStr(b.note, 'Note', 300), b.days == null || b.days === '' ? 15 : v.int(b.days, 'Validité (jours)', { min: 1, max: 60 }));
+    ctx.status = 201; return r;
+  }));
+  app.post('/api/seller/proformas/:id/cancel', guard(SEL, async (ctx) => { await fn('fn_proforma_cancel', ctx.user.id, v.uuid(ctx.params.id, 'Proforma')); return { ok: true }; }));
+  app.post('/api/seller/proformas/:id/convert', guard(SEL, async (ctx) => await fn('fn_proforma_convert', ctx.user.id, v.uuid(ctx.params.id, 'Proforma'))));
+  app.get('/api/admin/proformas', guard(ADM, async (ctx) => await fn('fn_admin_proformas', ctx.user.id)));
+
   // Pilotage (migration 075) : tout est en lecture sauf la génération manuelle d'un rapport ; les droits sont revérifiés dans chaque fonction SQL
   app.get('/api/admin/anomalies', guard(ADM, async (ctx) => ({ anomalies: await fn('fn_accounting_anomalies', ctx.user.id) })));
   app.get('/api/today', guard(WITH_MEMBER, async (ctx) => await fn('fn_today', ctx.user.id)));

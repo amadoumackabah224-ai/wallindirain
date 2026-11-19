@@ -246,6 +246,7 @@ const FEATURES = [
   ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
   ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
+  ['feature_proformas', 'Proformas', 'Les vendeurs peuvent créer un devis pour un client (aucun effet sur le stock ni l\'argent) puis le transformer en commande à la confirmation. Éteint par défaut.'],
   ['feature_popups', 'Annonces en fenêtre', 'Des annonces avec image et bouton s\'affichent à l\'ouverture de l\'application (préparées dans l\'onglet Annonces). Éteint par défaut.'],
   ['feature_livraison_demande', 'Livraison à la demande', 'Des personnes qui ne sont pas vendeurs peuvent faire livrer un colis. Les prix viennent de la grille (onglet « Grille livraison »). Fermé par défaut.'],
   ['dlv_open_signup', 'Inscription « expéditeurs » (livraison à la demande)', 'Permet à des personnes de créer un compte expéditeur pour faire livrer des colis. Demande que « Livraison à la demande » soit allumée. Fermé par défaut.'],
