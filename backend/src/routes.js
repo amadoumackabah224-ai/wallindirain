@@ -1620,6 +1620,7 @@ export function registerRoutes(app, { db, cfg }) {
     const r = await fn('fn_pickup_point_save', ctx.user.id, b.id ? v.uuid(b.id, 'Point de retrait') : null, v.str(b.name, 'Nom', { min: 2, max: 80 }), v.str(b.zone, 'Zone', { min: 2, max: 80 }), v.str(b.address, 'Adresse', { min: 3, max: 200 }), b.contact ? v.phone(b.contact, 'Contact') : null);
     ctx.status = b.id ? 200 : 201; return r;
   }));
+  app.get('/api/delivery-fee-preview', guard(['seller', 'admin'], async (ctx) => await fn('fn_delivery_fee_preview', ctx.user.id, v.uuid(ctx.query.product_id, 'Produit'), v.str(ctx.query.commune, 'Zone', { max: 80 }))));
   app.post('/api/pickup-points/:id/remove', guard(SUP, async (ctx) => { await fn('fn_pickup_point_remove', ctx.user.id, v.uuid(ctx.params.id, 'Point de retrait')); return { ok: true }; }));
   app.post('/api/supplier/products/:id/pickup-point', guard(['supplier'], async (ctx) => { await fn('fn_product_use_pickup_point', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.point_id, 'Point de retrait')); return { ok: true }; }));
   app.get('/api/pickup-suggest', guard(['admin', 'seller', 'warehouse'], async (ctx) => await fn('fn_pickup_suggest', ctx.user.id, v.uuid(ctx.query.product_id, 'Produit'), v.optStr(ctx.query.zone, 'Zone', 80))));

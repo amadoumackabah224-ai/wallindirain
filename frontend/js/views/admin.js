@@ -246,6 +246,7 @@ const FEATURES = [
   ['require_delivery_code', 'Code de livraison à 4 chiffres obligatoire', 'Le livreur doit saisir le code donné par le client pour valider la livraison.'],
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
   ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
+  ['feature_depart_fees', 'Frais selon le point de départ', 'Un produit rattaché à un point de retrait du fournisseur a un frais de livraison réduit si le point est proche du client (paliers dans Tarifs). Entrepôt Wallindirain : inchangé. Éteint par défaut.'],
   ['feature_pickup_points', 'Points de retrait multiples', 'Les fournisseurs et vendeurs peuvent déclarer plusieurs lieux de retrait et les appliquer à leurs produits (aucun effet sur le stock, les frais ni l\'argent). Éteint par défaut.'],
   ['feature_proformas', 'Proformas', 'Les vendeurs peuvent créer un devis pour un client (aucun effet sur le stock ni l\'argent) puis le transformer en commande à la confirmation. Éteint par défaut.'],
   ['feature_popups', 'Annonces en fenêtre', 'Des annonces avec image et bouton s\'affichent à l\'ouverture de l\'application (préparées dans l\'onglet Annonces). Éteint par défaut.'],
@@ -258,6 +259,7 @@ const NUMERIC_GROUPS = {
   tarifs: [
     ['Marge et frais de la plateforme', ['margin_bps', 'fee_order_bps', 'fee_unit', 'seller_storage_fee', 'call_fee']],
     ['Rémunérations', ['agent_pay', 'courier_pay', 'courier_share_bps']],
+    ['Frais selon le point de départ', ['fee_depart_same_zone', 'fee_depart_same_commune', 'fee_depart_far_extra', 'fee_depart_min']],
     ['Tournées groupées', ['tour_share_bps', 'tour_extra_share_bps', 'tour_bonus_per_extra_order']],
     ['Retraits et gains', ['min_withdrawal', 'unlock_hours']],
     ['Parrainage', ['referral_bonus', 'referral_orders_required', 'referral_bonus_shipper', 'referral_dlv_required', 'referral_bonus_courier', 'referral_courier_required']],
