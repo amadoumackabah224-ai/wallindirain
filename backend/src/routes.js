@@ -1788,6 +1788,8 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/admin/settings', guard(ADM, async (ctx) => {
     if (ctx.body.key === 'sms_codes' && Number(ctx.body.value) === 1 && !smsConfigured((cfg.sms || {}))) throw new HttpError(409, 'invalid_state', 'Impossible d\'allumer : les identifiants Nimba SMS ne sont pas enregistrés sur le serveur (voir docs/SMS.md).');
     await fn('fn_admin_set_setting', ctx.user.id, v.str(ctx.body.key, 'Réglage', { max: 40 }), v.int(ctx.body.value, 'Valeur', { min: 0, max: 1e11 })); }));
+  // Période de grâce de « Mes finances » : N jours de Pro offerts aux utilisateurs existants (avant de fixer un prix)
+  app.post('/api/admin/pf-grace', guard(ADM, async (ctx) => ({ users: await fn('fn_admin_pf_grace', ctx.user.id, v.int(ctx.body.days, 'Durée (jours)', { min: 1, max: 90 })) })));
   // Trophées : les six montants d'un coup, positifs et strictement croissants
   app.post('/api/admin/trophies', guard(ADM, async (ctx) => {
     const tiers = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'blue_diamond'];
