@@ -48,8 +48,9 @@ test('appliquer un point à un produit et suggestion : stock et argent inchangé
 });
 
 test('retour arrière 079 : refusé s\'il existe des points, puis propre', async () => {
-  const run = async () => { const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-079.sql'), 'utf8'); await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
+  const run = async () => { const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-080.sql'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'docs', 'retour-arriere-079.sql'), 'utf8'); await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
   await assert.rejects(run, /refusé/);
+  await db.owner.query('UPDATE products SET pickup_point_id = NULL');
   await db.owner.query('DELETE FROM pickup_points');
   await run();
   assert.equal((await db.owner.query(`SELECT to_regclass('pickup_points') AS t`)).rows[0].t, null);

@@ -4,9 +4,9 @@ import { get, post } from '../api.js';
 import { icon } from '../icons.js';
 
 export function pickupPointsView() {
-  return liveView(() => get('/pickup-points'), ({ enabled, points }, refresh) => {
+  return liveView(() => Promise.all([get('/pickup-points'), get('/public/info')]), ([{ enabled, points }, info], refresh) => {
     if (!enabled) return h('div', {}, pageHead('Points de retrait', ''), guide('package', 'Plusieurs lieux de retrait', 'Fonction non activée', 'L\'administration n\'a pas encore activé les points de retrait.'));
-    const fields = (p = {}) => [{ name: 'name', label: 'Nom du lieu', value: p.name || '' }, { name: 'zone', label: 'Quartier ou ville', value: p.zone || '' }, { name: 'address', label: 'Adresse ou repère', value: p.address || '' }, { name: 'contact', label: 'Téléphone sur place (facultatif)', required: false, inputmode: 'tel', value: p.contact || '' }];
+    const fields = (p = {}) => [{ name: 'name', label: 'Nom du lieu', value: p.name || '' }, { name: 'zone', label: 'Quartier ou ville', type: 'select', value: p.zone || '', options: (info.communes || []).map((c) => [c.commune, c.commune]) }, { name: 'address', label: 'Adresse ou repère', value: p.address || '' }, { name: 'contact', label: 'Téléphone sur place (facultatif)', required: false, inputmode: 'tel', value: p.contact || '' }];
     const add = action(async () => { const v = await ask({ title: 'Nouveau point de retrait', submit: 'Ajouter', fields: fields() }); if (v) await post('/pickup-points', v); }, { ok: () => 'Point ajouté', refresh });
     const edit = (p) => action(async () => { const v = await ask({ title: `Modifier : ${p.name}`, submit: 'Enregistrer', fields: fields(p) }); if (v) await post('/pickup-points', { ...v, id: p.id }); }, { ok: () => 'Point modifié', refresh });
     const del = (p) => action(async () => { if (await confirmBox('Retirer ce point ?', p.name, 'Retirer', true)) await post(`/pickup-points/${p.id}/remove`, {}); }, { ok: () => 'Point retiré', refresh });
