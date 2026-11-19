@@ -16,6 +16,7 @@ import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { showPopupIfAny, resetPopupCheck } from './views/popup.js';
 import { sellerProformas, adminProformas } from './views/proformas.js';
+import { pickupPointsView } from './views/points.js';
 import { todayView, adminAlerts, adminReports, adminDebts, performanceView } from './views/pilotage.js';
 import { adminCouriers } from './views/couriers.js';
 import { shipperSend, shipperRequests, adminDlvRequests, courierOnDemand } from './views/shipper.js';
@@ -52,7 +53,7 @@ function combo(c, start, parts) {
 const TABS = {
   seller: [['dash', 'dashboard', 'Accueil', (c) => sellerDashboard(c), 'Vue d\'ensemble'], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), 'Vue d\'ensemble'], ['orders', 'package', 'Commandes', (c, i) => combo(c, i, [['Commandes', sellerOrders], ['Retours', sellerReturns], ...(flags.proformas ? [['Proformas', sellerProformas]] : [])]), 'Ventes'], ['new', 'plus', 'Nouvelle', (c) => sellerNewOrder(c), 'Ventes'], ['catalog', 'bag', 'Catalogue', (c, i) => combo(c, i, [['Catalogue', sellerCatalog], ['Proposer un produit', sellerProposals]]), 'Ventes'], ['deposits', 'package', 'Mon stock', () => sellerDeposits(), 'Ventes'],
     ['contacts', 'users', 'Contacts', (c, i) => combo(c, i, [['Mes clients', sellerCustomers], ['Relances', sellerRelances]]), 'Mon activité'], ['stats', 'chart', 'Statistiques', (c, i) => combo(c, i, [['Mes chiffres', sellerStats], ['Mon bénéfice', sellerProfit], ['Performances', performanceView]]), 'Mon activité'], ['wallet', 'wallet', 'Portefeuille', (c, i) => combo(c, i, [['Portefeuille', walletView], ['Factures', () => myInvoices('seller')]]), 'Mon activité']],
-  supplier: [['products', 'package', 'Produits', () => supplierProducts(), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
+  supplier: [['products', 'package', 'Produits', (c, i) => (flags.pickupPoints ? combo(c, i, [['Produits', () => supplierProducts()], ['Points de retrait', pickupPointsView]]) : supplierProducts()), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['ondemand', 'truck', 'À la demande', () => courierOnDemand(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
@@ -162,4 +163,4 @@ setUnauthorizedHandler(() => { if (user) { user = null; clearCache(); stopLock()
 window.addEventListener('hashchange', route);
 startPwa();
 render(spinner());
-get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; flags.proformas = !!i.features?.proformas; }).catch(() => {}).finally(route);
+get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.pickupPoints = !!i.features?.pickup_points; flags.proformas = !!i.features?.proformas; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; flags.proformas = !!i.features?.proformas; }).catch(() => {}).finally(route);

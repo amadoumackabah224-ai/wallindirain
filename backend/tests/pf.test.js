@@ -226,6 +226,8 @@ test('un compte anonymisé perd ses données de finances personnelles', async ()
 });
 
 test('retour arrière 048 : refusé s\'il existe des données ou si la fonction est allumée, accepté sinon', async () => {
+  const rb079 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-079.sql'), 'utf8');
+  await db.owner.query('BEGIN'); for (const q of splitSql(rb079)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT');
   const rb078 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-078.sql'), 'utf8');
   await db.owner.query('BEGIN'); for (const q of splitSql(rb078)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT');
   const rb077 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-077.sql'), 'utf8');

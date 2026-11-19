@@ -98,7 +98,7 @@ export function registerRoutes(app, { db, cfg }) {
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
-    features: { proformas: (await q(`SELECT value FROM settings WHERE key = 'feature_proformas'`))[0]?.value >= 1, order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
+    features: { pickup_points: (await q(`SELECT value FROM settings WHERE key = 'feature_pickup_points'`))[0]?.value >= 1, proformas: (await q(`SELECT value FROM settings WHERE key = 'feature_proformas'`))[0]?.value >= 1, order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
   }));
 
   // =========================================================================
@@ -1612,6 +1612,17 @@ export function registerRoutes(app, { db, cfg }) {
   app.post('/api/seller/proformas/:id/cancel', guard(SEL, async (ctx) => { await fn('fn_proforma_cancel', ctx.user.id, v.uuid(ctx.params.id, 'Proforma')); return { ok: true }; }));
   app.post('/api/seller/proformas/:id/convert', guard(SEL, async (ctx) => await fn('fn_proforma_convert', ctx.user.id, v.uuid(ctx.params.id, 'Proforma'))));
   app.get('/api/admin/proformas', guard(ADM, async (ctx) => await fn('fn_admin_proformas', ctx.user.id)));
+
+  // Points de retrait multiples (migration 079) : lieux déclarés, sans stock ni argent ; droits et réglage revérifiés en base
+  app.get('/api/pickup-points', guard(SUP, async (ctx) => await fn('fn_pickup_points_mine', ctx.user.id)));
+  app.post('/api/pickup-points', guard(SUP, async (ctx) => {
+    const b = ctx.body;
+    const r = await fn('fn_pickup_point_save', ctx.user.id, b.id ? v.uuid(b.id, 'Point de retrait') : null, v.str(b.name, 'Nom', { min: 2, max: 80 }), v.str(b.zone, 'Zone', { min: 2, max: 80 }), v.str(b.address, 'Adresse', { min: 3, max: 200 }), b.contact ? v.phone(b.contact, 'Contact') : null);
+    ctx.status = b.id ? 200 : 201; return r;
+  }));
+  app.post('/api/pickup-points/:id/remove', guard(SUP, async (ctx) => { await fn('fn_pickup_point_remove', ctx.user.id, v.uuid(ctx.params.id, 'Point de retrait')); return { ok: true }; }));
+  app.post('/api/supplier/products/:id/pickup-point', guard(['supplier'], async (ctx) => { await fn('fn_product_use_pickup_point', ctx.user.id, v.uuid(ctx.params.id, 'Produit'), v.uuid(ctx.body.point_id, 'Point de retrait')); return { ok: true }; }));
+  app.get('/api/pickup-suggest', guard(['admin', 'seller', 'warehouse'], async (ctx) => await fn('fn_pickup_suggest', ctx.user.id, v.uuid(ctx.query.product_id, 'Produit'), v.optStr(ctx.query.zone, 'Zone', 80))));
 
   // Pilotage (migration 075) : tout est en lecture sauf la génération manuelle d'un rapport ; les droits sont revérifiés dans chaque fonction SQL
   app.get('/api/admin/anomalies', guard(ADM, async (ctx) => ({ anomalies: await fn('fn_accounting_anomalies', ctx.user.id) })));
