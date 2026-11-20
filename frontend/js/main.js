@@ -15,6 +15,7 @@ import { sellerOrders, sellerCatalog, sellerNewOrder, sellerDeposits } from './v
 import { sellerDashboard } from './views/dashboard.js';
 import { notificationsView, adminAnnounce, bellCount } from './views/notifications.js';
 import { showPopupIfAny, resetPopupCheck } from './views/popup.js';
+import { vehicleBanner } from './views/kyc.js';
 import { sellerProformas, adminProformas } from './views/proformas.js';
 import { pickupPointsView } from './views/points.js';
 import { todayView, adminAlerts, adminReports, adminDebts, performanceView } from './views/pilotage.js';
@@ -56,7 +57,7 @@ const TABS = {
   supplier: [['products', 'package', 'Produits', (c, i) => (flags.pickupPoints ? combo(c, i, [['Produits', () => supplierProducts()], ['Points de retrait', pickupPointsView]]) : supplierProducts()), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['orders', 'truck', 'Colis', () => supplierOrders(), ''], ['wallet', 'wallet', 'Portefeuille', () => walletView(), ''], ['invoices', 'receipt', 'Factures', () => myInvoices('supplier'), '']],
   agent: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   call_chief: [['queue', 'inbox', 'File d\'appel', (c) => callQueue({ onTaken: () => c.goTo('mine') }), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['mine', 'phone', 'Mes appels', () => myCalls(), ''], ['assign', 'bike', 'Affectation', () => chiefAssign(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
-  courier: [['orders', 'bike', 'Livraisons', () => courierOrders(), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['ondemand', 'truck', 'À la demande', () => courierOnDemand(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
+  courier: [['orders', 'bike', 'Livraisons', (c) => h('div', {}, vehicleBanner(c), courierOrders()), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['ondemand', 'truck', 'À la demande', () => courierOnDemand(), ''], ['cash', 'banknote', 'Caisse', () => courierCash(), ''], ['wallet', 'wallet', 'Gains', () => walletView(), '']],
   member: [],
   shipper: [['send', 'plus', 'Envoyer', (c) => shipperSend(c), ''], ['mine', 'truck', 'Mes envois', () => shipperRequests(), '']],
   warehouse: [['todo', 'inbox', 'À faire', () => warehouseTab('todo'), ''], ['today', 'sun', 'Aujourd\'hui', (c) => todayView(c), ''], ['stock', 'warehouse', 'Stock', () => warehouseTab('stock'), ''], ['history', 'clock', 'Historique', () => warehouseTab('history'), '']],
