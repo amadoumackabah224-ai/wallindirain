@@ -752,3 +752,65 @@ div.notif { cursor: default; }
 .empty.guide { padding: 28px 18px; text-align: center; }
 .guide-k { display: block; margin-top: 10px; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
 .guide-t { margin: 6px 0 4px; font-size: 1.15rem; } .empty.guide p { max-width: 34ch; margin: 0 auto 12px; }
+
+/* Écran d'ouverture : le logo se décompose en morceaux qui se recollent, puis le nom apparaît lettre par lettre */
+.intro { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 42%, #16336b 0%, #0B1B3B 55%, #071228 100%); transition: opacity .6s ease, visibility .6s; cursor: pointer; }
+.intro.out { opacity: 0; visibility: hidden; }
+.intro-logo { position: relative; width: min(78vw, 380px); aspect-ratio: 653 / 245; filter: drop-shadow(0 0 22px rgba(232, 190, 90, .25)); animation: intro-glow 1s ease-in-out 2.1s 1 both; }
+.ip { position: absolute; background-image: url('/assets/logo-gold.png'); background-repeat: no-repeat; opacity: 0; animation: intro-join .95s cubic-bezier(.2, .9, .25, 1) forwards; }
+@keyframes intro-join { 0% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(1.6); filter: blur(6px); } 60% { opacity: 1; filter: blur(0); } 100% { opacity: 1; transform: none; filter: none; } }
+@keyframes intro-glow { 0%, 100% { filter: drop-shadow(0 0 22px rgba(232, 190, 90, .25)); } 50% { filter: drop-shadow(0 0 38px rgba(255, 214, 120, .75)); } }
+.ip-w1 { left: 22.205%; top: 2.449%; width: 9.648%; height: 62.041%; background-size: 1036.508% 161.184%; background-position: 24.576% 6.452%; }
+.ip-w2 { left: 31.547%; top: 2.449%; width: 9.495%; height: 62.041%; background-size: 1053.226% 161.184%; background-position: 34.856% 6.452%; }
+.ip-w3 { left: 40.735%; top: 2.449%; width: 9.648%; height: 62.041%; background-size: 1036.508% 161.184%; background-position: 45.085% 6.452%; }
+.ip-w4 { left: 50.077%; top: 2.449%; width: 9.648%; height: 62.041%; background-size: 1036.508% 161.184%; background-position: 55.424% 6.452%; }
+.ip-w5 { left: 59.418%; top: 2.449%; width: 9.495%; height: 62.041%; background-size: 1053.226% 161.184%; background-position: 65.651% 6.452%; }
+.ip-w6 { left: 68.606%; top: 2.449%; width: 9.342%; height: 62.041%; background-size: 1070.492% 161.184%; background-position: 75.676% 6.452%; }
+.ip-l1 { left: 0.766%; top: 81.633%; width: 12.098%; height: 15.918%; background-size: 826.582% 628.205%; background-position: 0.871% 97.087%; }
+.ip-l2 { left: 14.089%; top: 81.633%; width: 7.963%; height: 15.918%; background-size: 1255.769% 628.205%; background-position: 15.308% 97.087%; }
+.ip-l3 { left: 24.655%; top: 81.633%; width: 5.360%; height: 15.918%; background-size: 1865.714% 628.205%; background-position: 26.052% 97.087%; }
+.ip-l4 { left: 32.619%; top: 81.633%; width: 5.360%; height: 15.918%; background-size: 1865.714% 628.205%; background-position: 34.466% 97.087%; }
+.ip-l5 { left: 40.735%; top: 81.633%; width: 1.838%; height: 15.918%; background-size: 5441.667% 628.205%; background-position: 41.498% 97.087%; }
+.ip-l6 { left: 45.329%; top: 81.633%; width: 6.891%; height: 15.918%; background-size: 1451.111% 628.205%; background-position: 48.684% 97.087%; }
+.ip-l7 { left: 55.130%; top: 81.633%; width: 6.891%; height: 15.918%; background-size: 1451.111% 628.205%; background-position: 59.211% 97.087%; }
+.ip-l8 { left: 64.472%; top: 81.633%; width: 1.685%; height: 15.918%; background-size: 5936.364% 628.205%; background-position: 65.576% 97.087%; }
+.ip-l9 { left: 68.913%; top: 81.633%; width: 6.279%; height: 15.918%; background-size: 1592.683% 628.205%; background-position: 73.529% 97.087%; }
+.ip-l10 { left: 77.182%; top: 81.633%; width: 7.810%; height: 15.918%; background-size: 1280.392% 628.205%; background-position: 83.721% 97.087%; }
+.ip-l11 { left: 87.596%; top: 81.633%; width: 1.838%; height: 15.918%; background-size: 5441.667% 628.205%; background-position: 89.236% 97.087%; }
+.ip-l12 { left: 92.343%; top: 81.633%; width: 6.891%; height: 15.918%; background-size: 1451.111% 628.205%; background-position: 99.178% 97.087%; }
+.ip-w1 { --dx: 118%; --dy: -159%; --r: -58deg; animation-delay: 0.05s; }
+.ip-w2 { --dx: -217%; --dy: 114%; --r: 23deg; animation-delay: 0.17s; }
+.ip-w3 { --dx: -209%; --dy: -206%; --r: -61deg; animation-delay: 0.29s; }
+.ip-w4 { --dx: -191%; --dy: 197%; --r: -53deg; animation-delay: 0.41s; }
+.ip-w5 { --dx: -103%; --dy: -119%; --r: 38deg; animation-delay: 0.53s; }
+.ip-w6 { --dx: -111%; --dy: 147%; --r: -55deg; animation-delay: 0.65s; }
+.ip-l1 { --dx: 13%; --dy: 419%; --r: 11deg; animation-delay: 0.90s; }
+.ip-l2 { --dx: -54%; --dy: 233%; --r: -79deg; animation-delay: 0.97s; }
+.ip-l3 { --dx: 11%; --dy: 188%; --r: -16deg; animation-delay: 1.04s; }
+.ip-l4 { --dx: -7%; --dy: 193%; --r: 48deg; animation-delay: 1.11s; }
+.ip-l5 { --dx: -45%; --dy: 412%; --r: -12deg; animation-delay: 1.18s; }
+.ip-l6 { --dx: 11%; --dy: 212%; --r: -64deg; animation-delay: 1.25s; }
+.ip-l7 { --dx: 14%; --dy: 412%; --r: 73deg; animation-delay: 1.32s; }
+.ip-l8 { --dx: -36%; --dy: 310%; --r: -66deg; animation-delay: 1.39s; }
+.ip-l9 { --dx: 10%; --dy: 152%; --r: 54deg; animation-delay: 1.46s; }
+.ip-l10 { --dx: -53%; --dy: 225%; --r: 37deg; animation-delay: 1.53s; }
+.ip-l11 { --dx: 27%; --dy: 392%; --r: 19deg; animation-delay: 1.60s; }
+.ip-l12 { --dx: 39%; --dy: 280%; --r: 29deg; animation-delay: 1.67s; }
+
+/* Catalogue : cartes compactes et plus soignées (deux colonnes sur téléphone, photo carrée de taille raisonnable) */
+.pgrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.prow .pcard { flex: 0 0 min(46%, 170px); }
+.pcard { border-radius: 16px; box-shadow: 0 2px 10px rgba(11, 27, 59, .07); transition: transform .18s ease, box-shadow .18s ease; }
+.pcard:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(11, 27, 59, .14); }
+.pcard-img { aspect-ratio: 1 / 1; max-height: 190px; width: 100%; background: linear-gradient(135deg, #eef1f6, #dfe5f1); }
+.pcard-img::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(to top, rgba(11, 27, 59, .38), transparent); pointer-events: none; }
+.pcard-badges { top: 8px; left: 8px; gap: 4px; z-index: 1; }
+.pcard-body { padding: 10px; gap: 5px; }
+.pcard-name { font-size: 14px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pcard-desc { display: none; }
+.pcard-price b { font-size: 16px; color: var(--navy, #0B1B3B); }
+.pcard-meta { font-size: 11px; gap: 2px 8px; }
+.pcard-gain { font-size: 12px; background: #E7F6EE; border-radius: 8px; padding: 3px 8px; align-self: flex-start; }
+.pcard-actions .btn { min-height: 38px; font-size: 13px; }
+@media (min-width: 700px) { .pgrid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; } .pcard-img { max-height: 210px; } .pcard-desc { display: -webkit-box; } }
+.pcard-price { flex-direction: column; align-items: flex-start; gap: 0; }
