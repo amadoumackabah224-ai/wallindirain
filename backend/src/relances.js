@@ -178,10 +178,12 @@ export function registerRelances(app, { q, fn, guard, limit }) {
     await fn('fn_seller_relance_optout', ctx.user.id, v.phone(ctx.params.phone, 'Numéro du client'));
     return { ok: true };
   }));
+  app.get('/api/seller/relances/reminders', guard(SEL, async (ctx) => ({ reminders: await fn('fn_seller_reminders', ctx.user.id) })));
   app.post('/api/seller/relances/customers/:phone/reminder', guard(SEL, async (ctx) => {
     limit(`relance-edit:${ctx.user.id}`, 300, 3600_000);
     const d = ctx.body.date == null || ctx.body.date === '' ? null : isoDate(ctx.body.date, 'Date de rappel');
-    await fn('fn_seller_relance_remind', ctx.user.id, v.phone(ctx.params.phone, 'Numéro du client'), d);
+    const t = ctx.body.time == null || ctx.body.time === '' ? null : v.str(ctx.body.time, 'Heure', { min: 5, max: 5 });
+    await fn('fn_seller_relance_remind_at', ctx.user.id, v.phone(ctx.params.phone, 'Numéro du client'), d, t);
     return { ok: true };
   }));
   app.post('/api/seller/relances/customers/:phone/tags', guard(SEL, async (ctx) => {

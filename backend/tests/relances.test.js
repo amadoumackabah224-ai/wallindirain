@@ -369,6 +369,7 @@ test('vie privée : l\'anonymisation d\'un compte vendeur supprime ses données 
 test('retour arrière 044 : refusé s\'il existe des données ou si la fonction est allumée, accepté sinon', async () => {
   const rb = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-044.sql'), 'utf8');
   const run = async () => { await db.owner.query('BEGIN'); try { for (const q of splitSql(rb)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); } catch (e) { await db.owner.query('ROLLBACK'); throw e; } };
+  { const rb83 = fs.readFileSync(path.join(root, 'docs', 'retour-arriere-083.sql'), 'utf8'); await db.owner.query('BEGIN'); for (const q of splitSql(rb83)) { if (/^(begin|commit)$/i.test(q.trim())) continue; await db.owner.query(q); } await db.owner.query('COMMIT'); }
   await assert.rejects(run, /des données de relance existent/);
   for (const t of ['relance_customer_tags', 'relance_tags', 'relance_reminders', 'relance_feasts', 'relance_templates', 'relance_log', 'relance_optouts', 'relance_prefs']) await db.owner.query(`DELETE FROM ${t}`);
   await assert.rejects(run, /éteignez d'abord la fonction/);

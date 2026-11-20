@@ -12,6 +12,8 @@ import { createServer, log } from './server.js';
 const cfg = loadConfig();
 if (!process.env.DB_APP_PASSWORD) { console.error('DB_APP_PASSWORD est obligatoire'); process.exit(1); }
 
+if (cfg.prod && cfg.showTestCodes) log({ level: 'warn', msg: 'ATTENTION : SHOW_TEST_CODES est actif, les codes de confirmation sont visibles à l\'écran. À retirer avant l\'ouverture au public.' });
+
 try {
   await migrate(cfg.owner, process.env.DB_APP_PASSWORD, (m) => log({ msg: m }));
 } catch (e) {

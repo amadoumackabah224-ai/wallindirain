@@ -42,7 +42,7 @@ const openLink = (href, newTab = false) => { const a = h('a', { href, target: ne
 
 // ---------- Point d'entrée ----------
 export function sellerRelances() {
-  return h('div', {}, h('h1', {}, 'Relances'), liveView(() => get('/seller/relances'), (o, refresh) => {
+  return h('div', {}, h('h1', {}, 'Relances'), liveView(() => get('/seller/relances').then(async (o) => { if (o.enabled && o.consent?.ok) { try { o.reminders = (await get('/seller/relances/reminders')).reminders; } catch { o.reminders = []; } } return o; }), (o, refresh) => {
     if (!o.enabled) return h('div', { class: 'notice' }, 'Les relances ne sont pas encore disponibles pour votre compte. L\'équipe Wallindirain vous préviendra dès qu\'elles seront ouvertes.');
     if (!o.consent.ok) return consentScreen(o, refresh);
     return home(o, refresh);
@@ -119,6 +119,7 @@ function home(o, refresh) {
   const section = (title, ...kids) => h('div', { class: 'card' }, h('h3', {}, title), ...kids);
   host.replaceChildren(
     ...alerts,
+    ...((o.reminders || []).length > 0 ? [section('Mes rappels', h('p', { class: 'small muted' }, 'Vous recevrez une notification à l\'heure de chaque rappel.'), h('div', {}, o.reminders.map((r) => h('div', { class: 'gap' }, h('span', { class: 'grow' }, h('b', {}, r.name), ` · ${r.phone}`), h('span', { class: r.overdue ? 'badge warn' : 'badge' }, `${dayLabel(r.due_on)}${r.due_time ? ` · ${r.due_time.replace(':', ' h ').replace(/ h 00$/, ' h')}` : ''}${r.overdue ? ' · à faire' : ''}`)))))] : []),
     h('p', { class: 'muted' }, 'Écrivez ou appelez vos clients un par un, avec votre téléphone. Wallindirain n\'envoie rien : elle prépare la liste et garde le suivi.'),
     h('div', { class: 'gap mb' },
       h('span', { class: 'small muted grow' }, `Aujourd'hui : ${plural(o.sent_today, 'message', 'messages')}${o.prefs.daily_max ? ` sur ${o.prefs.daily_max}` : ''} · ${o.prefs.interval_days} jours entre deux messages au même client`),
@@ -184,11 +185,19 @@ function runner({ r, list, feast, shop, o, reload, back }) {
     const bar = h('div', { class: 'gap mt relance-bar' });
 
     const setTagsBtn = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: action(() => editTags(c, o), { refresh: async () => { const f = await get(`/seller/relances/customer/${c.phone}`); c.tags = f.tags; draw(); } }) }, 'Étiquettes');
+    const rtime = c.reminder_time ?? (o.reminders || []).find((x) => x.phone === c.phone)?.due_time ?? null;
     const remindBtn = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: action(async () => {
-      const v = await ask({ title: `Rappeler ${c.name}`, text: 'Choisissez le jour. Il apparaîtra dans « Rappels du jour ». Une date vide efface le rappel.', submit: 'Enregistrer', fields: [{ name: 'date', label: 'Date', type: 'date', value: c.reminder_on || isoPlus(1), required: false }] });
+      const now = new Date(), hour = now.getHours() + now.getMinutes() / 60;
+      const opts = [['custom', 'Choisir la date et l\'heure ci-dessous'], ...(hour < 11 ? [['h11', 'Aujourd\'hui à 11 h']] : []), ...(hour < 17 ? [['h17', 'Aujourd\'hui à 17 h']] : []), ['tom9', 'Demain à 9 h'], ['week', 'Dans une semaine, à 9 h']];
+      const v = await ask({ title: `Rappeler ${c.name}`, text: 'Vous recevrez une notification à l\'heure choisie, et le client apparaîtra dans « Rappels du jour ». Une date vide efface le rappel.', submit: 'Enregistrer', fields: [
+        { name: 'preset', label: 'Quand ?', type: 'select', options: opts, value: 'custom' },
+        { name: 'date', label: 'Date', type: 'date', value: c.reminder_on || isoPlus(1), required: false },
+        { name: 'time', label: 'Heure (facultative, 8 h par défaut)', type: 'time', value: rtime || '', required: false }] });
       if (!v) return;
-      await post(`/seller/relances/customers/${c.phone}/reminder`, { date: v.date || null }); c.reminder_on = v.date || null;
-    }, { ok: 'Rappel enregistré', refresh: draw }) }, c.reminder_on ? `Rappel : ${dayLabel(c.reminder_on)}` : 'Me rappeler');
+      const P = { h11: [isoPlus(0), '11:00'], h17: [isoPlus(0), '17:00'], tom9: [isoPlus(1), '09:00'], week: [isoPlus(7), '09:00'] }[v.preset];
+      const date = P ? P[0] : (v.date || null), time = P ? P[1] : (v.date && v.time ? v.time : null);
+      await post(`/seller/relances/customers/${c.phone}/reminder`, { date, time }); c.reminder_on = date; c.reminder_time = time;
+    }, { ok: 'Rappel enregistré', refresh: draw }) }, c.reminder_on ? `Rappel : ${dayLabel(c.reminder_on)}${rtime ? ` à ${rtime.replace(':', ' h ').replace(/ h 00$/, ' h')}` : ''}` : 'Me rappeler');
     const optBtn = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: action(async () => {
       if (!(await confirmBox('Ne plus contacter ce client ?', `${c.name} disparaîtra de toutes vos listes. Seul l'administrateur Wallindirain pourra le remettre.`, 'Ne plus contacter', true))) return;
       await post(`/seller/relances/customers/${c.phone}/optout`);
