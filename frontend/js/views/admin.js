@@ -326,7 +326,9 @@ function settingsSection(tab) {
   if (tab === 'finances') {
     return h('div', {}, liveView(() => get('/admin/settings'), ({ settings }, refresh) => {
       const by = Object.fromEntries(settings.map((s) => [s.key, s]));
-      return h('div', {}, NUMERIC_GROUPS.finances.map(([title, keys]) => h('div', { class: 'card' }, h('h2', {}, title), table(['Paramètre', 'Valeur', ''], keys.filter((k) => by[k]).map((k) => settingRow(by[k], refresh))))));
+      return h('div', {}, NUMERIC_GROUPS.finances.map(([title, keys]) => h('div', { class: 'card' }, h('h2', {}, title), table(['Paramètre', 'Valeur', ''], keys.filter((k) => by[k]).map((k) => settingRow(by[k], refresh))))),
+        h('div', { class: 'card' }, h('h2', {}, 'Avant de fixer un prix'), h('p', { class: 'small muted' }, 'Dès qu\'un prix Pro est fixé, tous ceux dont l\'essai est fini passent en formule gratuite. Offrez d\'abord une période de Pro à tous les utilisateurs actuels.'),
+        h('button', { class: 'btn btn-gold', type: 'button', onclick: action(async () => { const v = await ask({ title: 'Offrir du Pro à tous', text: 'Nombre de jours de formule Pro offerts aux utilisateurs actuels de Mes finances. Aucun essai n\'est raccourci.', submit: 'Offrir', fields: [{ name: 'days', label: 'Jours (1 à 90)', type: 'number', inputmode: 'numeric', value: 30 }] }); if (!v) return null; const r = await post('/admin/pf-grace', { days: Number(v.days) }); toast(`${r.users} utilisateur(s) concerné(s)`); }, { refresh }) }, 'Offrir une période de Pro à tous')));
     }), adminFinancesPerso());
   }
   if (tab === 'abonnements') {
