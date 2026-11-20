@@ -1021,6 +1021,9 @@ export function registerRoutes(app, { db, cfg }) {
     couriers: await q(`SELECT u.id, u.full_name, (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders,
         COALESCE((SELECT k.kind FROM courier_kind_log k WHERE k.courier_id = u.id AND k.effective_from <= now() ORDER BY k.id DESC LIMIT 1), 'independent') AS kind,
         COALESCE(p.availability, 'available') AS availability, p.vehicle,
+        COALESCE((SELECT cv.status FROM courier_vehicles cv WHERE cv.user_id = u.id), 'none') AS vehicle_status,
+        (COALESCE((SELECT value FROM settings WHERE key = 'vehicle_check_required'), 0) = 1 AND COALESCE(p.vehicle, '') IN ('moto', 'voiture')
+          AND COALESCE((SELECT cv.status FROM courier_vehicles cv WHERE cv.user_id = u.id), 'none') <> 'verified') AS vehicle_blocked,
         COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = u.id), '[]'::jsonb) AS zones
         FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id
         WHERE u.role = 'courier' AND u.status = 'active' AND u.deleted_at IS NULL ORDER BY u.full_name`)
@@ -1385,6 +1388,7 @@ export function registerRoutes(app, { db, cfg }) {
         (SELECT COALESCE(sum(c.amount), 0) FROM courier_cash_entries c WHERE c.courier_id = u.id AND c.count_id IS NULL)::bigint AS cash_pending,
         (SELECT COALESCE(sum(e.amount), 0) FROM courier_expenses e WHERE e.courier_id = u.id AND e.voided_at IS NULL AND e.spent_on >= current_date - 30)::bigint AS expenses_30,
         COALESCE(p.availability, 'available') AS availability, p.vehicle,
+        (SELECT cv.status FROM courier_vehicles cv WHERE cv.user_id = u.id) AS vehicle_status, (SELECT cv.plate FROM courier_vehicles cv WHERE cv.user_id = u.id) AS plate,
         COALESCE((SELECT jsonb_agg(z.commune ORDER BY z.commune) FROM courier_zones z WHERE z.courier_id = u.id), '[]'::jsonb) AS zones,
         (SELECT count(*) FROM orders o WHERE o.courier_id = u.id AND o.status IN ('assigned','picked_up','on_the_way'))::int AS open_orders
         FROM users u LEFT JOIN courier_profiles p ON p.courier_id = u.id

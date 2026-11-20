@@ -81,6 +81,16 @@ export function reviewIdentity(u, onDone) {
   overlay.querySelector('button')?.focus();
 }
 
+/** Bandeau sur l'écran du livreur : documents du véhicule à fournir, en attente ou refusés (rien s'ils sont vérifiés ou non exigés). */
+export function vehicleBanner({ goTo } = {}) {
+  return liveView(() => get('/me/vehicle'), (k) => {
+    if (!k.needed || !k.required || k.status === 'verified') return h('div');
+    const msg = { submitted: 'Votre plaque et votre carte grise sont en cours d\'examen. Vous recevrez des missions dès qu\'elles seront vérifiées.', rejected: `Vos documents ont été refusés${k.reject_reason ? ` : ${k.reject_reason}` : ''}. Renvoyez de nouvelles photos.` }[k.status]
+      || 'Pour recevoir des missions, envoyez la plaque et la carte grise de votre véhicule.';
+    return h('div', { class: `notice${k.status === 'rejected' ? ' warn' : ''}` }, h('span', {}, msg), ' ', goTo ? h('button', { class: 'btn btn-sm btn-gold', type: 'button', onclick: () => goTo('profile') }, k.status === 'submitted' ? 'Voir' : 'Envoyer mes documents') : null);
+  }, { poll: 0 });
+}
+
 /** Carte « Mon véhicule » du livreur à moto ou en voiture : plaque et carte grise, vérifiées à la main par l'administration. */
 export function vehicleCard() {
   return liveView(() => get('/me/vehicle'), (k, refresh) => {

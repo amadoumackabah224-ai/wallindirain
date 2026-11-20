@@ -61,15 +61,16 @@ export function adminCouriers() {
   function listView() {
     return h('div', {}, pageHead('Livreurs', 'Indépendants (leur moto) et livreurs de Wallindirain (moto de l\'entreprise)'), tabs(),
       liveView(() => get('/admin/couriers'), ({ couriers }, refresh) => {
-        const shown = couriers.filter((c) => filter === 'all' || c.kind === filter);
+        const shown = couriers.filter((c) => filter === 'all' || (filter === 'docs' ? (c.vehicle_status === 'submitted' || c.kyc_status === 'submitted') : c.kind === filter));
         const chip = (key, label) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(filter === key), onclick: () => { filter = key; show(); } }, label);
         const count = (k) => couriers.filter((c) => c.kind === k).length;
-        return h('div', {}, h('div', { class: 'chips mb' }, chip('all', `Tous (${couriers.length})`), chip('independent', `Indépendants (${count('independent')})`), chip('company', `Wallindirain (${count('company')})`)),
-          h('div', { class: 'card' }, table(['Livreur', 'Livraisons (30 j)', 'Paies (30 j)', 'Argent à reverser', 'Charges moto (30 j)', 'Identité', ''], shown.map((c) => [
+        return h('div', {}, h('div', { class: 'chips mb' }, chip('all', `Tous (${couriers.length})`), chip('independent', `Indépendants (${count('independent')})`), chip('company', `Wallindirain (${count('company')})`), chip('docs', `Documents à vérifier (${couriers.filter((c) => c.vehicle_status === 'submitted' || c.kyc_status === 'submitted').length})`)),
+          h('div', { class: 'card' }, table(['Livreur', 'Livraisons (30 j)', 'Paies (30 j)', 'Argent à reverser', 'Charges moto (30 j)', 'Identité', 'Plaque et carte grise', ''], shown.map((c) => [
             h('div', {}, h('b', {}, c.full_name), ' ', kindBadge(c.kind), h('div', { class: 'small muted' }, [fmtPhone(c.phone), c.status !== 'active' ? ({ pending: 'À valider', suspended: 'Suspendu' }[c.status] || c.status) : null, c.open_orders ? `${c.open_orders} mission(s) en cours` : null].filter(Boolean).join(' · '))),
             String(c.delivered_30), amount(c.pay_30), c.cash_pending > 0 ? h('b', {}, fmtGNF(c.cash_pending)) : '—', c.kind === 'company' || c.expenses_30 > 0 ? amount(c.expenses_30) : '—',
             c.identity_verified ? badge('Vérifiée', 'ok') : badge(({ submitted: 'À examiner', rejected: 'Refusée' }[c.kyc_status]) || 'Non faite', c.kyc_status === 'submitted' ? 'warn' : c.kyc_status === 'rejected' ? 'bad' : 'grey'),
-            h('button', { class: 'btn btn-sm btn-ghost', onclick: () => open(c.id) }, 'Fiche')]), { empty: empty('bike', 'Aucun livreur dans cette catégorie') })),
+            ['moto', 'voiture'].includes(c.vehicle) || c.vehicle_status ? badge(({ verified: 'Vérifiés', submitted: 'En attente', rejected: 'Rejetés', draft: 'Incomplets' }[c.vehicle_status]) || 'Non envoyés', c.vehicle_status === 'verified' ? 'ok' : c.vehicle_status === 'submitted' ? 'warn' : c.vehicle_status === 'rejected' ? 'bad' : 'grey') : '—',
+            h('button', { class: c.vehicle_status === 'submitted' || c.kyc_status === 'submitted' ? 'btn btn-sm btn-gold' : 'btn btn-sm btn-ghost', onclick: () => open(c.id) }, c.vehicle_status === 'submitted' || c.kyc_status === 'submitted' ? 'Examiner' : 'Fiche')]), { empty: empty('bike', 'Aucun livreur dans cette catégorie') })),
           h('p', { class: 'small muted' }, 'Pour créer un livreur et choisir sa catégorie : Utilisateurs → « Créer un livreur ». Les paies affichées sont celles réellement versées.'));
       }, { poll: 0 }));
   }
