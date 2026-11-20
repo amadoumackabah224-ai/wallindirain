@@ -1,0 +1,73 @@
+# Sauvegarde automatique de la base (Neon) tous les jours, chiffrée, avec test de restauration.
+# Réglage unique (une fois) : dans GitHub > Settings > Secrets and variables > Actions, ajouter deux « Repository secrets » :
+#   DATABASE_URL_BACKUP  = l'adresse DIRECTE de la base (celle de Neon, sans « -pooler »)
+#   BACKUP_PASSPHRASE    = une longue phrase secrète (la garder aussi dans un gestionnaire de mots de passe : sans elle, la sauvegarde est illisible)
+# Aucun secret n'est écrit dans ce fichier. Tant que les deux secrets manquent, le travail se termine sans rien faire.
+name: Sauvegarde de la base
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: sauvegarde
+  cancel-in-progress: false
+jobs:
+  sauvegarde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL_BACKUP: ${{ secrets.DATABASE_URL_BACKUP }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Vérifier la configuration
+        id: cfg
+        run: |
+          if [ -z "$DATABASE_URL_BACKUP" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::warning::Sauvegarde non configurée : ajoutez les secrets DATABASE_URL_BACKUP et BACKUP_PASSPHRASE (voir docs/SAUVEGARDES.md)"
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Sauvegarder la base
+        if: steps.cfg.outputs.ready == 'yes'
+        run: |
+          set -eu
+          umask 077
+          docker run --rm -e DATABASE_URL_BACKUP postgres:17 sh -c 'pg_dump --format=custom --no-owner "$DATABASE_URL_BACKUP"' > wallindirain.dump
+          test -s wallindirain.dump
+          echo "Sauvegarde réalisée."
+      - name: Tester la restauration dans une base vide
+        if: steps.cfg.outputs.ready == 'yes'
+        run: |
+          set -eu
+          docker run -d --name restoretest -e POSTGRES_PASSWORD=test -e POSTGRES_DB=restoretest postgres:17 >/dev/null
+          for i in $(seq 1 30); do docker exec restoretest pg_isready -U postgres -d restoretest >/dev/null 2>&1 && break; sleep 2; done
+          docker cp wallindirain.dump restoretest:/tmp/w.dump
+          docker exec restoretest pg_restore --no-owner --no-privileges -U postgres -d restoretest /tmp/w.dump || true
+          N=$(docker exec restoretest psql -U postgres -d restoretest -qAtX -c "SELECT count(*) FROM users")
+          M=$(docker exec restoretest psql -U postgres -d restoretest -qAtX -c "SELECT count(*) FROM schema_migrations")
+          P=$(docker exec restoretest psql -U postgres -d restoretest -qAtX -c "SELECT count(*) FROM fn_ledger_check()")
+          test "$N" -ge 0   # les chiffres ne sont pas écrits dans le journal (visible de tous si le dépôt est public)
+          test "$M" -gt 0
+          test "$P" -eq 0
+      - name: Chiffrer la sauvegarde
+        if: steps.cfg.outputs.ready == 'yes' && github.event.repository.private == true
+        run: |
+          set -eu
+          umask 077
+          openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass env:BACKUP_PASSPHRASE -in wallindirain.dump -out "wallindirain-$(date -u +%Y%m%d).dump.enc"
+          rm -f wallindirain.dump
+      - name: Avertir si le dépôt est public
+        if: steps.cfg.outputs.ready == 'yes' && github.event.repository.private == false
+        run: |
+          echo "::warning::Le dépôt est PUBLIC, la sauvegarde est vérifiée mais PAS conservée (n'importe qui pourrait la télécharger). Passez le dépôt en privé pour la conserver 30 jours."
+      - name: Conserver 30 jours
+        if: steps.cfg.outputs.ready == 'yes' && github.event.repository.private == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sauvegarde-chiffree
+          path: wallindirain-*.dump.enc
+          retention-days: 30
+          if-no-files-found: error
