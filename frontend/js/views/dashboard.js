@@ -4,6 +4,7 @@ import { h, fmtGNF, secret, eyeToggle, fmtDate, liveView, statusBadge, empty, pa
 import { lowStockNotice } from './outils.js';
 import { get } from '../api.js';
 import { icon } from '../icons.js';
+import { flags } from './auth.js';
 import { columnChart, segmentBar } from '../charts.js';
 import { startCard } from './seller.js';
 import { startIdentityFlow } from './kyc.js';
@@ -78,6 +79,12 @@ function latestOrders(orders, goTo) {
     ) : empty('package', 'Aucune commande pour le moment', h('button', { class: 'btn btn-gold', type: 'button', onclick: () => goTo('new') }, icon('plus', 18), 'Saisir ma première commande')));
 }
 
+/** Style « bulles » : raccourcis en grosses bulles de verre (remplacent les « Actions rapides » quand le style est allumé). */
+function bubbleShortcuts(goTo) {
+  const b = (ico, label, tone, to) => h('button', { class: 'jb-item', type: 'button', onclick: () => goTo(to) }, h('span', { class: `jb jb-${tone}${tone === 'gold' ? ' jb-big' : ''}` }, icon(ico, tone === 'gold' ? 32 : 28)), h('span', { class: 'jb-lab' }, label));
+  return h('section', { class: 'jb-card', 'aria-label': 'Raccourcis' }, b('plus', 'Nouvelle commande', 'gold', 'new'), b('bag', 'Catalogue', 'navy', 'catalog'), b('phone', 'Mes clients', 'green', 'contacts'), b('wallet', 'Portefeuille', 'clear', 'wallet'));
+}
+
 function quickActions(goTo) {
   const qa = (ico, label, hint, to) => h('button', { class: 'qa', type: 'button', onclick: () => goTo(to) }, h('span', { class: 'qa-ico' }, icon(ico, 22)), h('span', { class: 'qa-t' }, label), h('span', { class: 'qa-h' }, hint));
   return h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', {}, 'Actions rapides')),
@@ -121,8 +128,9 @@ export function sellerDashboard({ goTo, user }) {
       alerts(w, goTo, refresh),
       lowStockNotice(goTo),
       moneySection(w, orders, goTo),
+      flags.styleBulles ? bubbleShortcuts(goTo) : null,
       ordersSection(orders, s, goTo),
-      h('div', { class: 'dash-cols' }, h('div', {}, latestOrders(orders, goTo)), h('div', {}, quickActions(goTo), startSlot(goTo), referralNudge(goTo, s.delivered)))), { poll: 30000, placeholder: skeleton() }),
+      h('div', { class: 'dash-cols' }, h('div', {}, latestOrders(orders, goTo)), h('div', {}, flags.styleBulles ? null : quickActions(goTo), startSlot(goTo), referralNudge(goTo, s.delivered)))), { poll: 30000, placeholder: skeleton() }),
     performance());
 }
 
