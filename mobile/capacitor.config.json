@@ -1,0 +1,15 @@
+{
+  "appId": "com.wallindirain.app",
+  "appName": "Wallindirain",
+  "webDir": "www",
+  "backgroundColor": "#0B1B3B",
+  "server": {
+    "url": "https://wallindirain.onrender.com",
+    "cleartext": false,
+    "allowNavigation": ["wallindirain.onrender.com"]
+  },
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 1200, "backgroundColor": "#0B1B3B", "showSpinner": false }
+  }
+}

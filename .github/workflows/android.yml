@@ -1,0 +1,62 @@
+name: Android (fichier Play Store)
+# Lancement manuel : onglet Actions > « Android » > Run workflow.
+# Produit un fichier .aab signé (si les secrets sont configurés) ou un .apk de test non signé de production.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Installer Capacitor
+        run: npm install --no-audit --no-fund
+      - name: Générer le projet Android
+        run: npx cap add android
+      - name: Icônes et écran de démarrage
+        run: |
+          npm install --no-save --no-audit --no-fund @capacitor/assets
+          npx capacitor-assets generate --android --iconBackgroundColor '#0B1B3B' --splashBackgroundColor '#0B1B3B' || true
+      - name: Numéro de version (incrémenté à chaque lancement)
+        run: |
+          sed -i "s/versionCode 1/versionCode ${GITHUB_RUN_NUMBER}/; s/versionName \"1.0\"/versionName \"1.0.${GITHUB_RUN_NUMBER}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+      - run: npx cap sync android
+      - name: Compiler l'AAB (Play Store)
+        working-directory: mobile/android
+        run: ./gradlew bundleRelease --no-daemon
+      - name: Compiler l'APK de test
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Signer l'AAB
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          AAB=android/app/build/outputs/bundle/release/app-release.aab
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+            jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$RUNNER_TEMP/upload.keystore" -storepass "$KS_PASS" -keypass "${KEY_PASS:-$KS_PASS}" "$AAB" "$KEY_ALIAS"
+            jarsigner -verify "$AAB" | tail -1
+            cp "$AAB" wallindirain-signe.aab
+            rm -f "$RUNNER_TEMP/upload.keystore"
+          else
+            echo "Secrets de signature absents : AAB non signé non fourni (voir docs/ANDROID.md)."
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wallindirain-android
+          path: |
+            mobile/wallindirain-signe.aab
+            mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
