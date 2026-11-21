@@ -23,6 +23,7 @@ import { adminCouriers } from './views/couriers.js';
 import { shipperSend, shipperRequests, adminDlvRequests, courierOnDemand } from './views/shipper.js';
 import { icon } from './icons.js';
 import { startPwa, offlineScreen } from './pwa.js';
+import { playIntro } from './intro.js';
 import { supplierProducts, supplierOrders, sellerProposals } from './views/supplier.js';
 import { callQueue, myCalls, chiefAssign } from './views/calls.js';
 import { courierOrders, courierCash } from './views/courier.js';
@@ -162,6 +163,7 @@ async function route() {
 
 setUnauthorizedHandler(() => { if (user) { user = null; clearCache(); stopLock(); toast('Session expirée : reconnectez-vous.', 'bad'); location.hash = '#/login'; route(); } });
 window.addEventListener('hashchange', route);
+playIntro();
 startPwa();
 render(spinner());
 get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.pickupPoints = !!i.features?.pickup_points; flags.proformas = !!i.features?.proformas; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; flags.proformas = !!i.features?.proformas; }).catch(() => {}).finally(route);
