@@ -12,8 +12,8 @@ export function playIntro() {
   for (let i = 1; i <= 12; i++) logo.append(mk(`ip-l${i}`));
   const box = document.createElement('div'); box.className = 'intro'; box.append(logo);
   let closed = false;
-  const close = () => { if (closed) return; closed = true; box.classList.add('out'); setTimeout(() => box.remove(), 700); };
+  const close = () => { if (closed) return; closed = true; box.classList.add('out'); setTimeout(() => box.remove(), 450); };
   box.addEventListener('click', close);
   document.body.append(box);
-  setTimeout(close, 3300);
+  setTimeout(close, 2300);
 }
