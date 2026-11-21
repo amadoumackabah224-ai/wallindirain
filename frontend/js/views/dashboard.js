@@ -81,7 +81,7 @@ function latestOrders(orders, goTo) {
 
 /** Style « bulles » : raccourcis en grosses bulles de verre (remplacent les « Actions rapides » quand le style est allumé). */
 function bubbleShortcuts(goTo) {
-  const b = (ico, label, tone, to) => h('button', { class: 'jb-item', type: 'button', onclick: () => goTo(to) }, h('span', { class: `jb jb-${tone}${tone === 'gold' ? ' jb-big' : ''}` }, icon(ico, tone === 'gold' ? 32 : 28)), h('span', { class: 'jb-lab' }, label));
+  const b = (ico, label, tone, to) => h('button', { class: 'jb-item', type: 'button', onclick: () => goTo(to) }, h('span', { class: `jb jb-${tone}${tone === 'gold' ? ' jb-big' : ''}` }, icon(ico, tone === 'gold' ? 26 : 22)), h('span', { class: 'jb-lab' }, label));
   return h('section', { class: 'jb-card', 'aria-label': 'Raccourcis' }, b('plus', 'Nouvelle commande', 'gold', 'new'), b('bag', 'Catalogue', 'navy', 'catalog'), b('phone', 'Mes clients', 'green', 'contacts'), b('wallet', 'Portefeuille', 'clear', 'wallet'));
 }
 

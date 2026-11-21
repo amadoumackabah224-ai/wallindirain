@@ -825,33 +825,33 @@ div.notif { cursor: default; }
 
 /* Style « bulles » (réglage feature_style_bulles, éteint par défaut) : bulles de verre colorées, sans aucun flou ni filtre (dégradés seulement). */
 html.bulles body { background: radial-gradient(circle at 6% 30%, #FFE3A6 0, rgba(255,227,166,0) 34%), radial-gradient(circle at 98% 42%, #B9C9F2 0, rgba(185,201,242,0) 36%), radial-gradient(circle at 18% 86%, #F9C0BB 0, rgba(249,192,187,0) 30%), var(--paper); background-attachment: fixed; }
-html.bulles .bnav { left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); border-radius: 46px; border: 2px solid rgba(255,255,255,.95); background: linear-gradient(160deg, #FFFFFF, #EEF2FA); box-shadow: 0 0 0 5px rgba(255,255,255,.4), inset 0 0 22px rgba(255,255,255,.8), 0 18px 32px rgba(11,27,59,.22); padding: 8px 6px; }
-html.bulles .bnav-item { min-height: 66px; color: var(--head); }
-html.bulles .bnav-item .ic { display: grid; place-items: center; position: relative; width: 50px; height: 50px; border-radius: 50%; background: radial-gradient(circle at 50% 120%, rgba(160,180,230,.35), rgba(255,255,255,0) 60%), linear-gradient(160deg, rgba(255,255,255,.9), rgba(255,255,255,.2)); border: 2px solid #fff; box-shadow: inset 0 -9px 16px rgba(120,140,190,.28), inset 0 7px 12px rgba(255,255,255,.75), 0 10px 16px rgba(11,27,59,.16); }
+html.bulles .bnav { left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); border-radius: 34px; border: 1.5px solid rgba(255,255,255,.95); background: linear-gradient(160deg, #FFFFFF, #EEF2FA); box-shadow: 0 0 0 5px rgba(255,255,255,.4), inset 0 0 22px rgba(255,255,255,.8), 0 18px 32px rgba(11,27,59,.22); padding: 5px 6px; }
+html.bulles .bnav-item { min-height: 52px; color: var(--head); }
+html.bulles .bnav-item .ic { display: grid; place-items: center; position: relative; width: 38px; height: 38px; border-radius: 50%; background: radial-gradient(circle at 50% 120%, rgba(160,180,230,.35), rgba(255,255,255,0) 60%), linear-gradient(160deg, rgba(255,255,255,.9), rgba(255,255,255,.2)); border: 2px solid #fff; box-shadow: inset 0 -9px 16px rgba(120,140,190,.28), inset 0 7px 12px rgba(255,255,255,.75), 0 10px 16px rgba(11,27,59,.16); }
 html.bulles .bnav-item .ic::before { content: ""; position: absolute; left: 16%; top: 8%; width: 52%; height: 28%; border-radius: 50%; background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,0)); }
 html.bulles .bnav-item .ic svg { position: relative; }
 html.bulles .bnav-item.on::before { display: none; }
 html.bulles .bnav-item.on .ic { background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%), linear-gradient(160deg, #FFE08A, #F0B429 50%, #C98A12); border-color: rgba(255,255,255,.6); color: #0B1B3B; box-shadow: inset 0 -10px 16px rgba(0,0,0,.2), inset 0 8px 12px rgba(255,255,255,.4), 0 12px 18px rgba(183,128,27,.45); }
-html.bulles .bnav-item.accent .ic { background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.4), rgba(255,255,255,0) 55%), linear-gradient(160deg, #4C72C8, #2447A0 50%, #0F2557); color: #fff; width: 54px; height: 54px; padding: 0; margin-top: 0; border-color: rgba(255,255,255,.55); box-shadow: inset 0 -10px 16px rgba(0,0,0,.25), inset 0 8px 12px rgba(255,255,255,.3), 0 12px 18px rgba(11,27,59,.4); }
-html.bulles .shell { padding-bottom: calc(var(--bnav-h) + 64px + env(safe-area-inset-bottom)); }
-html.bulles .topbar { border-bottom: 0; border-radius: 0 0 28px 28px; background: radial-gradient(circle at 85% 0%, #2A4C99 0, rgba(42,76,153,0) 55%), linear-gradient(170deg, #12295A, #0B1B3B 70%); box-shadow: 0 12px 26px rgba(11,27,59,.28); }
-html.bulles .card, html.bulles .panel { border-radius: 26px; border: 2px solid rgba(255,255,255,.95); background: linear-gradient(160deg, rgba(255,255,255,.92), rgba(255,255,255,.55)); box-shadow: 0 0 0 4px rgba(255,255,255,.3), inset 0 0 22px rgba(255,255,255,.7), 0 14px 28px rgba(11,27,59,.12); }
+html.bulles .bnav-item.accent .ic { background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.4), rgba(255,255,255,0) 55%), linear-gradient(160deg, #4C72C8, #2447A0 50%, #0F2557); color: #fff; width: 44px; height: 44px; padding: 0; margin-top: 0; border-color: rgba(255,255,255,.55); box-shadow: inset 0 -10px 16px rgba(0,0,0,.25), inset 0 8px 12px rgba(255,255,255,.3), 0 12px 18px rgba(11,27,59,.4); }
+html.bulles .shell { padding-bottom: calc(var(--bnav-h) + 30px + env(safe-area-inset-bottom)); }
+html.bulles .topbar { border-bottom: 0; border-radius: 0 0 20px 20px; background: radial-gradient(circle at 85% 0%, #2A4C99 0, rgba(42,76,153,0) 55%), linear-gradient(170deg, #12295A, #0B1B3B 70%); box-shadow: 0 12px 26px rgba(11,27,59,.28); }
+html.bulles .card, html.bulles .panel { border-radius: 18px; border: 1.5px solid rgba(255,255,255,.95); background: linear-gradient(160deg, rgba(255,255,255,.92), rgba(255,255,255,.55)); box-shadow: inset 0 0 16px rgba(255,255,255,.6), 0 8px 18px rgba(11,27,59,.10); }
 html.bulles .btn { border-radius: 999px; border: 2px solid rgba(255,255,255,.5); background: radial-gradient(circle at 50% 120%, rgba(255,255,255,.4), rgba(255,255,255,0) 55%), linear-gradient(160deg, #4C72C8, #2447A0 50%, #0F2557); box-shadow: inset 0 -6px 10px rgba(0,0,0,.22), inset 0 4px 8px rgba(255,255,255,.3), 0 8px 16px rgba(11,27,59,.25); }
 html.bulles .btn:hover { filter: brightness(1.08); }
 html.bulles .btn-gold { background: radial-gradient(circle at 50% 120%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%), linear-gradient(160deg, #FFE08A, #F0B429 50%, #C98A12); color: #0B1B3B; box-shadow: inset 0 -6px 10px rgba(0,0,0,.16), inset 0 4px 8px rgba(255,255,255,.55), 0 8px 16px rgba(183,128,27,.4); }
 html.bulles .btn-ghost { background: linear-gradient(160deg, rgba(255,255,255,.92), rgba(255,255,255,.4)); color: var(--head); border: 2px solid #fff; box-shadow: inset 0 0 12px rgba(255,255,255,.8), 0 6px 12px rgba(11,27,59,.12); }
 html.bulles .badge { border-radius: 999px; }
-html.bulles .kpi { border-radius: 24px; border-left-width: 1px; }
-html.bulles .balance, html.bulles .money-hero { border-radius: 32px; border-bottom: 0; }
-html.bulles .help-fab { border: 2px solid rgba(255,255,255,.6); background: radial-gradient(circle at 50% 120%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%), linear-gradient(160deg, #FFE08A, #F0B429 50%, #C98A12); color: #0B1B3B; bottom: calc(var(--bnav-h) + 38px + env(safe-area-inset-bottom)); }
+html.bulles .kpi { border-radius: 16px; border-left-width: 1px; }
+html.bulles .balance, html.bulles .money-hero { border-radius: 22px; border-bottom: 0; }
+html.bulles .help-fab { border: 2px solid rgba(255,255,255,.6); background: radial-gradient(circle at 50% 120%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%), linear-gradient(160deg, #FFE08A, #F0B429 50%, #C98A12); color: #0B1B3B; bottom: calc(var(--bnav-h) + 22px + env(safe-area-inset-bottom)); }
 /* raccourcis en grosses bulles (accueil vendeur) */
-.jb-card { display: flex; justify-content: space-around; align-items: flex-end; gap: 4px; border-radius: 34px; padding: 24px 6px 16px; margin: 0 0 14px; border: 2px solid rgba(255,255,255,.95); background: linear-gradient(160deg, rgba(255,255,255,.9), rgba(255,255,255,.35)); box-shadow: 0 0 0 5px rgba(255,255,255,.35), inset 0 0 26px rgba(255,255,255,.7), 0 18px 32px rgba(11,27,59,.14); }
-.jb-item { display: flex; flex-direction: column; align-items: center; gap: 8px; background: none; border: 0; cursor: pointer; width: 80px; color: var(--head); font-size: .74rem; font-weight: 700; text-align: center; line-height: 1.15; }
-.jb { position: relative; display: grid; place-items: center; width: 68px; height: 68px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); box-shadow: inset 0 -12px 20px rgba(0,0,0,.2), inset 0 10px 16px rgba(255,255,255,.38), 0 14px 22px rgba(11,27,59,.24), 0 2px 0 rgba(255,255,255,.7); }
+.jb-card { display: flex; justify-content: space-around; align-items: flex-start; gap: 4px; border-radius: 24px; padding: 14px 6px 10px; margin: 0 0 12px; border: 2px solid rgba(255,255,255,.95); background: linear-gradient(160deg, rgba(255,255,255,.9), rgba(255,255,255,.35)); box-shadow: 0 0 0 5px rgba(255,255,255,.35), inset 0 0 26px rgba(255,255,255,.7), 0 18px 32px rgba(11,27,59,.14); }
+.jb-item { display: flex; flex-direction: column; align-items: center; gap: 5px; background: none; border: 0; cursor: pointer; width: 72px; color: var(--head); font-size: .7rem; font-weight: 700; text-align: center; line-height: 1.15; }
+.jb { position: relative; display: grid; place-items: center; width: 50px; height: 50px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); box-shadow: inset 0 -12px 20px rgba(0,0,0,.2), inset 0 10px 16px rgba(255,255,255,.38), 0 14px 22px rgba(11,27,59,.24), 0 2px 0 rgba(255,255,255,.7); }
 .jb::before { content: ""; position: absolute; left: 16%; top: 8%; width: 52%; height: 30%; border-radius: 50%; background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,0)); }
 .jb::after { content: ""; position: absolute; right: 15%; bottom: 11%; width: 20%; height: 11%; border-radius: 50%; background: rgba(255,255,255,.5); transform: rotate(-35deg); }
 .jb svg { position: relative; z-index: 1; }
-.jb-big { width: 80px; height: 80px; }
+.jb-big { width: 58px; height: 58px; }
 .jb-gold { background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%), linear-gradient(160deg, #FFE08A, #F0B429 50%, #C98A12); color: #0B1B3B; }
 .jb-navy { background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.4), rgba(255,255,255,0) 55%), linear-gradient(160deg, #4C72C8, #2447A0 50%, #0F2557); color: #fff; }
 .jb-green { background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.45), rgba(255,255,255,0) 55%), linear-gradient(160deg, #6EE0B0, #22A874 50%, #0E6E49); color: #fff; }
@@ -861,4 +861,4 @@ html[data-theme="dark"].bulles .bnav-item { color: #fff; }
 html[data-theme="dark"].bulles .card, html[data-theme="dark"].bulles .panel { background: var(--white); border-color: var(--line); box-shadow: var(--sh-2); }
 html[data-theme="dark"] .jb-card { background: var(--white); border-color: var(--line); box-shadow: var(--sh-2); }
 html[data-theme="dark"] .jb-item { color: #fff; }
-@media (min-width: 700px) { html.bulles .topbar { border-radius: 0; } .jb-item { width: 120px; } .jb-card { justify-content: center; gap: 28px; } }
+@media (min-width: 700px) { html.bulles .topbar { border-radius: 0; } .jb-item { width: 100px; } .jb-card { justify-content: center; gap: 28px; } }
