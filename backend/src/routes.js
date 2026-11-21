@@ -98,7 +98,7 @@ export function registerRoutes(app, { db, cfg }) {
     contact_phone: cfg.contactPhone,
     email_enabled: (cfg.email?.provider || 'simulated') !== 'simulated',
     communes: await q('SELECT commune, fee, kind, parent, pickup_point FROM delivery_rates WHERE active ORDER BY commune'),
-    features: { pickup_points: (await q(`SELECT value FROM settings WHERE key = 'feature_pickup_points'`))[0]?.value >= 1, proformas: (await q(`SELECT value FROM settings WHERE key = 'feature_proformas'`))[0]?.value >= 1, order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
+    features: { pickup_points: (await q(`SELECT value FROM settings WHERE key = 'feature_pickup_points'`))[0]?.value >= 1, proformas: (await q(`SELECT value FROM settings WHERE key = 'feature_proformas'`))[0]?.value >= 1, style_bulles: (await q(`SELECT value FROM settings WHERE key = 'feature_style_bulles'`))[0]?.value >= 1, order_channel: (await q(`SELECT value FROM settings WHERE key = 'feature_order_channel'`))[0]?.value >= 1, member_signup: await memberSignupOpen(), shipper_signup: await shipperSignupOpen() }
   }));
 
   // =========================================================================

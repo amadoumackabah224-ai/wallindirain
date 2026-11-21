@@ -175,4 +175,4 @@ window.addEventListener('hashchange', route);
 playIntro();
 startPwa();
 render(spinner());
-get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.pickupPoints = !!i.features?.pickup_points; flags.proformas = !!i.features?.proformas; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; flags.proformas = !!i.features?.proformas; }).catch(() => {}).finally(route);
+get('/public/info').then((i) => { contact = i.contact_phone; flags.email = !!i.email_enabled; flags.pickupPoints = !!i.features?.pickup_points; flags.styleBulles = !!i.features?.style_bulles; document.documentElement.classList.toggle('bulles', flags.styleBulles); flags.proformas = !!i.features?.proformas; flags.memberSignup = !!i.features?.member_signup; flags.shipperSignup = !!i.features?.shipper_signup; flags.proformas = !!i.features?.proformas; }).catch(() => {}).finally(route);

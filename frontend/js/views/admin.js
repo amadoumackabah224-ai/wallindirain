@@ -247,6 +247,7 @@ const FEATURES = [
   ['require_payment_proof', 'Capture d\'écran obligatoire pour payer un retrait', 'Une capture est demandée avant de marquer un retrait comme payé.'],
   ['sms_codes', 'Codes par SMS (Nimba)', 'Les codes (livraison, retrait, mot de passe oublié) partent par SMS au lieu de WhatsApp. Exige que les identifiants Nimba SMS soient enregistrés sur le serveur : voir la carte « SMS » ci-dessous.'],
   ['feature_depart_fees', 'Frais selon le point de départ', 'Un produit rattaché à un point de retrait du fournisseur a un frais de livraison réduit si le point est proche du client (paliers dans Tarifs). Entrepôt Wallindirain : inchangé. Éteint par défaut.'],
+  ['feature_style_bulles', 'Style visuel « bulles »', 'Boutons en verre coloré, barre du bas flottante, cartes arrondies. Apparence seulement : aucun effet sur les données ni l\'argent. Éteint par défaut.'],
   ['feature_pickup_points', 'Points de retrait multiples', 'Les fournisseurs et vendeurs peuvent déclarer plusieurs lieux de retrait et les appliquer à leurs produits (aucun effet sur le stock, les frais ni l\'argent). Éteint par défaut.'],
   ['feature_proformas', 'Proformas', 'Les vendeurs peuvent créer un devis pour un client (aucun effet sur le stock ni l\'argent) puis le transformer en commande à la confirmation. Éteint par défaut.'],
   ['feature_popups', 'Annonces en fenêtre', 'Des annonces avec image et bouton s\'affichent à l\'ouverture de l\'application (préparées dans l\'onglet Annonces). Éteint par défaut.'],

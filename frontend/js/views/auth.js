@@ -7,7 +7,7 @@ const logo = () => h('img', { class: 'auth-logo', src: '/assets/logo-gold.png', 
 const shell = (...c) => h('main', { class: 'auth', id: 'contenu' }, h('div', { class: 'auth-card' }, logo(), ...c, h('div', { class: 'auth-foot' }, legalLinks())));
 const consentBox = (input, text) => h('label', { class: 'f check' }, input, h('span', {}, text));
 // L'option e-mail est masquée tant que l'envoi d'e-mails n'est pas activé sur le serveur (EMAIL_PROVIDER).
-export const flags = { email: false, memberSignup: false, shipperSignup: false, proformas: false, pickupPoints: false };
+export const flags = { email: false, memberSignup: false, shipperSignup: false, proformas: false, pickupPoints: false, styleBulles: false };
 /** Champ mot de passe avec bouton « afficher / masquer » (utile sur téléphone). */
 const pwField = (label, input, hint) => {
   const btn = h('button', { class: 'pw-toggle', type: 'button', 'aria-label': 'Afficher le mot de passe', 'aria-pressed': 'false' }, icon('eye', 20));
